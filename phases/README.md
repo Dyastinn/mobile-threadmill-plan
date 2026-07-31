@@ -1,30 +1,44 @@
 # Phases — implementation index
 
-One folder per phase. Each folder is a **self-contained work order** for an
-implementing agent (Claude Sonnet). A phase folder plus the root reference docs it
-names is everything needed; do not read the other phase folders.
+One folder per phase. Phase 00 was built by an implementing agent working alone —
+appropriate for a throwaway diagnostic instrument. **Every phase from here on is
+built by the project owner, learning MAUI as they go, with the agent teaching rather
+than implementing.** See "How a phase actually runs" below for what that means
+day-to-day, and `../docs/learning/` for the standing teaching material (MAUI/.NET
+primer, emulator setup, glossary).
+
+A phase folder plus the root reference docs it names is everything needed for that
+phase; you don't need to read the other phase folders ahead of time.
 
 ---
 
-## How to work a phase
+## How a phase actually runs (the collaboration model)
 
-1. Read `phases/phase-NN-name/README.md` end to end before writing code.
-2. Read only the root docs listed under **Reference docs** in that README.
-3. Work `TASKS.md` in order where one exists; otherwise work the README's task list
-   in order. Each task names the files it touches.
-4. Stop at every **`[HUMAN]`** gate. Do not assume a result. Do not invent a value
-   for a `TBD`. If a `TBD` blocks you, make it configurable, read it from the device
-   at runtime, or stop and ask.
-5. Any assumption made to get unblocked goes into `../ASSUMPTIONS.md` with the phase
-   number, before the phase closes.
-6. A phase closes only when every acceptance item is met, including `[HUMAN]` ones.
+For each task in a phase's `TASKS.md`:
+
+1. **Concept first.** The agent explains what you're about to build and why — the
+   pattern, the relevant part of `docs/learning/`, anything genuinely new. Ask
+   questions here; this is the part that's supposed to be slow.
+2. **Spec, not code.** The agent describes what the file/class should do and what
+   "done" looks like — the same shape `TASKS.md` already uses (files touched, an
+   interface to satisfy, an acceptance bullet) — but never hands over the actual
+   implementation.
+3. **You write it.** In your own editor, at your own pace.
+4. **Review.** The agent reads the real file you wrote, flags bugs, explains better
+   patterns where they exist, and answers "why is this wrong" rather than just
+   fixing it silently.
+5. **Verify together** — run the tests, run the app — before moving to the next
+   task.
+
+New vocabulary gets added to `docs/learning/02-Glossary.md` as it comes up, not
+dumped all at once.
 
 ## Division of labour — not optional
 
 | Actor | Can do | Cannot do |
 |-------|--------|-----------|
-| Implementing agent | Write code, tests, docs; run unit tests | Connect Bluetooth, observe the treadmill, verify live metrics |
-| Human operator | Run the app on the phone, walk on the belt, capture logs, report observations | — |
+| Agent | Explain concepts, design the shape of a task, review code, write docs, run tests you ask it to run | Write your feature code for you, connect Bluetooth, observe the treadmill |
+| Project owner | Write the code, run the app on the phone, walk on the belt, capture logs, report observations | — |
 
 ---
 
@@ -33,9 +47,10 @@ names is everything needed; do not read the other phase folders.
 | # | Phase | Hardware | Size | Gate it opens |
 |---|-------|----------|------|---------------|
 | [00](phase-00-probe-app/) | **Probe App** | **Yes** | **L** | Everything. Nothing real is known until this runs. |
-| [01](phase-01-protocol-decode/) | Protocol Decode & Fixtures | No | M | Parsers + `FakeTreadmillService` → unblocks 03, 04, 06 |
+| [01a](phase-01-protocol-decode/) | Protocol Decode & Fixtures | No | M | **Blocked** — needs Probe Part C (matched pairs) + C7 (counter semantics), not yet done |
+| [01b](phase-01-protocol-decode/) | `ITreadmillService` skeleton + `FakeTreadmillService` | No | S | **Not blocked — start here.** Unblocks 03, 04, 06 |
 | [02](phase-02-connection-hardening/) | Connection Hardening | **Yes** | M | Reliable link for every later phase |
-| [03](phase-03-live-dashboard/) | Live Dashboard | No | M | First real feature |
+| [03](phase-03-live-dashboard/) | Live Dashboard + contribution graph | No | M | First real feature |
 | [04](phase-04-workout-engine/) | Workout Engine | No | M | Lifecycle + connection-loss policy |
 | [05](phase-05-treadmill-control/) | Treadmill Control | **Yes** | M | May be void — decided in Phase 00 |
 | [06](phase-06-recording-schema/) | Recording & Schema | No | M | Persistence; blocked by counter semantics |
@@ -49,9 +64,18 @@ names is everything needed; do not read the other phase folders.
 | [14](phase-14-endurance/) | Endurance Testing | **Yes** | M | Decides if it beats FitShow |
 | [15](phase-15-backup-polish/) | Backup Polish (optional) | No | M | Only after daily use |
 
-No phase begins until the previous phase's acceptance criteria are met. The one
-exception is Phase 01, which is pure desk work and can start the moment Phase 00's
-capture files land.
+No phase begins until the previous phase's acceptance criteria are met, with two
+exceptions:
+
+- **Phase 01b** (`ITreadmillService` skeleton + `FakeTreadmillService`) needs no
+  probe data at all — the interface already exists at `../ITreadmillService.cs`. It
+  is available to start immediately.
+- **Phase 01a** (the actual parsers) is still blocked: Probe Part C (four-plus
+  matched console-vs-hex pairs) and C7 (counter reset semantics) haven't been done
+  yet. See `phase-00-probe-app/HUMAN-RUNBOOK.md`.
+
+Phase 03 depends only on 01b, not 01a — it builds against `FakeTreadmillService`,
+same as before.
 
 ---
 
@@ -99,10 +123,11 @@ Everything after that is unchanged in substance — only renumbered.
 | `../05-FTMS-Protocol.md` | Byte-level spec. Source of truth for every parser |
 | `../05a-FTMS-Probe-Procedure.md` | `[HUMAN]` procedure the Phase 00 app automates |
 | `../14-Database.md` | Schema, PRAGMAs, write strategy, query patterns |
-| `../ITreadmillService.cs` | The seam. Phases 03–11 build against this, not against BLE |
+| `../ITreadmillService.cs` | The seam. Phases 03–11 build against this, not against BLE. Lives at the repo root until Phase 01b moves it into `src/MyHi.Companion.Core/Treadmill/` |
 | `../DEVICE.md` | Measured facts only. Never write a guess here |
 | `../ASSUMPTIONS.md` | Every guess, with the phase it blocks |
 | `../captures/` | Raw capture files produced by the Phase 00 app |
+| `../docs/learning/` | MAUI/.NET primer, emulator setup, glossary — read these, not just this phase list |
 
 ---
 

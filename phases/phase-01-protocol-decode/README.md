@@ -1,181 +1,237 @@
-# Phase 01 — Protocol Decode & Fixtures
+# Phase 01 — Protocol Decode & Fixtures (01a) + `ITreadmillService` Skeleton (01b)
 
-> Pure desk work. No hardware in the loop — the hardware already spoke, in Phase 00,
-> and its words are in `../../captures/`.
+> This phase is split into two independent tracks with different blocking status.
+> **Track 01b needs nothing and starts today.** Track 01a needs real capture data
+> that doesn't exist yet. See `../README.md` for the collaboration model — you write
+> the code, the agent explains concepts up front and reviews after.
 
-**Hardware:** none · **Size:** M · **Blocked by:** Phase 00 findings
-**Unblocks:** Phases 03, 04, 06 (via `FakeTreadmillService`)
-
----
-
-## Goal
-
-Turn captured hex into parsers that are provably correct, and build the seam that lets
-every later phase be developed without the treadmill in the room.
+**Hardware:** none for either track.
 
 ---
 
-## Reference docs
+## Track 01b — `ITreadmillService` skeleton + `FakeTreadmillService` ← START HERE
 
-- `../../05-FTMS-Protocol.md` — §2 `0x2ACC`, §3 `0x2AD4`, §4 `0x2ACD` **and its three
-  traps**, §4a `0x2A37`, §5 `0x2ADA`, §6 `0x2AD3`, §7 control point response
-- `../../ITreadmillService.cs` — the interface to implement, and the types
+**Blocked by:** nothing — `ITreadmillService.cs` already exists at the repo root.
+**Unblocks:** Phase 03 (Live Dashboard), 04 (Workout Engine), 06 (Recording & Schema) —
+anything that needs to display or react to treadmill data can now be built and tested
+without the real hardware in the room.
+
+### Learning goals
+
+- Implementing an interface against a contract someone else already designed
+  (`ITreadmillService.cs`) — reading intent from doc comments, not just signatures
+- C# events (`event EventHandler<T>?`) — why this project uses them instead of, say,
+  `IObservable<T>` or return values (see the design notes at the top of
+  `ITreadmillService.cs`)
+- The **seam / fake pattern**: build a believable stand-in for something you don't
+  have yet (real BLE data), so everything above it can be built and tested now
+- **Where code belongs, and why**: `ITreadmillService.cs` currently sits at the repo
+  root, outside every `.csproj` — it isn't compiled into anything yet. None of its
+  types (`TreadmillSample`, `ConnectionState`, etc.) reference MAUI or Android at all,
+  which is exactly the test the Phase 00 primer describes for "does this belong in
+  `Core`" (see `docs/learning/00-What-Is-Maui.md`). So it belongs in `Core`, not the
+  app project — which also means `FakeTreadmillService` can get real xUnit tests,
+  the same way `FtmsCommands` and `CaptureRecorder` do.
+- Registering a class in `MauiProgram.cs`'s DI container, and why that's the *only*
+  place that will need to change when a real implementation replaces the fake one
+  later
+
+### Reference docs
+
+- **`../../ITreadmillService.cs`** — read the whole file before writing anything.
+  Every type you need (`ConnectionState`, `TreadmillSample`, `MachineEvent`,
+  `TreadmillCapabilities`, `SpeedRange`, `ControlResult`, `FtmsResultCode`,
+  `AppErrorCode`, `ITreadmillSimulation`, `SimulationScenario`) is already defined
+  there, with doc comments explaining constraints.
+- **`../phase-00-probe-app/PHASE-00-FINDINGS.md`**, section V2 — the control-point
+  finding matters here: `Start` does not appear to preserve a pre-set target speed on
+  the real device. `FakeTreadmillService` doesn't have to reproduce this quirk, but
+  it's worth deciding *consciously* whether your fake should — see task 1b.1.
+- **`../../DEVICE.md`** — the speed range (1.0–16.0 km/h, 0.1 increment) is a
+  measured fact, safe to reuse as the fake's advertised range.
+
+### Your tasks
+
+**1b.1 — Move the contract into `Core`**
+
+Creates: `src/MyHi.Companion.Core/Treadmill/ITreadmillService.cs` (new `Treadmill/`
+folder). Move the file from the repo root into the `Core` project at that path —
+don't retype it, just relocate it and fix the namespace if needed. Build `Core`
+afterward to confirm it compiles standalone (it should — nothing in the file touches
+MAUI).
+
+**1b.2 — `FakeTreadmillService`**
+
+Creates: `src/MyHi.Companion.Core/Treadmill/FakeTreadmillService.cs`.
+
+Implement `ITreadmillService` fully. Instead of talking to real Bluetooth, generate a
+synthetic session on a timer:
+
+- Raise `SampleReceived` roughly once a second with a `TreadmillSample` that changes
+  realistically over time (speed ramping up, distance accumulating, elapsed time
+  counting up) — this is exactly what Phase 03's dashboard will render, so it needs
+  to actually look like a workout, not just static numbers.
+- Support at least the `NormalWalk` scenario end to end: warm-up → steady speed →
+  cool-down.
+- `ConnectAsync` should transition `State` through
+  `Connecting → Discovering → Ready` with a short delay at each step — mirroring the
+  shape of a real connection (see `Features/Bluetooth/TreadmillConnection.cs` from
+  Phase 00 for what the real state machine looks like) so nothing built against this
+  fake is surprised later. `DisconnectAsync` transitions `Ready → Disconnected`.
+- `RequestControlAsync` / `SetSpeedAsync` / `StartAsync` / `PauseAsync` / `StopAsync`
+  should return a plausible `ControlResult` and actually affect the simulated sample
+  stream (e.g. `SetSpeedAsync` changes what speed subsequent samples report). One
+  design decision that's yours to make, informed by the Phase 00 finding above:
+  should this fake also model "Start doesn't preserve target speed"? Either answer is
+  defensible — just make it a deliberate choice, and write a one-line comment saying
+  which you picked and why.
+- Populate `Capabilities` and `SpeedRange` with reasonable values once "connected."
+- Note: raising events "on the UI thread" (per the interface's doc comment) is a
+  real MAUI-app requirement, but a class living in `Core` can't reference
+  `MainThread.BeginInvokeOnMainThread` (that's a MAUI type). Fine to raise the events
+  directly from `Core` — marshalling to the UI thread, if still needed, becomes
+  something the *consumer* (Phase 03's ViewModel) or a thin wrapper handles, not this
+  class. We'll talk through this at the review checkpoint if it's unclear.
+
+Deliberately **not required yet**: the other `SimulationScenario` values
+(`DropoutMidSession`, `SparseFields`, `ControlRejected`, `IntervalWalk`) and a
+counter-reset scenario. Get `NormalWalk` solid first; we'll extend this file when a
+later phase actually needs a specific scenario for a specific test, rather than
+building five scenarios speculatively now.
+
+**1b.3 — A real xUnit test**
+
+Creates: `src/MyHi.Companion.Tests/Treadmill/FakeTreadmillServiceTests.cs`.
+
+At minimum: connecting reaches `Ready`, `SetSpeedAsync` clamps to `SpeedRange` (reuse
+`SpeedRange.Clamp` — it already exists in `ITreadmillService.cs` and has its own
+logic worth testing directly too), and subscribing to `SampleReceived` after
+`ConnectAsync` + `StartAsync` actually receives at least one sample within a
+reasonable timeout.
+
+**1b.4 — Register it in DI**
+
+Touches: `src/MyHi.Companion/MauiProgram.cs`.
+
+Register `FakeTreadmillService` as the `ITreadmillService` implementation, as a
+singleton — same reasoning as the existing `TreadmillConnection` registration already
+in that file (one treadmill connection concept per running app).
+
+### Review checkpoint
+
+Before Phase 03 starts building UI on top of this: the agent reviews
+`FakeTreadmillService.cs` against `ITreadmillService.cs`'s doc comments (which encode
+real constraints — e.g. "events raised on the UI thread," "control methods return a
+result rather than throwing"). Then we wire up something tiny together — even just a
+button that connects and a label bound to the latest sample's speed — to *see* it
+work before Phase 03 builds a real screen on the assumption that it does.
+
+---
+
+## Track 01a — Parsers & fixtures (blocked)
+
+**Blocked by:** Probe Part C (four-plus matched console-vs-hex pairs) and C7 (counter
+reset semantics) from `../phase-00-probe-app/HUMAN-RUNBOOK.md`. Neither has been
+captured yet — only the control-point finding (V2) has.
+**Unblocks:** the *real* `TreadmillService` (as opposed to 01b's fake) becoming
+trustworthy. Nothing else is newly blocked on this beyond what it always blocked.
+
+> Pure desk work once unblocked — no hardware in the loop. The hardware speaks in
+> Phase 00's capture files; this track turns that hex into parsers provably correct
+> against it.
+
+### Reference docs
+
+- `../../05-FTMS-Protocol.md` — §2 `0x2ACC`, §3 `0x2AD4`, §4 `0x2ACD` and its three
+  traps, §4a `0x2A37`, §5 `0x2ADA`, §6 `0x2AD3`, §7 control point response
 - `../phase-00-probe-app/PHASE-00-FINDINGS.md` — the measured truth
 - `../../captures/` — raw sessions
 
----
-
-## Do not start until
+### Do not start until
 
 - [ ] Raw hex for `0x2ACC` and `0x2AD4` exists
 - [ ] At least four matched console-vs-hex pairs exist
 - [ ] V1 (counter semantics) has an answer
 
 Without these you are writing a parser you cannot test, which is the same as not
-having one.
+having one. If you have treadmill access again before this is done, running
+`HUMAN-RUNBOOK.md` Part C is the highest-value fifteen minutes available.
 
----
+### Tasks (once unblocked)
 
-## Tasks
+**1a.1 — Extract fixtures from captures**
 
-### 1.1 — Extract fixtures from captures
+Creates: `src/MyHi.Companion.Tests/Fixtures/*.json`. Pull every distinct packet out
+of `../../captures/` into named fixtures, each carrying its provenance (source file,
+timestamp, and — for `0x2ACD` — the paired console values). Include the ugly ones:
+short packets, unexpected lengths, anything the log flagged.
 
-**Creates:** `tests/Fixtures/*.json`
+**1a.2 — `0x2ACD` Treadmill Data parser ← the one that matters**
 
-Pull every distinct packet out of `../../captures/` into named fixtures, each carrying
-its provenance: source file, timestamp, and — for `0x2ACD` — the paired console values.
+Creates: `src/MyHi.Companion.Core/Ftms/TreadmillDataParser.cs` — same project and
+namespace as the existing `FtmsCommands`/`ControlPointResponseParser` from Phase 00,
+since this is pure byte-parsing with no MAUI dependency and needs the same kind of
+fixture-based xUnit tests they got. Cursor-based, flag-driven, never fixed-offset.
+The three traps (bit 0 inverted, uint24 distance, 5-byte expended energy) are
+documented in `05-FTMS-Protocol.md` §4 and in this project's Phase 00 `TASKS.md` —
+read both before writing this parser, they cover the mistakes that otherwise get made
+here. Length validation is mandatory: reject and log anything that doesn't match its
+flags, never read past the buffer. Returns a `TreadmillSample` struct (from
+`ITreadmillService.cs`, moved into `Core` in 1b.1) — no heap allocation on the hot
+path, every field nullable.
 
-Include the ugly ones: short packets, unexpected lengths, anything the log flagged.
-A parser that only sees clean input is untested.
+**1a.3 — Remaining parsers**
 
-### 1.2 — `0x2ACD` Treadmill Data parser ← the one that matters
+Creates: `src/MyHi.Companion.Core/Ftms/` — one file each for `0x2ACC` (decode +
+expose, never branch on it), `0x2AD4` (3× uint16 LE), `0x2ADA` (op code +
+parameters), `0x2AD3` (display only), `0x2A37` (heart rate — bit 0 selects
+uint8/uint16, bits 1–2 are sensor contact). The control point response decoder
+already exists here from Phase 00 (`FtmsControlPoint.cs`) — reuse it, don't
+duplicate it.
 
-**Creates:** `Features/Ftms/TreadmillDataParser.cs`
+**1a.4 — Capability derivation**
 
-**Cursor-based and flag-driven. Never fixed-offset.** Field order is fixed; presence is
-per-packet.
+Creates: `src/MyHi.Companion.Core/Ftms/CapabilityTracker.cs`. `0x2ACC` is advisory —
+log it, never gate on it (see `../../ASSUMPTIONS.md` A3 for why). Instead,
+accumulate the union of observed `0x2ACD` flag bits over the first ~30 s after
+connecting; a field is real if it arrives in packets.
 
-**The three traps, all of which will otherwise be hit:**
+**1a.5 — `TreadmillService` (real implementation)**
 
-1. **Bit 0 is inverted.** Bit 0 is *More Data*. Instantaneous Speed is present when
-   bit 0 is **`0`**. This is the opposite of every other bit in the field. Decoding it
-   as a normal presence bit shifts every subsequent field and corrupts the whole packet.
-2. **Total Distance is uint24** — 3 bytes, little-endian. There is no `BitConverter`
-   overload; assemble it manually:
-   ```csharp
-   uint distance = (uint)(data[i] | (data[i + 1] << 8) | (data[i + 2] << 16));
-   i += 3;
-   ```
-3. **Expended Energy is one flag bit but three fields**, 5 bytes total: Total Energy
-   (uint16 kcal), Energy Per Hour (uint16 kcal), Energy Per Minute (uint8 kcal).
-   Advancing 2 instead of 5 misaligns everything after it.
+Creates: `src/MyHi.Companion/Features/Treadmill/TreadmillService.cs` — this one
+*does* belong in the app project, not `Core`, because it depends on Plugin.BLE
+(`TreadmillConnection`, `ControlPointClient` from Phase 00), which only makes sense
+on a real platform. Implements `ITreadmillService` (from `Core`) using the parsers
+above. This is where 01b's fake gets a real sibling — same interface, same DI slot,
+swapped in `MauiProgram.cs` once this is done and reviewed.
 
-Also: bits 3 and 4 each gate **two** fields (4 bytes each).
+**1a.6 — Update the protocol doc**
 
-**Length validation is mandatory.** Compute the expected byte count from the flags;
-if it doesn't match, **reject the packet, log it with its hex, and never read past the
-buffer.** Field table: `../../05-FTMS-Protocol.md` §4.
+Touches: `../../05-FTMS-Protocol.md`, `../../DEVICE.md`, `../../ASSUMPTIONS.md`.
+Replace every `TBD` with a measured value or an explicit "not supported by this
+device." Anything still unknown moves to `ASSUMPTIONS.md` with the phase it blocks.
 
-Return a `TreadmillSample` struct — no heap allocation on the notification hot path.
-Every field nullable: presence is per-packet, not per-device.
+### Tests — this is where the project's real automated test suite lives
 
-### 1.3 — Remaining parsers
-
-**Creates:** `Features/Ftms/` — one file each
-
-| Parser | Notes |
-|--------|-------|
-| `0x2ACC` Feature | Decode and expose the raw uint32s. **Never branch on it** — see below |
-| `0x2AD4` Speed Range | 3× uint16 LE in 0.01 km/h units |
-| `0x2ADA` Machine Status | Op code + parameters. `0xFF` and `0x03` matter most |
-| `0x2AD3` Training Status | Display only |
-| `0x2A37` Heart Rate | Flags bit 0 selects uint8 vs uint16; bits 1–2 are sensor contact |
-| Control point response | `80 | reqOp | result` |
-
-### 1.4 — Capability derivation
-
-**Creates:** `Features/Ftms/CapabilityTracker.cs`
-
-**`0x2ACC` is advisory. Log it, never gate on it.** This device claims Resistance
-Level, Power Measurement, and **Inclination Target Setting on a machine with no
-incline** — while omitting inclination from the machine-features word. That internal
-contradiction proves the bitmask is stock module firmware, not a description of this
-treadmill.
-
-Instead: accumulate the **union of observed `0x2ACD` flag bits over the first ~30 s**
-after connecting. A field is real if it arrives in packets. Persist the derived set per
-device so the UI is not rebuilding itself on every connect.
-
-### 1.5 — `ITreadmillService` real implementation
-
-**Creates:** `Features/Treadmill/TreadmillService.cs`
-
-Implements `../../ITreadmillService.cs` over the Phase 00 BLE layer. Non-negotiables,
-all carried over from Phase 00's console:
-
-- Connection sequence per `../../05-FTMS-Protocol.md` §8. Read `0x2ACC` and `0x2AD4`
-  **before** subscribing, so the UI is configured by the time data arrives.
-- Subscribe to `0x2AD9` indications **before** writing to it.
-- `Request Control` before any other command; re-issue after reconnect and after any
-  `ControlPermissionLost`.
-- **Serialise control point writes**: one outstanding, 3 s timeout.
-- Clamp target speed to the range read from `0x2AD4` and round to the device increment.
-  **Never hardcode a range.**
-- Events raised on the UI thread — marshal once, here at the boundary, so no consumer
-  has to think about it.
-- Control methods return `ControlResult`, never throw. Control point failures are
-  expected operating conditions.
-
-### 1.6 — `FakeTreadmillService`
-
-**Creates:** `Features/Treadmill/FakeTreadmillService.cs`
-
-~40 lines of real logic that saves the whole project. Must simulate on demand:
-
-- Normal session: warm-up, steady, cool-down
-- Interval session
-- **Mid-session dropout and recovery** — exercises Phase 04's grace window
-- **Sparse fields** — packets with fields absent, exercising nullable handling
-- **Control rejected** — `ControlNotPermitted` responses
-- **Counter reset mid-session** — only if V1 came back cumulative
-
-Register behind a debug flag or build configuration so it swaps in without editing
-consumer code.
-
-### 1.7 — Update the protocol doc
-
-**Touches:** `../../05-FTMS-Protocol.md`, `../../DEVICE.md`, `../../ASSUMPTIONS.md`
-
-Replace every `TBD` with a measured value or an explicit *"not supported by this
-device"*. Anything still unknown moves to `ASSUMPTIONS.md` with the phase it blocks —
-it does not stay as a `TBD` in a doc claiming to be a spec.
-
----
-
-## Tests — this is where the project's real test suite lives
-
-Everything else in this app is I/O and UI. These are the only meaningful automated
-tests, so write them properly.
+Everything else in this app is I/O and UI. These are the meaningful automated tests:
 
 - Every fixture decodes to its expected values.
-- **Console-matched fixtures decode to the console's numbers**, within rounding. This
-  is the test that proves correctness rather than self-consistency.
-- Malformed input: truncated packet, length/flags mismatch, empty buffer, length
-  exceeding the buffer. All must be **rejected and logged**, never crash, never read
-  out of bounds.
-- Bit 0 specifically: a packet with More Data set and one without, asserting the speed
-  field's presence flips the way the spec says and not the intuitive way.
+- Console-matched fixtures decode to the console's numbers, within rounding — the
+  test that proves correctness, not just non-crashing.
+- Malformed input (truncated packet, length/flags mismatch, empty buffer): rejected
+  and logged, never crashes, never reads out of bounds.
+- Bit 0 specifically: More-Data-set vs. not, asserting the speed field's presence
+  flips the way the spec says.
 - uint24 distance at boundary values (`0x00FFFF`, `0x010000`).
 - Expended Energy advancing exactly 5 bytes — assert a following field still lands
   correctly.
-- `SpeedRange.Clamp` at min, max, below min, above max, and mid-increment.
-- Control point response decode for all five result codes, plus a short buffer.
+- `SpeedRange.Clamp` at min, max, below min, above max, mid-increment.
 
-## Acceptance
+### Acceptance
 
 - [ ] Every `TBD` in `../../05-FTMS-Protocol.md` resolved or marked unsupported
 - [ ] Console-matched fixtures decode to the console's values at all captured speeds
 - [ ] Malformed-input tests pass — nothing crashes, everything logs
-- [ ] `FakeTreadmillService` produces a realistic 10-minute stream and can trigger a
-      dropout, sparse fields, and a control rejection
+- [ ] `FakeTreadmillService` (from 01b) still produces a realistic stream and the
+      real `TreadmillService` can be swapped in without any consumer changing
 - [ ] Zero warnings; all Phase 00 tests still pass
