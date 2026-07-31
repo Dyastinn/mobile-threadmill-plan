@@ -1,0 +1,24 @@
+# Build artifacts
+[Bb]in/
+[Oo]bj/
+*.user
+
+# Visual Studio
+.vs/
+
+# Rider / JetBrains
+.idea/
+
+# macOS
+.DS_Store
+
+# Android
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# App-private data that never belongs in source control
+*.db
+*.db-shm
+*.db-wal
