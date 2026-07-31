@@ -1,8 +1,31 @@
 # MyHi Companion — Project Plan
 
 > Personal Android companion app for the MY-HI Q8Y treadmill over Bluetooth FTMS.
-> Plan version 2.1 — updated 2026-07-28 with partial probe results.
+> Plan version 2.2 — updated 2026-07-31. Phases split into `phases/`, and Phase 0
+> rebuilt into a working probe app.
 > Supersedes the original phase list.
+
+> ## ⚠️ Phase execution now lives in [`phases/`](phases/)
+>
+> **This document is context: vision, stack, risk register, and the reasoning behind
+> each phase. It is no longer the work order.** Each phase is now a self-contained
+> folder with its own tasks, traps, tests and acceptance criteria, sized to hand to an
+> implementing agent one at a time.
+>
+> Start at [`phases/README.md`](phases/README.md).
+>
+> **v2.2 changes:**
+> - **Phase 0 is now a working diagnostic app**, not scaffolding. It merges the old
+>   Phases 0–2 and the tooling half of Phase 3, and adds a **control-point console**
+>   where the operator sends bytes to the treadmill by hand and sees the raw response,
+>   plus a **capture recorder** that writes down which byte sequences produced which
+>   physical result. The question "what should we send to the treadmill, and what is
+>   correct?" gets answered on day one with real bytes rather than after four phases
+>   of building on unverified assumptions.
+> - Everything after that is unchanged in substance, only renumbered. Mapping table in
+>   [`phases/README.md`](phases/README.md#renumbering--what-changed-and-why).
+> - New [`captures/`](captures/) folder — raw JSONL BLE session logs, committed. They
+>   are the project's primary evidence and the source of every parser test fixture.
 
 **v2.1 changes** (from the first nRF Connect capture — see `DEVICE.md`):
 - Device identified as a **FitShow BLE module**, not a MY-HI-native implementation.
@@ -137,7 +160,14 @@ resolved before the phase closes.
 
 ---
 
-## Phase overview
+## Phase overview — SUPERSEDED by [`phases/`](phases/)
+
+The v2.1 numbering below is kept only so the discussion in the rest of this document
+still reads correctly. **The authoritative phase list, with the work orders, is
+[`phases/README.md`](phases/README.md).** The old→new mapping is there too.
+
+<details>
+<summary>v2.1 phase list (historical)</summary>
 
 | # | Phase | Hardware needed | Rough size |
 |---|-------|-----------------|------------|
@@ -158,6 +188,13 @@ resolved before the phase closes.
 | 14 | UI polish | No | M |
 | 15 | Endurance testing | **Yes** | M |
 | 16 | Backup polish (optional) | No | M |
+
+</details>
+
+The v2.2 order, in one line: **00 Probe App** → 01 Protocol Decode → 02 Connection
+Hardening → 03 Dashboard → 04 Workout Engine → 05 Control → 06 Recording → 07
+Foreground Service → 08 Settings → 09 Backup → 10 Statistics → 11 Split Screen →
+12 Performance → 13 Polish → 14 Endurance → 15 Backup Polish.
 
 ---
 
@@ -1039,9 +1076,14 @@ characteristic list, decoded feature flags, speed range. See `DEVICE.md`.
 | 8 | `0x2A37` vs FTMS heart rate comparison | Phase 4, whether HR ships | 5 min |
 
 Items 3, 5, 6, 7 need no walking and take under ten minutes together. Do those next
-even if the full walking session has to wait.
+even if the full walking session has to wait — either in nRF Connect now, or from the
+Phase 00 app once it builds, which is faster and records them automatically.
 
-**Then:** Phase 0 → Phases 1–2 → full Phase 3 probe session.
+**Then:** build [Phase 00](phases/phase-00-probe-app/) → run
+[`HUMAN-RUNBOOK.md`](phases/phase-00-probe-app/HUMAN-RUNBOOK.md) on the belt → fill in
+[`PHASE-00-FINDINGS.md`](phases/phase-00-probe-app/PHASE-00-FINDINGS.md) → Phase 01
+turns the captures into parsers.
 
-Phase 0 can start in parallel with the remaining probe work — none of the outstanding
-unknowns affect project scaffolding.
+Phase 00 can start immediately — none of the outstanding unknowns affect building the
+instrument that measures them. That is the whole point of the restructure: the app that
+answers these questions is now the first thing built, not the fourth.
