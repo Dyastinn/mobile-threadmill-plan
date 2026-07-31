@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+	<application android:allowBackup="true" android:icon="@mipmap/appicon" android:roundIcon="@mipmap/appicon_round" android:supportsRtl="true"></application>
+
+	<!--
+	  Modern Bluetooth permission path only (minSdk 31). The legacy path
+	  (BLUETOOTH, BLUETOOTH_ADMIN, ACCESS_FINE_LOCATION) is out of scope on this
+	  device: see 00-Project-Plan.md and phases/phase-00-probe-app/TASKS.md 0.2.
+	  neverForLocation is correct because the app never derives location from
+	  scan results, and it avoids the location permission prompt entirely.
+	-->
+	<uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+	<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+</manifest>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:bt="clr-namespace:MyHi.Companion.Features.Bluetooth"
+             x:Class="MyHi.Companion.Features.Bluetooth.ScanPage"
+             x:DataType="bt:ScanViewModel"
+             Title="Scan">
+
+    <Grid Padding="16" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
+
+        <Border Grid.Row="0" Padding="10" IsVisible="{Binding Readiness, Converter={StaticResource NotNullConverter}}">
+            <Label Text="{Binding Readiness.Message}" FontSize="13" />
+        </Border>
+
+        <HorizontalStackLayout Grid.Row="1" Spacing="10">
+            <Picker Title="Scan filter" ItemsSource="{Binding FilterModes}" SelectedItem="{Binding FilterMode}" WidthRequest="180" />
+            <Button Text="{Binding IsScanning, Converter={StaticResource ScanButtonTextConverter}}" Command="{Binding ToggleScanCommand}" />
+            <Button Text="Open Settings" Command="{Binding OpenSettingsCommand}" />
+        </HorizontalStackLayout>
+
+        <Label Grid.Row="2" Text="{Binding StatusMessage}" FontSize="12" Opacity="0.8" IsVisible="{Binding StatusMessage, Converter={StaticResource NotNullConverter}}" />
+
+        <CollectionView Grid.Row="3" ItemsSource="{Binding Devices}" SelectionMode="Single" SelectedItem="{Binding SelectedDevice}">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="bt:DiscoveredDevice">
+                    <Grid Padding="8" ColumnDefinitions="*,Auto">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2">
+                            <Label Text="{Binding Name}" FontAttributes="Bold" />
+                            <Label Text="{Binding MacAddress}" FontSize="11" Opacity="0.7" />
+                        </VerticalStackLayout>
+                        <VerticalStackLayout Grid.Column="1" Spacing="2" HorizontalOptions="End">
+                            <Label Text="{Binding Rssi, StringFormat='{0} dBm'}" FontSize="12" />
+                            <Label Text="{Binding AdvertisesFtmsService, Converter={StaticResource FtmsBadgeConverter}}" FontSize="11" Opacity="0.7" />
+                        </VerticalStackLayout>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <VerticalStackLayout Grid.Row="4" Spacing="6" IsVisible="{Binding SelectedDevice, Converter={StaticResource NotNullConverter}}">
+            <Label Text="{Binding SelectedDevice.AddressType, StringFormat='Address type: {0}'}" FontSize="12" />
+            <Label Text="{Binding SelectedDevice.RawAdvertisementHex, StringFormat='Raw advertisement:\n{0}'}" FontSize="11" FontFamily="Courier" />
+            <HorizontalStackLayout Spacing="10">
+                <Button Text="Connect" Command="{Binding ConnectCommand}" />
+                <Button Text="Record to Capture" Command="{Binding RecordSelectedCommand}" />
+            </HorizontalStackLayout>
+        </VerticalStackLayout>
+
+    </Grid>
+
+</ContentPage>

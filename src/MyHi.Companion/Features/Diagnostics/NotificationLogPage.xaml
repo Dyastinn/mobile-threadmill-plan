@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:diag="clr-namespace:MyHi.Companion.Features.Diagnostics"
+             x:Class="MyHi.Companion.Features.Diagnostics.NotificationLogPage"
+             x:DataType="diag:NotificationLogViewModel"
+             Title="Notification Log">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Pause/Resume" Command="{Binding TogglePauseCommand}" />
+    </ContentPage.ToolbarItems>
+
+    <Grid Padding="16" RowDefinitions="Auto,Auto,*" RowSpacing="10">
+
+        <VerticalStackLayout Grid.Row="0" BindableLayout.ItemsSource="{Binding Channels}" Spacing="4">
+            <BindableLayout.ItemTemplate>
+                <DataTemplate x:DataType="diag:NotificationChannel">
+                    <Grid ColumnDefinitions="*,Auto,Auto">
+                        <Label Grid.Column="0" Text="{Binding DisplayName}" FontSize="13" VerticalOptions="Center" />
+                        <Label Grid.Column="1" Text="{Binding RateHz, StringFormat='{0} Hz'}" FontSize="11" Opacity="0.7" VerticalOptions="Center" Margin="0,0,10,0" />
+                        <Switch Grid.Column="2" IsToggled="{Binding IsSubscribed}"
+                                Toggled="OnChannelToggled" BindingContext="{Binding .}" />
+                    </Grid>
+                </DataTemplate>
+            </BindableLayout.ItemTemplate>
+        </VerticalStackLayout>
+
+        <VerticalStackLayout Grid.Row="1" IsVisible="{Binding FlagsTracker.Count, Converter={StaticResource NotNullConverter}}">
+            <Label Text="2ACD flags seen this session:" FontSize="12" FontAttributes="Bold" />
+            <VerticalStackLayout BindableLayout.ItemsSource="{Binding FlagsTracker}">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate x:DataType="diag:FlagsSeen">
+                        <Label FontSize="11" FontFamily="Courier">
+                            <Label.FormattedText>
+                                <FormattedString>
+                                    <Span Text="{Binding FlagsHex}" />
+                                    <Span Text=" x " />
+                                    <Span Text="{Binding Count}" />
+                                </FormattedString>
+                            </Label.FormattedText>
+                        </Label>
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </VerticalStackLayout>
+        </VerticalStackLayout>
+
+        <CollectionView Grid.Row="2"
+                        ItemsSource="{Binding Rows}"
+                        SelectionMode="Single"
+                        SelectedItem="{Binding SelectedRow}">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="diag:NotificationLogRow">
+                    <Grid Padding="0,4">
+                        <Label FontSize="12" FontFamily="Courier">
+                            <Label.FormattedText>
+                                <FormattedString>
+                                    <Span Text="{Binding TimestampUtc, StringFormat='{0:HH:mm:ss.fff}'}" />
+                                    <Span Text=" | " />
+                                    <Span Text="{Binding Uuid}" />
+                                    <Span Text=" | " />
+                                    <Span Text="{Binding Length}" />
+                                    <Span Text=" | " />
+                                    <Span Text="{Binding Hex}" />
+                                </FormattedString>
+                            </Label.FormattedText>
+                        </Label>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </Grid>
+
+</ContentPage>

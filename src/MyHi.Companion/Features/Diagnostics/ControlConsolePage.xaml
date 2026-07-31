@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:diag="clr-namespace:MyHi.Companion.Features.Diagnostics"
+             x:Class="MyHi.Companion.Features.Diagnostics.ControlConsolePage"
+             x:DataType="diag:ControlConsoleViewModel"
+             Title="Control Console">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16" Spacing="14">
+
+            <Border Padding="10" Stroke="Red">
+                <Label Text="The physical safety key is the emergency stop. This app is not." TextColor="Red" FontAttributes="Bold" />
+            </Border>
+
+            <Label Text="{Binding StatusMessage}" FontSize="12" Opacity="0.85" />
+
+            <HorizontalStackLayout Spacing="14">
+                <Label Text="{Binding IndicationsEnabled, StringFormat='Indications: {0}'}" FontSize="12" />
+                <Label Text="{Binding HasControl, StringFormat='Has control: {0}'}" FontSize="12" />
+            </HorizontalStackLayout>
+
+            <Button Text="Request Control (00)" Command="{Binding RequestControlCommand}" />
+
+            <BoxView HeightRequest="1" Opacity="0.2" />
+
+            <Label Text="Set Target Speed" FontAttributes="Bold" />
+            <HorizontalStackLayout Spacing="10">
+                <Entry Text="{Binding TargetSpeedInput}" Keyboard="Numeric" WidthRequest="100" Placeholder="km/h" />
+                <Label Text="{Binding TargetSpeedPreviewHex, StringFormat='bytes: {0}'}" VerticalOptions="Center" FontFamily="Courier" />
+            </HorizontalStackLayout>
+            <Button Text="Set Target Speed (02)" Command="{Binding SetTargetSpeedCommand}" />
+
+            <BoxView HeightRequest="1" Opacity="0.2" />
+
+            <HorizontalStackLayout Spacing="10">
+                <Button Text="Start / Resume (07)" Command="{Binding StartCommand}" />
+                <Button Text="Pause (08 02)" Command="{Binding PauseCommand}" />
+                <Button Text="Stop (08 01)" Command="{Binding StopCommand}" />
+            </HorizontalStackLayout>
+            <Button Text="Reset (01)" Command="{Binding ResetCommand}" />
+
+            <BoxView HeightRequest="1" Opacity="0.2" />
+
+            <Label Text="Free hex (no validation beyond parseable hex)" FontAttributes="Bold" />
+            <Entry Text="{Binding FreeHexInput}" Placeholder="e.g. 02 40 06" FontFamily="Courier" />
+            <Button Text="Send" Command="{Binding SendFreeHexCommand}" />
+
+            <BoxView HeightRequest="1" Opacity="0.2" />
+
+            <Label Text="Responses" FontAttributes="Bold" />
+            <CollectionView ItemsSource="{Binding Entries}" HeightRequest="400">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="diag:ControlExchangeDisplay">
+                        <VerticalStackLayout Padding="0,8" Spacing="2">
+                            <Label Text="{Binding SentLine}" FontFamily="Courier" FontSize="12" />
+                            <Label Text="{Binding ResponseLine}" FontFamily="Courier" FontSize="12" />
+                            <Label Text="{Binding DecodedBlock}" FontFamily="Courier" FontSize="11" Opacity="0.8" IsVisible="{Binding DecodedBlock, Converter={StaticResource NotNullConverter}}" />
+                        </VerticalStackLayout>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

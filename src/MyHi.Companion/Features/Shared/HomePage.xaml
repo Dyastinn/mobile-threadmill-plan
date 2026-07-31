@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:shared="clr-namespace:MyHi.Companion.Features.Shared"
+             x:Class="MyHi.Companion.Features.Shared.HomePage"
+             x:DataType="shared:HomeViewModel"
+             Title="MyHi Companion — Probe">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Share Log" Command="{Binding ShareLogCommand}" />
+    </ContentPage.ToolbarItems>
+
+    <Grid Padding="16" RowDefinitions="Auto,*">
+        <Label Grid.Row="0"
+               Text="Every screen here is a lab instrument for the MY-HI Q8Y treadmill. None of it ships in the final UI."
+               Margin="0,0,0,12"
+               FontSize="13"
+               Opacity="0.75" />
+
+        <CollectionView Grid.Row="1"
+                        ItemsSource="{Binding Destinations}"
+                        SelectionMode="Single"
+                        SelectedItem="{Binding SelectedDestination}">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="shared:NavDestination">
+                    <Grid Padding="0,10">
+                        <Border Padding="14" StrokeShape="RoundRectangle 8">
+                            <VerticalStackLayout Spacing="4">
+                                <Label Text="{Binding Title}" FontSize="16" FontAttributes="Bold" />
+                                <Label Text="{Binding Subtitle}" FontSize="12" Opacity="0.7" />
+                            </VerticalStackLayout>
+                        </Border>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </Grid>
+
+</ContentPage>
