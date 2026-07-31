@@ -89,7 +89,7 @@ multi-user, iOS, Strava/Garmin export, training plans, coaching.
 | Component | Choice | Licence | Note |
 |-----------|--------|---------|------|
 | Framework | .NET MAUI (Android only) | MIT | Single target keeps conditional compilation out |
-| Language | C# / .NET 9 | MIT | |
+| Language | C# / .NET 10 | MIT | LTS; .NET 9 (STS) reached end of support 2026-05-12 |
 | Bluetooth | Android BLE APIs via MAUI platform code | — | See BLE library decision below |
 | Protocol | Bluetooth FTMS (service `0x1826`) | — | |
 | Database | SQLite (`sqlite-net-pcl` or `Microsoft.Data.Sqlite`) | MIT | See decision below |
@@ -204,7 +204,7 @@ Foreground Service → 08 Settings → 09 Backup → 10 Statistics → 11 Split 
 Project foundation, buildable and running.
 
 ## Tasks
-- MAUI Android-only project, .NET 9, **`minSdkVersion` 31, `targetSdkVersion` 36**
+- MAUI Android-only project, .NET 10, **`minSdkVersion` 31, `targetSdkVersion` 36**
 - DI container wiring, logging to logcat + a rolling file
 - Feature-folder structure (`Features/Bluetooth`, `Features/Workout`, …)
 - Dark theme

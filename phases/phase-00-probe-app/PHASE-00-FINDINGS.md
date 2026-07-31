@@ -44,11 +44,36 @@ the engine must detect a mid-workout decrease and re-baseline.
 ```
 Verdict:
 [ ] Control works — Phase 05 proceeds as planned
-[ ] Control partially works — specify: ______________________________
+[x] Control partially works — specify: Request Control, Set Target Speed, and Start
+    all produced a physical effect (belt moved) via the Control Console. BUT: after
+    Start (07), the belt does not resume at the previously-set target speed — it
+    ramps at a slow/default speed and the console shows an unusual "all lights"
+    indicator state, not the numeric target (e.g. target 7 km/h did not result in
+    7 km/h after Start).
 [ ] Control does not work — Phase 05 is void, app is read-only
 ```
 
+**Preliminary, not yet confirmed via the full structured D1–D8 matrix above.** Working
+theory (operator's, 2026-07-31): the device does not carry a pre-Start target speed
+into the running state — `Set Target Speed` must be **re-issued after Start**, not
+only before it, to actually reach the desired pace. This reframes the expected
+command sequence as `Request Control → Start → Set Target Speed` rather than
+`Request Control → Set Target Speed → Start`.
+
+**To fully confirm** (do this in the Control Console when possible, so bytes and
+timestamps land in the capture file):
+1. Request Control, then Start, then immediately Set Target Speed to a specific
+   value (e.g. 7.0 km/h) *while already running*. Does it now hold at 7.0?
+2. Compare against Set Target Speed *before* Start (the D2/D3 order in the table
+   above) to confirm that path really is the one that produces the "all lights /
+   wrong speed" behaviour.
+3. Note what "all lights" means precisely — every speed indicator LED lit simultaneously?
+   A specific fault/ramp icon? This matters for whether it's a ramp-up animation
+   (harmless, just re-set the speed) or a genuine fault state.
+
 A read-only app is still worth shipping. "Void" here is a finding, not a failure.
+This finding currently points to Phase 05 existing but needing a specific command
+*order*, not the naive one — see `../../ASSUMPTIONS.md` A2.
 
 ### V3 · Heart rate
 

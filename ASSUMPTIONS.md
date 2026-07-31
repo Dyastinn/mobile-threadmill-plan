@@ -37,6 +37,21 @@ Guessing wrong makes every stored workout wrong. **Do not start Phase 7 without 
 set. Neither is strong evidence given that the same bitmask claims incline support on a
 machine with no incline (see A3).
 
+**Update 2026-07-31 (operator, via the Control Console, ad hoc — not yet the full D1–D8
+matrix):** Request Control, Set Target Speed, and Start all produced a physical effect.
+So the control point does honour commands — the open question has narrowed from
+*"does it work"* to *"in what order."* Observed: setting a target speed and then
+starting does **not** bring the belt to that speed — it ramps at a slow/default pace
+with an unusual "all lights" console indicator. Working theory: the target speed must
+be (re-)set **after** `Start`, not only before. If confirmed, Phase 05's `StartAsync`
+must internally re-issue the last requested `SetSpeedAsync` once the belt is
+confirmed running, rather than assuming Start preserves a pre-set target.
+
+**Still needed before this is a resolved fact, not a working theory:** the structured
+D1–D8 sequence from the Control Console, with bytes/timestamps landing in a capture
+file, and a precise description of what "all lights" actually means on the console
+(ramp animation vs. a fault indicator).
+
 Outcome is binary: the app either controls speed or is read-only. Both are shippable.
 
 ### A3. `0x2ACC` decode is unconfirmed
