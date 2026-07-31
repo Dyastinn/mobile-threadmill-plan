@@ -49,16 +49,41 @@ without the real hardware in the room.
   it's worth deciding *consciously* whether your fake should — see task 1b.1.
 - **`../../DEVICE.md`** — the speed range (1.0–16.0 km/h, 0.1 increment) is a
   measured fact, safe to reuse as the fake's advertised range.
+- **C# events** — [Events (C# Programming Guide)](https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/events/) —
+  read this before writing `SampleReceived`/`StateChanged`/etc.; the interface
+  already declares them as `event EventHandler<T>?`, this doc explains what that
+  buys you and how a subscriber unhooks (`-=`) to avoid a leak.
+- **`System.Threading.Timer`** — [Timer class](https://learn.microsoft.com/en-us/dotnet/api/system.threading.timer) —
+  the mechanism task 1b.2 uses to raise a sample roughly once a second. `PeriodicTimer`
+  ([docs](https://learn.microsoft.com/en-us/dotnet/api/system.threading.periodictimer))
+  is the newer, `async`-friendly alternative and arguably the better fit here — worth
+  reading both and picking one deliberately, not defaulting to whichever you've used
+  before.
+- **Dependency injection in .NET MAUI** (task 1b.4) — https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/dependency-injection —
+  read the "Registration" section; `MauiProgram.cs` already registers
+  `TreadmillConnection` the same way you'll register `FakeTreadmillService`.
 
 ### Your tasks
 
 **1b.1 — Move the contract into `Core`**
 
 Creates: `src/MyHi.Companion.Core/Treadmill/ITreadmillService.cs` (new `Treadmill/`
-folder). Move the file from the repo root into the `Core` project at that path —
-don't retype it, just relocate it and fix the namespace if needed. Build `Core`
-afterward to confirm it compiles standalone (it should — nothing in the file touches
-MAUI).
+folder).
+
+Concrete steps:
+1. In your editor, create the folder `src/MyHi.Companion.Core/Treadmill/`.
+2. Move `ITreadmillService.cs` from the repo root into that folder — a real file
+   move (drag in your editor's file tree, or `git mv` on the command line), not a
+   retype. The content doesn't need to change.
+3. Open the moved file and check the `namespace` line. It should read
+   `namespace MyHi.Companion.Core.Treadmill;` (file-scoped namespace, matching the
+   folder). Fix it if it still says something else.
+4. Build just the `Core` project to confirm it compiles standalone with nothing
+   MAUI-flavoured leaking in:
+   ```powershell
+   dotnet build src/MyHi.Companion.Core/MyHi.Companion.Core.csproj
+   ```
+   Zero errors, zero warnings is the bar — same as every other phase.
 
 **1b.2 — `FakeTreadmillService`**
 
@@ -93,6 +118,45 @@ synthetic session on a timer:
   something the *consumer* (Phase 03's ViewModel) or a thin wrapper handles, not this
   class. We'll talk through this at the review checkpoint if it's unclear.
 
+The shape of the class — not the implementation, just the skeleton so you're not
+staring at a blank file:
+
+```csharp
+namespace MyHi.Companion.Core.Treadmill;
+
+public sealed class FakeTreadmillService : ITreadmillService
+{
+    private PeriodicTimer? _sampleTimer;
+    private CancellationTokenSource? _sampleLoopCts;
+    private double _currentSpeedKmh;
+    private double _distanceMeters;
+
+    public ConnectionState State { get; private set; } = ConnectionState.Disconnected;
+    public TreadmillCapabilities? Capabilities { get; private set; }
+    public SpeedRange? SpeedRange { get; private set; }
+
+    public event EventHandler<TreadmillSample>? SampleReceived;
+    public event EventHandler<ConnectionState>? StateChanged;
+    // ... the rest of ITreadmillService's events
+
+    public async Task ConnectAsync(CancellationToken ct = default)
+    {
+        // transition Disconnected -> Connecting -> Discovering -> Ready,
+        // with a short delay at each step, raising StateChanged each time
+    }
+
+    private async Task RunSampleLoopAsync(CancellationToken ct)
+    {
+        // PeriodicTimer, tick ~once/sec, mutate _currentSpeedKmh / _distanceMeters
+        // per the NormalWalk shape (warm-up -> steady -> cool-down), raise SampleReceived
+    }
+
+    // DisconnectAsync, RequestControlAsync, SetSpeedAsync, StartAsync, PauseAsync,
+    // StopAsync — same pattern: mutate state, raise the relevant event, return a
+    // ControlResult
+}
+```
+
 Deliberately **not required yet**: the other `SimulationScenario` values
 (`DropoutMidSession`, `SparseFields`, `ControlRejected`, `IntervalWalk`) and a
 counter-reset scenario. Get `NormalWalk` solid first; we'll extend this file when a
@@ -109,6 +173,21 @@ logic worth testing directly too), and subscribing to `SampleReceived` after
 `ConnectAsync` + `StartAsync` actually receives at least one sample within a
 reasonable timeout.
 
+Concrete steps:
+1. Create the test file in `src/MyHi.Companion.Tests/Treadmill/` (new folder, mirrors
+   the source layout — same pattern as the existing `Ftms/` and `Capture/` test
+   folders from Phase 00).
+2. Write `[Fact] public async Task ConnectAsync_ReachesReady()` — call `ConnectAsync`,
+   assert `State == ConnectionState.Ready` afterward.
+3. Write `[Theory]` cases for `SpeedRange.Clamp` at min, max, below min, above max —
+   this one doesn't even need a `FakeTreadmillService` instance, it's testing the
+   struct directly.
+4. Write a test that subscribes to `SampleReceived`, calls `ConnectAsync` then
+   `StartAsync`, and awaits (with a timeout — e.g. `Task.WhenAny` against a short
+   `Task.Delay`) at least one raised sample.
+5. Run `dotnet test src/MyHi.Companion.Tests` — all green, including Phase 00's
+   existing tests (regression).
+
 **1b.4 — Register it in DI**
 
 Touches: `src/MyHi.Companion/MauiProgram.cs`.
@@ -116,6 +195,19 @@ Touches: `src/MyHi.Companion/MauiProgram.cs`.
 Register `FakeTreadmillService` as the `ITreadmillService` implementation, as a
 singleton — same reasoning as the existing `TreadmillConnection` registration already
 in that file (one treadmill connection concept per running app).
+
+Concrete steps:
+1. Open `MauiProgram.cs` and find the existing
+   `builder.Services.AddSingleton<TreadmillConnection>();`-style registration from
+   Phase 00 — that's the pattern to copy.
+2. Add `builder.Services.AddSingleton<ITreadmillService, FakeTreadmillService>();`
+   near it.
+3. Add the `using MyHi.Companion.Core.Treadmill;` directive at the top if it's not
+   already there.
+4. Build the app project (`dotnet build MyHi.Companion/MyHi.Companion.csproj -f net10.0-android`)
+   to confirm DI resolves — a missing registration only shows up at runtime when
+   something tries to inject `ITreadmillService`, so this step alone won't prove it
+   works; that's what the tiny wire-up at the review checkpoint below is for.
 
 ### Review checkpoint
 

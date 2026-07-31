@@ -1,44 +1,88 @@
-﻿<?xml version="1.0" encoding="UTF-8" ?>
-<ResourceDictionary 
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResourceDictionary
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
 
     <!-- Note: For Android please see also Platforms\Android\Resources\values\colors.xml -->
 
-    <Color x:Key="Primary">#512BD4</Color>
-    <Color x:Key="PrimaryDark">#ac99ea</Color>
-    <Color x:Key="PrimaryDarkText">#242424</Color>
-    <Color x:Key="Secondary">#DFD8F7</Color>
-    <Color x:Key="SecondaryDarkText">#9880e5</Color>
-    <Color x:Key="Tertiary">#2B0B98</Color>
+    <!--
+        MONOCHROME THEME — see docs/learning/04-Monochrome-Theme.md for the full
+        rationale. One neutral gray ramp, no hue anywhere. Deliberately "soft":
+        neither endpoint is pure black/white, so nothing on screen ever reads as
+        harsh, and state (connected/lit/selected) is shown with fill, weight, or
+        outline — never color — since there IS no second color to use for it.
+    -->
 
-    <Color x:Key="White">White</Color>
-    <Color x:Key="Black">Black</Color>
-    <Color x:Key="Magenta">#D600AA</Color>
-    <Color x:Key="MidnightBlue">#190649</Color>
-    <Color x:Key="OffBlack">#1f1f1f</Color>
+    <!-- Gray ramp — light to dark. Used directly only inside this file; every
+         page/style below should reference the semantic tokens further down. -->
+    <Color x:Key="Gray050">#F2F2F3</Color>
+    <Color x:Key="Gray100">#E4E4E6</Color>
+    <Color x:Key="Gray200">#D6D6D9</Color>
+    <Color x:Key="Gray300">#B8B8BC</Color>
+    <Color x:Key="Gray400">#9A9AA0</Color>
+    <Color x:Key="Gray500">#7D7D82</Color>
+    <Color x:Key="Gray600">#626266</Color>
+    <Color x:Key="Gray700">#4A4A4E</Color>
+    <Color x:Key="Gray800">#38383C</Color>
+    <Color x:Key="Gray900">#2A2A2D</Color>
+    <Color x:Key="Gray950">#212123</Color>
 
-    <Color x:Key="Gray100">#E1E1E1</Color>
-    <Color x:Key="Gray200">#C8C8C8</Color>
-    <Color x:Key="Gray300">#ACACAC</Color>
-    <Color x:Key="Gray400">#919191</Color>
-    <Color x:Key="Gray500">#6E6E6E</Color>
-    <Color x:Key="Gray600">#404040</Color>
-    <Color x:Key="Gray900">#212121</Color>
-    <Color x:Key="Gray950">#141414</Color>
+    <!-- Semantic tokens — every style/page uses these, never a raw GrayNNN.
+         AppThemeBinding on each one means the ramp is walked in opposite
+         directions for Light vs Dark, so "Surface" is always one step away
+         from "Background" regardless of theme. -->
 
-    <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource Primary}"/>
-    <SolidColorBrush x:Key="SecondaryBrush" Color="{StaticResource Secondary}"/>
-    <SolidColorBrush x:Key="TertiaryBrush" Color="{StaticResource Tertiary}"/>
+    <!-- Page background -->
+    <Color x:Key="ColorBackgroundLight">#F2F2F3</Color>   <!-- Gray050 -->
+    <Color x:Key="ColorBackgroundDark">#212123</Color>    <!-- Gray950 -->
+
+    <!-- Card / Frame / Border surfaces, one step off the background -->
+    <Color x:Key="ColorSurfaceLight">#E4E4E6</Color>      <!-- Gray100 -->
+    <Color x:Key="ColorSurfaceDark">#2A2A2D</Color>       <!-- Gray900 -->
+
+    <!-- Hairlines, dividers, unfocused borders -->
+    <Color x:Key="ColorBorderLight">#B8B8BC</Color>       <!-- Gray300 -->
+    <Color x:Key="ColorBorderDark">#4A4A4E</Color>        <!-- Gray700 -->
+
+    <!-- Body text -->
+    <Color x:Key="ColorTextPrimaryLight">#2A2A2D</Color>  <!-- Gray900 -->
+    <Color x:Key="ColorTextPrimaryDark">#E4E4E6</Color>   <!-- Gray100 -->
+
+    <!-- Captions, timestamps, placeholder text -->
+    <Color x:Key="ColorTextSecondaryLight">#626266</Color><!-- Gray600 -->
+    <Color x:Key="ColorTextSecondaryDark">#9A9AA0</Color> <!-- Gray400 -->
+
+    <!-- Disabled text / controls -->
+    <Color x:Key="ColorTextDisabledLight">#B8B8BC</Color> <!-- Gray300 -->
+    <Color x:Key="ColorTextDisabledDark">#626266</Color>  <!-- Gray600 -->
+    <Color x:Key="ColorDisabledBackgroundLight">#D6D6D9</Color> <!-- Gray200 -->
+    <Color x:Key="ColorDisabledBackgroundDark">#38383C</Color>  <!-- Gray800 -->
+
+    <!-- Primary interactive surface: buttons, the "on" state of a switch,
+         anything that needs to read as tappable without a hue to lean on.
+         Deliberately the darkest/lightest step short of the ramp's own
+         endpoints, so it stands off Surface without turning into a black
+         block on a light background. -->
+    <Color x:Key="ColorInteractiveBackgroundLight">#38383C</Color> <!-- Gray800 -->
+    <Color x:Key="ColorInteractiveBackgroundDark">#D6D6D9</Color>  <!-- Gray200 -->
+    <Color x:Key="ColorInteractiveTextLight">#F2F2F3</Color>       <!-- Gray050 -->
+    <Color x:Key="ColorInteractiveTextDark">#212123</Color>        <!-- Gray950 -->
+
+    <!-- Contribution graph cells (Phase 03) — binary lit/unlit for now.
+         Kept as named tokens (not raw grays) so a future gradient-by-count
+         version only touches this file. -->
+    <Color x:Key="ColorContributionUnlitLight">#D6D6D9</Color>  <!-- Gray200 -->
+    <Color x:Key="ColorContributionUnlitDark">#38383C</Color>   <!-- Gray800 -->
+    <Color x:Key="ColorContributionLitLight">#4A4A4E</Color>    <!-- Gray700 -->
+    <Color x:Key="ColorContributionLitDark">#B8B8BC</Color>     <!-- Gray300 -->
+
+    <!-- Legacy names kept only because deleting them would ripple through
+         generated designer files; do not use these in new XAML — use the
+         semantic tokens above. -->
+    <Color x:Key="White">#F2F2F3</Color>
+    <Color x:Key="Black">#212123</Color>
+
     <SolidColorBrush x:Key="WhiteBrush" Color="{StaticResource White}"/>
     <SolidColorBrush x:Key="BlackBrush" Color="{StaticResource Black}"/>
 
-    <SolidColorBrush x:Key="Gray100Brush" Color="{StaticResource Gray100}"/>
-    <SolidColorBrush x:Key="Gray200Brush" Color="{StaticResource Gray200}"/>
-    <SolidColorBrush x:Key="Gray300Brush" Color="{StaticResource Gray300}"/>
-    <SolidColorBrush x:Key="Gray400Brush" Color="{StaticResource Gray400}"/>
-    <SolidColorBrush x:Key="Gray500Brush" Color="{StaticResource Gray500}"/>
-    <SolidColorBrush x:Key="Gray600Brush" Color="{StaticResource Gray600}"/>
-    <SolidColorBrush x:Key="Gray900Brush" Color="{StaticResource Gray900}"/>
-    <SolidColorBrush x:Key="Gray950Brush" Color="{StaticResource Gray950}"/>
 </ResourceDictionary>

@@ -35,6 +35,11 @@ there — not blocking for this phase.)
 - Deciding what belongs in `Core` vs. the app project — you'll make this call
   yourself this time, using the same test the agent applied in Phase 01b: does this
   code reference MAUI/Android at all?
+- This is also the first phase where you'll see the project's existing MVVM shape
+  (`BaseViewModel` + CommunityToolkit.Mvvm's `[ObservableProperty]`/`[RelayCommand]`,
+  already used by every Phase 00 screen — see `ScanViewModel.cs` for a working
+  example) applied to a *new* feature rather than read secondhand — worth comparing
+  your `DashboardViewModel` against `ScanViewModel.cs` once both exist.
 
 ## Reference docs
 
@@ -44,6 +49,14 @@ there — not blocking for this phase.)
   V3 heart rate verdict
 - `docs/learning/02-Glossary.md` — add `GridItemsLayout` and anything else new here
   as you go
+- `docs/learning/04-Monochrome-Theme.md` — every token/style this phase's XAML uses
+  is defined there; read it before task 3.3 if you haven't already
+- **`CollectionView` overview** — https://learn.microsoft.com/en-us/dotnet/maui/user-interface/controls/collectionview/
+- **`CollectionView` layout (`GridItemsLayout`, `Span`)** — https://learn.microsoft.com/en-us/dotnet/maui/user-interface/controls/collectionview/layout
+  — read this before task 3.7; `Span="7"` is what turns a flat list into rows of 7
+- **How to use `DateOnly`** — https://learn.microsoft.com/en-us/dotnet/standard/datetime/how-to-use-dateonly-timeonly
+  — task 3.5's `IWorkoutHistoryProvider` shape uses `DateOnly`, not `DateTimeOffset`,
+  because a contribution-graph cell is a calendar day, not an instant
 
 ---
 
@@ -56,6 +69,247 @@ there — not blocking for this phase.)
 - Connection indicator
 - **Fields the device does not actually send are hidden, not shown as `--`.** A row
   of dashes is a promise the app can't keep.
+
+### Walkthrough
+
+**3.1 — Where this lives**
+
+1. Create the folder `src/MyHi.Companion/Features/Dashboard/`.
+2. Files you'll add in this part: `DashboardPage.xaml` + `.xaml.cs` (UI, given in
+   full below), `DashboardViewModel.cs` (yours to write — spec below), and
+   `DashboardConverters.cs` (UI-support code, given in full below).
+3. Confirm `ITreadmillService` has actually moved to
+   `src/MyHi.Companion.Core/Treadmill/ITreadmillService.cs` with namespace
+   `MyHi.Companion.Core.Treadmill` (Phase 01b's task 1b.1) and `FakeTreadmillService`
+   is registered in `MauiProgram.cs` before starting — every binding below assumes
+   that seam already exists.
+
+**3.2 — `DashboardViewModel`: the spec**
+
+- Depends on `ITreadmillService` (constructor-injected) — nothing else for Part 1.
+- Subscribes to `SampleReceived` and `ConnectionStateChanged` in its constructor.
+- One `[ObservableProperty]` per metric the UI binds to directly: `SpeedKph`,
+  `DistanceMeters` (store metres — task 3.3's XAML converts to km for display only),
+  `Calories`, `ElapsedSeconds`, `HeartRate` (nullable, matching `TreadmillSample`'s
+  own nullability) plus `ConnectionState`.
+- One `bool` per metric for the "hidden not `--`" rule: `ShowsSpeed`, `ShowsDistance`,
+  `ShowsCalories`, `ShowsElapsedTime`, `ShowsHeartRate`. Until Phase 01a's
+  `CapabilityTracker` exists, the honest rule available today is "shown if the latest
+  sample actually carries a non-null value for it" — a field genuinely absent from
+  every packet stays hidden; once 01a lands, swap this for the accumulated-flags
+  check the Goal section already describes. The XAML doesn't change either way.
+- Heart rate additionally needs a manual override for the V3 verdict in
+  `PHASE-00-FINDINGS.md`: "Unusable" or "Marginal" means `ShowsHeartRate` is
+  hard-`false` regardless of what the sample contains; only "Usable" lets the
+  presence-based rule above apply.
+- The throttle is **your design decision**, per the Implementation requirements
+  below. Whatever mechanism you pick has to guarantee two things: no bound property
+  updates more than 4 times a second, and the *most recent* sample always wins (never
+  hold on to a stale "last known good" speed while a fresher one waits behind it —
+  that's actively misleading mid-workout, not just slow).
+
+Skeleton — shape only:
+
+```csharp
+namespace MyHi.Companion.Features.Dashboard;
+
+public sealed partial class DashboardViewModel : BaseViewModel
+{
+    private readonly ITreadmillService _treadmill;
+    private DateTimeOffset _lastUiUpdateUtc = DateTimeOffset.MinValue;
+
+    public DashboardViewModel(ITreadmillService treadmill)
+    {
+        _treadmill = treadmill;
+        _treadmill.SampleReceived += OnSampleReceived;
+        _treadmill.ConnectionStateChanged += OnConnectionStateChanged;
+    }
+
+    [ObservableProperty] private ConnectionState connectionState;
+    [ObservableProperty] private double? speedKph;
+    [ObservableProperty] private double? distanceMeters;
+    [ObservableProperty] private int? calories;
+    [ObservableProperty] private int? elapsedSeconds;
+    [ObservableProperty] private int? heartRate;
+
+    [ObservableProperty] private bool showsSpeed;
+    [ObservableProperty] private bool showsDistance;
+    [ObservableProperty] private bool showsCalories;
+    [ObservableProperty] private bool showsElapsedTime;
+    [ObservableProperty] private bool showsHeartRate;
+
+    private void OnSampleReceived(object? sender, TreadmillSample sample)
+    {
+        // TODO: throttle — if less than ~250ms since _lastUiUpdateUtc, return
+        // without updating (the next sample a quarter-second later carries fresher
+        // data anyway; think about whether a plain "skip if too soon" check already
+        // satisfies both guarantees above before reaching for a timer/queue)
+
+        // TODO: map sample.SpeedKph -> SpeedKph, sample.DistanceMeters ->
+        // DistanceMeters, etc. Set each Shows* flag per the design note above.
+
+        _lastUiUpdateUtc = DateTimeOffset.UtcNow;
+    }
+
+    private void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
+    {
+        ConnectionState = e.State;
+    }
+}
+```
+
+**3.3 — The dashboard page (UI, written in full)**
+
+Two display-formatting converters first
+(`src/MyHi.Companion/Features/Dashboard/DashboardConverters.cs`) — pure formatting,
+not the throttle/mapping logic above, so these are given complete:
+
+```csharp
+using System.Globalization;
+
+namespace MyHi.Companion.Features.Dashboard;
+
+/// <summary>Metres -> kilometres for display. Storage/binding upstream stays metres.</summary>
+public sealed class MetersToKilometersConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is double meters ? meters / 1000.0 : null;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+/// <summary>Elapsed seconds -> "mm:ss" for the elapsed-time tile.</summary>
+public sealed class SecondsToClockConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is int seconds ? TimeSpan.FromSeconds(seconds).ToString(@"mm\:ss") : "--:--";
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+```
+
+Register both in `src/MyHi.Companion/App.xaml` next to the existing converters (and
+add `xmlns:dash="clr-namespace:MyHi.Companion.Features.Dashboard"` to its root tag,
+alongside the existing `xmlns:shared`):
+```xml
+<dash:MetersToKilometersConverter x:Key="MetersToKilometersConverter" />
+<dash:SecondsToClockConverter x:Key="SecondsToClockConverter" />
+```
+If Phase 02's task 2.7 already registered `ConnectionStateToConnectedConverter`,
+reuse it below as-is — it lives in `shared:`, not `dash:`.
+
+`DashboardPage.xaml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:dash="clr-namespace:MyHi.Companion.Features.Dashboard"
+             x:Class="MyHi.Companion.Features.Dashboard.DashboardPage"
+             x:DataType="dash:DashboardViewModel"
+             Title="Dashboard">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16" Spacing="20">
+
+            <!-- Part 2 (task 3.8) replaces this comment with the contribution graph -->
+
+            <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8" HorizontalOptions="Center">
+                <Grid Grid.Column="0" WidthRequest="12" HeightRequest="12">
+                    <Ellipse Stroke="{AppThemeBinding Light={StaticResource ColorBorderLight}, Dark={StaticResource ColorBorderDark}}"
+                             StrokeThickness="1.5" Fill="Transparent" WidthRequest="12" HeightRequest="12" />
+                    <Ellipse Fill="{AppThemeBinding Light={StaticResource ColorTextPrimaryLight}, Dark={StaticResource ColorTextPrimaryDark}}"
+                             WidthRequest="12" HeightRequest="12"
+                             IsVisible="{Binding ConnectionState, Converter={StaticResource ConnectionStateToConnectedConverter}}" />
+                </Grid>
+                <Label Grid.Column="1" Text="{Binding ConnectionState}" Style="{StaticResource Caption}" VerticalOptions="Center" />
+            </Grid>
+
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="12">
+
+                <Border Grid.Row="0" Grid.Column="0" Padding="16,12" IsVisible="{Binding ShowsSpeed}">
+                    <VerticalStackLayout Spacing="2">
+                        <Label Text="{Binding SpeedKph, StringFormat='{0:F1}'}" Style="{StaticResource MetricValue}" />
+                        <Label Text="km/h" Style="{StaticResource MetricLabel}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border Grid.Row="0" Grid.Column="1" Padding="16,12" IsVisible="{Binding ShowsDistance}">
+                    <VerticalStackLayout Spacing="2">
+                        <Label Text="{Binding DistanceMeters, Converter={StaticResource MetersToKilometersConverter}, StringFormat='{0:F2}'}" Style="{StaticResource MetricValue}" />
+                        <Label Text="km" Style="{StaticResource MetricLabel}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border Grid.Row="1" Grid.Column="0" Padding="16,12" IsVisible="{Binding ShowsCalories}">
+                    <VerticalStackLayout Spacing="2">
+                        <Label Text="{Binding Calories}" Style="{StaticResource MetricValue}" />
+                        <Label Text="kcal" Style="{StaticResource MetricLabel}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border Grid.Row="1" Grid.Column="1" Padding="16,12" IsVisible="{Binding ShowsElapsedTime}">
+                    <VerticalStackLayout Spacing="2">
+                        <Label Text="{Binding ElapsedSeconds, Converter={StaticResource SecondsToClockConverter}}" Style="{StaticResource MetricValue}" />
+                        <Label Text="elapsed" Style="{StaticResource MetricLabel}" />
+                    </VerticalStackLayout>
+                </Border>
+
+            </Grid>
+
+            <Border Padding="16,12" IsVisible="{Binding ShowsHeartRate}">
+                <VerticalStackLayout Spacing="2">
+                    <Label Text="{Binding HeartRate}" Style="{StaticResource MetricValue}" />
+                    <Label Text="bpm" Style="{StaticResource MetricLabel}" />
+                </VerticalStackLayout>
+            </Border>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>
+```
+
+`DashboardPage.xaml.cs`:
+```csharp
+namespace MyHi.Companion.Features.Dashboard;
+
+public partial class DashboardPage : ContentPage
+{
+    public DashboardPage(DashboardViewModel viewModel)
+    {
+        InitializeComponent();
+        BindingContext = viewModel;
+    }
+}
+```
+
+Two things worth understanding, even though you didn't write this file:
+- Every metric tile is the exact `Border`/`MetricValue`/`MetricLabel` pattern from
+  `docs/learning/04-Monochrome-Theme.md`'s own example, repeated five times — nothing
+  here is a new style.
+- `IsVisible="{Binding ShowsSpeed}"` etc. *is* the entire "hidden not `--`"
+  implementation on the UI side: the `Border` simply doesn't lay out at all when the
+  bound bool is false — no empty space, no dash.
+
+**3.4 — Register and route to it**
+
+1. `MauiProgram.cs`: add `builder.Services.AddTransient<DashboardViewModel>();` and
+   `builder.Services.AddTransient<DashboardPage>();`, same pattern as every other
+   page already registered there.
+2. `AppShell.xaml`: add a new `ShellContent` for `dash:DashboardPage` with
+   `Route="dashboard"`, placed **first**, before the existing `home` entry — Shell
+   shows whichever `ShellContent` is listed first by default, and this phase's Goal
+   is for the dashboard to become that front door. The existing `home` entry (Phase
+   00's diagnostics menu) stays reachable as the second item for now — exactly how it
+   gets relocated later is the "small decision to make together" the Goal section
+   already flags, not blocking here. Add
+   `xmlns:dash="clr-namespace:MyHi.Companion.Features.Dashboard"` to `AppShell.xaml`'s
+   root tag alongside the existing `xmlns:shared`.
+3. Build and run against `FakeTreadmillService` — you should land on the dashboard on
+   launch and watch metrics move.
 
 **Field visibility** comes from the union of observed `0x2ACD` flag bits (Phase 01a's
 capability tracker, once it exists), **not** from `0x2ACC` — that bitmask on this
@@ -132,6 +386,168 @@ wait, define the shape you need and fake it:
   size.
 - Placed at the very top of the new dashboard page, above the connection indicator
   and live metrics from Part 1.
+
+### Walkthrough
+
+**3.5 — The seam, in `Core`**
+
+1. Create `src/MyHi.Companion.Core/History/` (new folder in `Core`, alongside
+   `Treadmill/`, `Ftms/`, `Capture/`, `Data/`).
+2. `IWorkoutHistoryProvider.cs` — a starting shape, yours to adjust once you've
+   thought about it:
+   ```csharp
+   namespace MyHi.Companion.Core.History;
+
+   public interface IWorkoutHistoryProvider
+   {
+       Task<IReadOnlyList<DailyWorkoutCount>> GetDailyCountsAsync(
+           DateOnly fromLocal, DateOnly toLocal, CancellationToken ct = default);
+   }
+
+   /// <summary>One local calendar day and how many workouts started on it.</summary>
+   public readonly record struct DailyWorkoutCount(DateOnly Day, int Count);
+   ```
+   `DateOnly` rather than `DateTimeOffset` because a contribution-graph cell is a
+   calendar day, not an instant — it matches the `LocalDay` computed column in
+   `14-Database.md`'s query pattern, which Phase 06's real implementation will read
+   from. `record struct` mirrors `TreadmillSample`'s own choice (small, copied by
+   value) — the hint the task list above already points at.
+3. `FakeWorkoutHistoryProvider.cs` — implements the interface, but "make it look
+   like a real training history" is still real logic, not a one-liner, so it gets a
+   skeleton rather than a full body:
+   ```csharp
+   namespace MyHi.Companion.Core.History;
+
+   public sealed class FakeWorkoutHistoryProvider : IWorkoutHistoryProvider
+   {
+       private readonly Random _random = new();
+
+       public Task<IReadOnlyList<DailyWorkoutCount>> GetDailyCountsAsync(
+           DateOnly fromLocal, DateOnly toLocal, CancellationToken ct = default)
+       {
+           // TODO: walk fromLocal..toLocal one day at a time, giving each day a
+           // plausible chance of 0 vs. 1+ workouts (a few days a week reads as
+           // realistic; every day or no days doesn't) and return the list.
+           throw new NotImplementedException();
+       }
+   }
+   ```
+4. Register in `MauiProgram.cs`:
+   `builder.Services.AddSingleton<IWorkoutHistoryProvider, FakeWorkoutHistoryProvider>();`
+   — same DI-slot pattern as `ITreadmillService`/`FakeTreadmillService`, so swapping
+   in Phase 06's real SQLite-backed implementation later touches only this one line.
+
+**3.6 — Wire it into the ViewModel**
+
+1. Add `IWorkoutHistoryProvider` as a second constructor dependency on
+   `DashboardViewModel`.
+2. Add `public ObservableCollection<ContributionDayViewModel> ContributionDays { get; } = [];`
+   — `ContributionDayViewModel` is a tiny binding-facing wrapper (full type in 3.7),
+   kept separate from `DailyWorkoutCount` so `Core` never has to know what "lit" means
+   on screen.
+3. Add `[RelayCommand] private async Task LoadContributionDaysAsync()` that calls
+   `_history.GetDailyCountsAsync(...)` for roughly the last 3–6 months, maps each
+   `DailyWorkoutCount` to a `ContributionDayViewModel(day, count > 0)`, and populates
+   `ContributionDays`. Call it once from the constructor — fire-and-forget is fine
+   here, unlike `SampleReceived` there's no ongoing stream to manage.
+
+**3.7 — The widget (UI, written in full)**
+
+`ContributionDayViewModel.cs` — the binding-facing type:
+```csharp
+namespace MyHi.Companion.Features.Dashboard;
+
+public sealed record ContributionDayViewModel(DateOnly Day, bool IsLit);
+```
+
+`ContributionGraphView.xaml` — a reusable `ContentView` exposing its own bindable
+`ItemsSource`, the same pattern `CollectionView` itself uses for its own
+`ItemsSource`:
+```xml
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:dash="clr-namespace:MyHi.Companion.Features.Dashboard"
+             x:Class="MyHi.Companion.Features.Dashboard.ContributionGraphView"
+             x:Name="Root">
+
+    <CollectionView x:DataType="dash:ContributionGraphView"
+                     ItemsSource="{Binding Source={x:Reference Root}, Path=ItemsSource}"
+                     HorizontalOptions="Center"
+                     IsScrollEnabled="False"
+                     HeightRequest="260">
+        <CollectionView.ItemsLayout>
+            <GridItemsLayout Orientation="Vertical" Span="7" HorizontalItemSpacing="4" VerticalItemSpacing="4" />
+        </CollectionView.ItemsLayout>
+        <CollectionView.ItemTemplate>
+            <DataTemplate x:DataType="dash:ContributionDayViewModel">
+                <Grid WidthRequest="14" HeightRequest="14">
+                    <Border StrokeThickness="0" StrokeShape="RoundRectangle 3"
+                            BackgroundColor="{AppThemeBinding Light={StaticResource ColorContributionUnlitLight}, Dark={StaticResource ColorContributionUnlitDark}}" />
+                    <Border StrokeThickness="0" StrokeShape="RoundRectangle 3"
+                            BackgroundColor="{AppThemeBinding Light={StaticResource ColorContributionLitLight}, Dark={StaticResource ColorContributionLitDark}}"
+                            IsVisible="{Binding IsLit}" />
+                </Grid>
+            </DataTemplate>
+        </CollectionView.ItemTemplate>
+    </CollectionView>
+
+</ContentView>
+```
+
+`ContributionGraphView.xaml.cs`:
+```csharp
+using System.Collections;
+
+namespace MyHi.Companion.Features.Dashboard;
+
+public partial class ContributionGraphView : ContentView
+{
+    public static readonly BindableProperty ItemsSourceProperty =
+        BindableProperty.Create(nameof(ItemsSource), typeof(IEnumerable), typeof(ContributionGraphView));
+
+    public IEnumerable? ItemsSource
+    {
+        get => (IEnumerable?)GetValue(ItemsSourceProperty);
+        set => SetValue(ItemsSourceProperty, value);
+    }
+
+    public ContributionGraphView()
+    {
+        InitializeComponent();
+    }
+}
+```
+
+A few things worth understanding, not just pasting:
+- `Span="7"` on `GridItemsLayout` (docs linked in Reference docs above) is what turns
+  a flat list into a 7-wide grid — every 7th item wraps to a new row. Feeding it days
+  in chronological order (oldest first) produces rows of 7 consecutive days, which is
+  the "simplified, no gradient" contribution graph this phase asks for. A true
+  GitHub-style layout (columns = weeks, scrolling horizontally) is a fair follow-up
+  once this version is reviewed — not required now.
+- Each cell is two stacked `Border`s rather than one `Border` whose color changes via
+  a converter — same reasoning as Phase 02's connection dot: the `AppThemeBinding`
+  colors stay static XAML resolved once per theme, and only `IsVisible` is dynamic.
+  Keeps a value converter out of the picture for something this simple.
+- `IsScrollEnabled="False"` on the inner `CollectionView` hands scrolling to the outer
+  `ScrollView` in `DashboardPage.xaml` — a `CollectionView` nested inside another
+  scrolling container otherwise tends to fight it for the gesture. `HeightRequest="260"`
+  is a starting guess for ~3–6 months of days at 7 per row; tune it once you see it
+  rendered against your actual date range.
+
+**3.8 — Drop it into the dashboard**
+
+1. In `DashboardPage.xaml` (from task 3.3), replace the
+   `<!-- Part 2 (task 3.8) replaces this comment... -->` comment with:
+   ```xml
+   <dash:ContributionGraphView ItemsSource="{Binding ContributionDays}" />
+   ```
+   placed above the connection indicator, per "at the very top of the new dashboard
+   page" above. The `dash:` namespace is already declared on the page from task 3.3.
+2. Build and run — the graph should render a scattering of lit/unlit cells against
+   `FakeWorkoutHistoryProvider` immediately, before any real workout has ever been
+   recorded.
 
 ### Review checkpoint
 

@@ -3,32 +3,55 @@
 One folder per phase. Phase 00 was built by an implementing agent working alone —
 appropriate for a throwaway diagnostic instrument. **Every phase from here on is
 built by the project owner, learning MAUI as they go, with the agent teaching rather
-than implementing.** See "How a phase actually runs" below for what that means
-day-to-day, and `../docs/learning/` for the standing teaching material (MAUI/.NET
-primer, emulator setup, glossary).
+than implementing — except UI code, which the agent writes directly.** See "How a
+phase actually runs" below for what that split means day-to-day, and
+`../docs/learning/` for the standing teaching material (MAUI/.NET primer, emulator
+setup, glossary, doc links, the monochrome theme).
 
 A phase folder plus the root reference docs it names is everything needed for that
-phase; you don't need to read the other phase folders ahead of time.
+phase; you don't need to read the other phase folders ahead of time. Every phase
+below is written as a concrete walkthrough: numbered steps, not just a feature list,
+with a real documentation link next to anything genuinely new rather than "go read
+the docs."
 
 ---
 
 ## How a phase actually runs (the collaboration model)
 
-For each task in a phase's `TASKS.md`:
+**Two different rules, by kind of code:**
+
+### Logic — BLE, parsers, services, ViewModels, state machines: you write it, the agent teaches
+
+For each step in a phase's task list:
 
 1. **Concept first.** The agent explains what you're about to build and why — the
-   pattern, the relevant part of `docs/learning/`, anything genuinely new. Ask
+   pattern, the relevant part of `docs/learning/`, a link to the real Microsoft/
+   vendor doc (see `docs/learning/03-Doc-Links.md`), anything genuinely new. Ask
    questions here; this is the part that's supposed to be slow.
 2. **Spec, not code.** The agent describes what the file/class should do and what
-   "done" looks like — the same shape `TASKS.md` already uses (files touched, an
-   interface to satisfy, an acceptance bullet) — but never hands over the actual
-   implementation.
+   "done" looks like — files touched, an interface to satisfy, a short illustrative
+   snippet showing the *shape* of the solution (never the whole thing), an
+   acceptance bullet — but never hands over the actual implementation.
 3. **You write it.** In your own editor, at your own pace.
 4. **Review.** The agent reads the real file you wrote, flags bugs, explains better
    patterns where they exist, and answers "why is this wrong" rather than just
    fixing it silently.
 5. **Verify together** — run the tests, run the app — before moving to the next
    task.
+
+### UI — XAML pages, styles, widgets, converters: the agent writes it
+
+Every phase that produces a screen or a visual widget includes the **full XAML/C#
+code** for it, built on the shared monochrome theme
+(`docs/learning/04-Monochrome-Theme.md`, already implemented in
+`src/MyHi.Companion/Resources/Styles/`). You paste it in, wire the bindings to
+match your ViewModel's actual property names, and build — you are not expected to
+design layouts or pick colors. The agent still explains what the code does and why
+it's structured that way (so the *concepts* — data templates, grid layouts,
+`AppThemeBinding` — still transfer), but you don't have to produce the XAML
+yourself. This is a deliberate exception to "you write it": UI layout is not what
+this project is trying to teach; BLE, protocol parsing, state machines, and data
+modelling are.
 
 New vocabulary gets added to `docs/learning/02-Glossary.md` as it comes up, not
 dumped all at once.
@@ -37,8 +60,8 @@ dumped all at once.
 
 | Actor | Can do | Cannot do |
 |-------|--------|-----------|
-| Agent | Explain concepts, design the shape of a task, review code, write docs, run tests you ask it to run | Write your feature code for you, connect Bluetooth, observe the treadmill |
-| Project owner | Write the code, run the app on the phone, walk on the belt, capture logs, report observations | — |
+| Agent | Explain concepts, design the shape of a logic task, **write UI/XAML code directly**, review code, write docs, run tests you ask it to run | Write your *logic* code for you (BLE, parsers, services, state machines), connect Bluetooth, observe the treadmill |
+| Project owner | Write the logic code, wire up and adjust the agent's UI code, run the app on the phone, walk on the belt, capture logs, report observations | — |
 
 ---
 
@@ -127,7 +150,9 @@ Everything after that is unchanged in substance — only renumbered.
 | `../DEVICE.md` | Measured facts only. Never write a guess here |
 | `../ASSUMPTIONS.md` | Every guess, with the phase it blocks |
 | `../captures/` | Raw capture files produced by the Phase 00 app |
-| `../docs/learning/` | MAUI/.NET primer, emulator setup, glossary — read these, not just this phase list |
+| `../docs/learning/` | MAUI/.NET primer, emulator setup, glossary, doc links, monochrome theme guide — read these, not just this phase list |
+| `../docs/learning/03-Doc-Links.md` | Verified external documentation URLs, grouped by topic — every phase's "Reference docs" links come from here |
+| `../docs/learning/04-Monochrome-Theme.md` | The shared theme every phase's UI code is built on — already implemented in `src/MyHi.Companion/Resources/Styles/` |
 
 ---
 
