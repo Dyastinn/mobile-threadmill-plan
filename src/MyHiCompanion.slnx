@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="MyHi.Companion.Core/MyHi.Companion.Core.csproj" />
+  <Project Path="MyHi.Companion.Tests/MyHi.Companion.Tests.csproj" />
+  <Project Path="MyHi.Companion/MyHi.Companion.csproj" />
+</Solution>
