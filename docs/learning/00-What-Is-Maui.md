@@ -1,8 +1,11 @@
 # What is .NET MAUI?
 
-> Written for: you already know some .NET/C#, but have never touched MAUI, XAML, or
-> mobile app patterns like MVVM. This doc uses real files from `src/MyHi.Companion/`
-> as examples — open them side by side as you read.
+> Written for: you know C# already (if you don't yet — you know programming in
+> general, just not C# specifically — read
+> [`00a-CSharp-Essentials.md`](00a-CSharp-Essentials.md) first, it's short and
+> exactly closes that gap), but have never touched MAUI, XAML, or mobile app
+> patterns like MVVM. This doc uses real files from `src/MyHi.Companion/` as
+> examples — open them side by side as you read.
 
 ---
 

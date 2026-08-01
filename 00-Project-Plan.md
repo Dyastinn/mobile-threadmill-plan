@@ -102,29 +102,16 @@ multi-user, iOS, Strava/Garmin export, training plans, coaching.
 All dependencies must be MIT / Apache-2.0 / BSD. No GPL, no commercial-licence
 packages, no "free for personal use" terms.
 
-### Open stack decisions
+### Stack decisions — moved
 
-**BLE access layer.** Two options:
-
-- **`Plugin.BLE`** (MIT) — cross-platform abstraction, less boilerplate, mature.
-  Cost: an abstraction between you and `BluetoothGatt`, which is exactly the layer
-  where Android BLE bugs live. Its threading and reconnect semantics are its own,
-  and debugging through it is harder.
-- **Direct Android bindings** (`Android.Bluetooth.*` in the MAUI Android platform
-  folder) — full control, no dependency, every Android quirk is directly
-  addressable. Cost: several hundred lines of callback plumbing you write and
-  maintain yourself.
-
-**Recommendation: `Plugin.BLE`.** This is a single-device, single-platform personal
-app; the abstraction cost is low and the boilerplate saving is real. Revisit only if
-you hit a reconnect or threading bug you cannot reach through the plugin.
-*Confidence: moderate — this is a judgement call, not a fact.*
-
-**SQLite library.** `sqlite-net-pcl` is simpler (attribute-mapped ORM, less code).
-`Microsoft.Data.Sqlite` is closer to raw ADO.NET and gives you real control over
-transactions and bulk inserts — which matters for the telemetry sample writes in
-Phase 7. **Recommendation: `Microsoft.Data.Sqlite`**, given you're already fluent in
-ADO.NET-style data access and the sample table is the performance-sensitive part.
+**Every technology in the table above, including the two decisions that used to be
+inline here (BLE library, SQLite library), now has a full decision record in
+[`02-Technology-Stack.md`](02-Technology-Stack.md)** — problem it solves, why it
+fits this project, at least three alternatives with pros/cons/learning curve, why
+the alternatives were rejected, and long-term considerations. That document also
+flags one open risk the original plan missed: **`LiveCharts2` has not reached a
+stable 1.0 release after years in beta/RC**, with real 2026 maintenance-concern
+reports — worth reading before Phase 10 starts, not treated as a settled choice.
 
 ---
 
@@ -1015,7 +1002,7 @@ Only if Phases 0–15 are done and the app is in daily use.
 docs/
 ├── 00-Project-Plan.md            (this file)
 ├── 01-Architecture.md
-├── 02-Technology-Stack.md
+├── 02-Technology-Stack.md        (exists — full decision record, see root)
 ├── 03-Project-Structure.md
 ├── 04-Bluetooth-LE.md
 ├── 05-FTMS-Protocol.md           ← byte-level spec, TBDs resolved in Phase 3

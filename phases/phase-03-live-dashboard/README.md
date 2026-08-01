@@ -62,6 +62,56 @@ there — not blocking for this phase.)
 
 ## Part 1 — Live metrics
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** A car's speedometer sensor can sample wheel rotation
+hundreds of times a second, but the needle only moves smoothly around 10–20 times
+a second — showing every single raw sample would make the needle vibrate rather
+than move, and a human eye can't use information faster than that anyway. The
+same mismatch shows up here: the treadmill can push `SampleReceived` notifications
+faster than a screen full of `Border` tiles can usefully redraw (Phase 00's
+findings recorded the actual notification rate — see `PHASE-00-FINDINGS.md`).
+`DashboardViewModel` sits between a fast, uneven data source and a UI where five
+bound properties (`SpeedKph`, `DistanceMeters`, `Calories`, `ElapsedSeconds`,
+`HeartRate`) all repaint tiles from — every unnecessary update is a wasted layout
+pass on a phone screen, and the Implementation requirements section below is
+explicit about the cost: "Above that, MAUI janks in split screen for no visible
+benefit."
+
+**Why not just render every sample as it arrives?** The naive version — bind
+directly and let every `SampleReceived` event push straight into the observable
+properties — is what task 3.2's skeleton starts from, then explicitly guards
+against with one `if` check. The fix isn't a timer, a queue, or a reactive
+pipeline; it's the plainest possible throttle: remember `_lastUiUpdateUtc`, and if
+less than ~250 ms have passed, skip the update and let the next sample (a
+quarter-second later, at most) carry the fresher number instead. That single
+comparison is enough to guarantee both things this phase actually needs — no more
+than 4 updates a second, and the *displayed* value is never stale, because a
+skipped sample is simply superseded by the next one rather than queued up behind
+it. Reaching for a dedicated timer object or a full reactive `Sample`/`Throttle`
+operator here would solve a problem this app doesn't have: there's no backlog to
+drain, no requirement to batch multiple samples together, just "don't repaint
+faster than useful." The skeleton's own comment in task 3.2 — "think about whether
+a plain 'skip if too soon' check already satisfies both guarantees" — is the whole
+design decision.
+
+**The pattern, named plainly.** What's being applied here is specifically
+**throttle**, not its cousin **debounce**, and the distinction matters for picking
+the right one. Debounce waits for a stream to go *quiet* before firing (useful for
+a search box: wait until the user stops typing). Throttle fires at a bounded,
+regular rate *while* the stream keeps producing, always carrying the latest value
+— which is what a continuously-changing number like treadmill speed needs;
+debouncing it would mean the UI barely updates at all during a steady, ongoing
+workout, since the stream never really goes quiet. The cost of throttling here is
+one extra field (`_lastUiUpdateUtc`) and one comparison per event — genuinely
+cheap. The payoff is a UI that stays responsive under a notification rate the
+phone can't (and doesn't need to) fully render. It's worth noting when this
+pattern is *not* needed: Phase 01b's `FakeTreadmillService` raises samples roughly
+once a second by design (its own `PeriodicTimer` loop), which is already under the
+4 Hz ceiling — no throttle was needed there because the *source*, not just the
+consumer, was already UI-safe. It only earns its place in Part 1 because the real
+device's notification rate isn't guaranteed to be.
+
 ### Your tasks
 
 - Speed, distance, calories, elapsed time, machine status, on a new dashboard page
@@ -345,6 +395,57 @@ keep recording it (Phase 06) and hide it on this screen.
 ---
 
 ## Part 2 — Contribution graph
+
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Picture a paper wall calendar where you put a small
+sticker on any day you actually worked out. You don't need to read a single
+number to see the pattern — a run of stickers down one row says "consistent," a
+blank week says "fell off." That's the entire point of a contribution graph: turn
+a list of workout dates into something you can read at a glance instead of
+scrolling a log. The catch is that the real list of workout dates doesn't exist
+yet — Phase 06 (Recording & Schema) is what will actually write rows to the
+database and let you query `Workout.StartedAtUtc` grouped by day. Part 2 is being
+built now, ahead of that, using the same seam/fake technique this project already
+used once in Phase 01b for the treadmill connection itself (`ITreadmillService` /
+`FakeTreadmillService`) — `IWorkoutHistoryProvider` and
+`FakeWorkoutHistoryProvider` are that same idea applied to a second, unrelated
+problem. That repetition is worth noticing rather than re-deriving: if Phase 01b's
+rig-and-engine analogy made sense there, it applies here unchanged — swap
+"treadmill hardware" for "SQLite workout history," and everything else about
+*why* holds.
+
+**Why not wait for Phase 06, and why not build the full GitHub version?** Two
+separate "why not simpler" questions sit inside this feature, pulling in opposite
+directions. First: why not just leave this part of the dashboard blank until
+Phase 06 ships real data? Because the interface costs almost nothing to define
+now (`GetDailyCountsAsync(DateOnly, DateOnly)` returning a list of
+`DailyWorkoutCount`, task 3.5) and doing so means the widget, the grid layout, and
+the "how do lit days look" decisions all get built and reviewed *this* phase
+instead of blocking on Phase 06's database work — a smaller win than Phase 01b's
+six-phase unblock, but the same shape of win: one phase's UI work stops waiting on
+another phase's I/O work. Second, pulling the other way: why not build GitHub's
+actual gradient-by-count coloring now, since the data
+(`DailyWorkoutCount.Count` is already an `int`, not just a bool) technically
+supports it? Because nothing in this project has asked for that yet — the phase
+spec itself says plainly, "**Simplified from GitHub's original**: no gradient by
+count... If you want the gradient-by-count version later, that's a good
+follow-up... not a requirement now." Here the simpler version (lit/unlit)
+genuinely *is* the right amount of complexity, not a corner cut — there's no
+demonstrated need for five shades of intensity yet, just "did a workout happen
+this day or not."
+
+**The pattern, named plainly.** The gradient decision is a clean example of
+**YAGNI** ("You Aren't Gonna Need It") — deliberately not building a feature until
+something concrete actually calls for it, rather than speculatively supporting it
+"in case." What makes it cheap to defer here specifically: `DailyWorkoutCount`
+already carries the full `int Count`, not just a boolean, so
+`ContributionDayViewModel`'s `count > 0` mapping (task 3.6) is the only place that
+would need to change later — the seam and the data shape underneath it don't need
+to be redesigned to add color intensity later, only the one line that decides what
+"lit" means. That's what makes deferring it free instead of risky: YAGNI is a bad
+trade when skipping a feature now means an expensive redesign later, and a good
+one when — as here — the door is already left open at zero cost.
 
 ### The feature
 

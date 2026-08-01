@@ -31,6 +31,67 @@ This means the phase is narrower than "build a database layer from scratch": wri
 the real schema as migration 1, then build the two classes that read and write
 through it correctly — a workout header repository and a buffered sample writer.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Imagine journaling every five seconds and, the moment
+you finish writing, walking outside to drop that one entry in the mailbox — then
+walking back, sitting down, writing the next entry, and walking out again. Over an
+hour that's 720 round trips. Almost none of that effort is the writing; it's the
+walk — opening the door, going down the path, coming back. The obvious fix: keep a
+notepad on your desk, jot each entry there as it happens, and carry the whole stack
+out to the mailbox once every 30–60 seconds. Same entries, one trip per batch
+instead of one trip per entry. That's exactly what `WorkoutSampleBuffer` does.
+`Add()` is the notepad — an in-memory `List<WorkoutSampleRow>`, no I/O at all.
+`Flush()` is the walk to the mailbox — opening a `SqliteTransaction`, writing every
+buffered row, committing once. The "walk" (opening a transaction, waiting on the
+disk to durably commit it) is the expensive part, not the "writing" (appending a
+struct to a `List`) — same as the postal analogy, where the trip costs more than
+the sentence.
+
+**Why not just insert every sample as it arrives.** The simplest-sounding
+alternative is to skip the buffer entirely: when `ITreadmillService.SampleReceived`
+fires, immediately `INSERT` that one row and commit. No buffer class, no `Flush()`,
+no timer to wire up in task 6.5 — genuinely less code. At the fixed 5-second
+cadence this project uses, that's 720 separate open-a-transaction-and-commit
+cycles per hour of workout, every workout, forever — real battery drain and real
+flash wear, paid whether or not a crash ever happens. What does that cost buy you?
+Almost nothing: if the app crashes mid-workout, the buffered approach loses at
+most one flush interval — under a minute of telemetry, per the 30–60 s interval
+task 6.5 wires up — which is already the acceptance bar in this phase's
+Implementation requirements. Writing per-sample doesn't make that bound
+meaningfully better; it just pays for insurance against a loss that's already
+small and already tolerated. Batching earns its complexity here because the
+guaranteed cost (720 commits/hour) is real and the naive approach's only
+advantage (marginally less data lost in a rare crash) isn't. Contrast this with
+`WorkoutRepository.StartWorkout`/`CompleteWorkout`: those write directly,
+unbuffered, on purpose — a workout header is written twice per workout, not 720
+times, so there's no "720 trips" problem to solve and adding a buffer there would
+be pure overhead with nothing to show for it.
+
+**The pattern, named plainly.** This is **batching writes behind an in-memory
+buffer with an explicit commit boundary** — sometimes called write-behind
+buffering. The cost: a caller (`WorkoutSampleBuffer`) now has state that can be
+lost (whatever's in `_pending` when the process dies), and a flush must be
+idempotent (hence `INSERT OR REPLACE` — flushing the same rows twice, e.g. after a
+retry, must not duplicate rows) since you can no longer assume every write happens
+exactly once. The payoff, specific to this project: roughly 60–120 commits per
+hour instead of 720 — a 6–12x reduction — while keeping the transaction as the
+atomicity boundary, so a flush either fully lands or fully doesn't, never a
+half-written batch. Two more decisions in this phase lean on the same
+cost-vs-payoff reasoning, worth naming briefly rather than treating as arbitrary:
+`Workout` carries **two** identity columns — `Id` (integer, autoincrement, used
+for every foreign key and join) and `WorkoutId` (a GUID, minted once in
+`StartWorkout`) — because they serve different audiences. `Id` only has to be
+unique on *this* phone; `WorkoutId` has to be unique across *every* phone that
+might ever restore a backup, and an autoincrement integer can't promise that (two
+phones will both mint `Id = 1` for their first workout). One column doing both
+jobs would silently merge unrelated workouts during a restore — the extra column
+is the cost, cross-device correctness is the payoff. And writing the `Workout` row
+with `Status = 0` at workout **start**, not after it finishes, is the same
+fail-fast instinct as Phase 01a's length validation: pay a small cost upfront (a
+row exists before you know the workout succeeded) so a crash mid-workout leaves a
+recoverable, flaggable row instead of nothing at all.
+
 ## Learning goals
 
 - ADO.NET in `Microsoft.Data.Sqlite`: `SqliteCommand`, parameterized queries,

@@ -20,6 +20,61 @@ for the token vocabulary everything below is built from — every snippet here u
 only tokens and styles that already exist in `Colors.xaml`/`Styles.xaml`, or is
 explicitly flagged as something to add there.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Picture furnishing five rooms in a house one at a
+time, as each room gets used. The first room needs a door handle, so you design
+one for it. The second room needs a door handle too, so — since you're already
+in "finish this room" mode — you design another one, slightly different because
+you didn't compare notes with the first. By room four you have four different
+door handles, none of them interchangeable, and fixing a flaw in one (say, it's
+the wrong height for building code) means redoing the fix four separate times.
+The alternative — once you notice every room needs the same kind of handle — is
+to design one handle and install the same part everywhere.
+
+That's exactly the shape of this phase. Phases 03, 08, 09, and 10 each built a
+real screen, and each of those screens independently needs to say "there's
+nothing here yet" (no workouts, no saved devices, an empty search result) and
+"this is working on it" (`IsBusy` while connecting, while loading history).
+Phase 13 doesn't go back and redesign those screens — it notices that the same
+two needs showed up four separate times, and only now, with four real examples
+in hand, builds `EmptyStateView` and `LoadingOverlay` as reusable `ContentView`s
+with `BindableProperty`s (`Icon`, `Title`, `Message`, `ActionCommand`;
+`IsRunning`, `Message`) that get dropped into each of those four screens' `Grid`
+at the review checkpoint.
+
+**Why not just polish each screen as you build it.** The simpler-sounding plan —
+and the one this project actually followed through Phase 10 — is to write each
+screen's empty/loading markup inline, right there in that screen's XAML, when
+that screen gets built. That's not wrong; it's what happened, and it's why this
+phase exists now rather than in Phase 03. The cost of continuing that way past
+this point is concrete: four (soon more) separate copies of near-identical
+`VerticalStackLayout` + `ActivityIndicator` markup, each free to drift — one
+screen's spinner a different size, another missing the
+`SemanticProperties.Description="Loading"` the others have. When the
+touch-target fix (44→48) or a contrast fix needs to land, it has to land N times
+instead of once, and nothing stops the Nth copy from being subtly wrong.
+Building `EmptyStateView`/`LoadingOverlay` *before* Phase 03, on the other hand,
+would have been guessing: the actual set of properties it needs
+(`ActionCommand` for a retry button, `IconDescription` for accessibility) only
+became knowable by having real screens with real "nothing to show" reasons to
+look at. Phase 13 sits at exactly the point where the repetition is proven and
+the shape is known — not before.
+
+**The pattern, named plainly.** This is "Don't Repeat Yourself" (DRY) via
+extract-shared-component, and MAUI's mechanism for it — `BindableProperty` — is
+real, measurable cost: each property is roughly five lines of ceremony (the
+static field, the getter/setter, sometimes a `propertyChanged` callback),
+multiplied by five properties on `EmptyStateView` alone. That cost buys a
+specific payoff for this project: a fix to how "no workouts" looks — spacing,
+wording tone, the icon — happens in one file and appears correctly on every
+screen that uses it, including screens Phase 14+ hasn't built yet. It would
+*not* be worth it for a screen with a genuinely one-off empty condition unlike
+any other screen's — the win here comes specifically from the same
+icon/title/message/action shape recurring across four-plus real screens, which
+is the concrete, already-observed repetition Metz's "wait for the second or
+third occurrence" rule asks for before you extract anything.
+
 ## Learning goals
 
 - **`ContentView` vs. `ContentPage`** — a `ContentView` is a reusable *piece* of UI

@@ -143,6 +143,7 @@ Everything after that is unchanged in substance — only renumbered.
 | Doc | What it is |
 |-----|-----------|
 | `../00-Project-Plan.md` | Vision, stack, non-goals, risk register |
+| `../02-Technology-Stack.md` | Full decision record for every dependency — problem/why/alternatives/long-term. Flags `LiveCharts2`'s pre-1.0 status as an open risk before Phase 10 |
 | `../05-FTMS-Protocol.md` | Byte-level spec. Source of truth for every parser |
 | `../05a-FTMS-Probe-Procedure.md` | `[HUMAN]` procedure the Phase 00 app automates |
 | `../14-Database.md` | Schema, PRAGMAs, write strategy, query patterns |
@@ -151,6 +152,7 @@ Everything after that is unchanged in substance — only renumbered.
 | `../ASSUMPTIONS.md` | Every guess, with the phase it blocks |
 | `../captures/` | Raw capture files produced by the Phase 00 app |
 | `../docs/learning/` | MAUI/.NET primer, emulator setup, glossary, doc links, monochrome theme guide — read these, not just this phase list |
+| `../docs/learning/00a-CSharp-Essentials.md` | Start here if C# itself (not just MAUI) is new — records, nullable types, async/await, events, LINQ, explained against real code from this repo |
 | `../docs/learning/03-Doc-Links.md` | Verified external documentation URLs, grouped by topic — every phase's "Reference docs" links come from here |
 | `../docs/learning/04-Monochrome-Theme.md` | The shared theme every phase's UI code is built on — already implemented in `src/MyHi.Companion/Resources/Styles/` |
 

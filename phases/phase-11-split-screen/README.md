@@ -16,6 +16,59 @@
 
 Usable alongside YouTube.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Picture a phone call where the phone company hangs up
+and redials every time you shift in your chair, adjust the phone against your
+ear, or the screen dims and wakes back up. None of those things have anything to
+do with whether the conversation needs to continue — but if the phone company
+treated them as reasons to restart the call, it would be unusable. Android has
+a similar instinct with activities and configuration changes: by default, a
+"big" event like a window resize tears the whole activity down and rebuilds it
+from scratch, the same as force-closing and reopening the app. Left unchecked,
+that default would apply directly to `MainActivity` during exactly the moment
+this phase exists to support — treadmill still running, screen still on, user
+mid-workout — the app "hangs up and redials" a Bluetooth connection that never
+actually needed to drop.
+
+**Why split screen doesn't force a Bluetooth reconnect.** The naive-sounding
+plan — "handle a window resize like any other big UI event: assume the
+connection might be gone, reconnect defensively once the layout changes" — isn't
+a simpler alternative worth weighing, it's literally what *would* happen without
+work already done in earlier phases. Two things prevent it, and this phase adds
+no new machinery to get there — task 11.3 exists to verify the machinery already
+works, not to build it. First, `MainActivity.cs`'s `[Activity(...)]` attribute
+already declares the `configChanges` a split-screen resize triggers
+(`ScreenSize`, `SmallestScreenSize`, `ScreenLayout`, from Phase 00) — that's what
+stops Android's own tear-down-and-rebuild reflex on `MainActivity` at all.
+Second, and the one worth sitting with: `WorkoutRecordingService` (Phase 07)
+owns the BLE connection and sample recording — the UI only *binds* to it, it
+never holds the connection itself. So even in the hypothetical worst case where
+`MainActivity` somehow did get destroyed and rebuilt mid-resize, the treadmill
+connection wouldn't go down with it, because it was never `MainActivity`'s to
+lose. A window resize, traced all the way through, is nothing more than a
+layout event — `AdaptiveTrigger` swapping which `VisualState` is active — with
+no path to the connection at all.
+
+**The pattern, named plainly.** This is the Single Responsibility Principle
+showing up as a concrete, already-banked payoff rather than a rule to recite:
+`MainActivity` changes for UI/display reasons (screen size, orientation, theme);
+`WorkoutRecordingService` changes for connection-lifecycle reasons (BLE state,
+buffered-sample flushes). Because those are different reasons to change, Phase 07
+already put them in different classes — not in anticipation of split screen, but
+because "the UI's lifetime" and "the connection's lifetime" were already worth
+separating on their own terms, to survive screen-lock. The cost was real at the
+time: an extra component to stand up, bind to, and reason about, instead of one.
+The payoff shows up here, for free, four phases later — split screen needed zero
+new connection-management code, only a manifest attribute and some XAML. Worth
+naming honestly: this payoff isn't automatic just from "using a `Service`" — it
+required deliberately keeping the BLE connection out of `MainActivity`/the
+ViewModel layer in the first place. A project that let a ViewModel hold the
+`ITreadmillService` connection directly — a perfectly reasonable choice for an
+app with no background-survival or split-screen requirement — would be paying
+for this phase's constraint the hard way, right now, instead of collecting it as
+a free line in a changelog.
+
 ## Features
 
 - Responsive layout at 33% / 50% / 75% / full

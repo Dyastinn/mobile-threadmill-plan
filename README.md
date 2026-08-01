@@ -52,7 +52,13 @@ than trusting the spec or the device's self-description. See
 | MVVM | `CommunityToolkit.Mvvm` |
 | Min/target SDK | Android 31 / 36 |
 
-New to MAUI? Start at [`docs/learning/00-What-Is-Maui.md`](docs/learning/00-What-Is-Maui.md).
+New to C#? Start at
+[`docs/learning/00a-CSharp-Essentials.md`](docs/learning/00a-CSharp-Essentials.md).
+Know C#, new to MAUI? Start at
+[`docs/learning/00-What-Is-Maui.md`](docs/learning/00-What-Is-Maui.md).
+Curious *why* each piece of this stack, specifically? See
+[`02-Technology-Stack.md`](02-Technology-Stack.md) — every dependency here has a
+full decision record (problem it solves, alternatives considered, why they lost).
 
 ## Repository layout
 

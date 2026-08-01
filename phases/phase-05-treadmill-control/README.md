@@ -13,6 +13,72 @@
 Change treadmill speed from the app, reliably. Everything here was already proven by
 hand in the Phase 00 control console; this phase turns that into product UI.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Imagine renting a car whose dashboard sticker says
+"cruise control included." Before relying on it at highway speed, you'd press the
+button once and *feel* it hold speed — a sticker on a rental car is evidence
+someone printed a sticker, not evidence the feature works. That's exactly the
+situation with `0x2ACC`'s "Speed Target Setting" bit: it's the treadmill's own
+self-description, and this device's self-description is already caught lying
+elsewhere (`ASSUMPTIONS.md` A3 — the same bitmask claims incline support on a
+machine with no incline). So this phase doesn't enable the speed controls because
+the label says so; it enables them only after actually performing the handshake —
+`Request Control` returning success, then a real `Set Target Speed` returning
+success — the equivalent of pressing the cruise control button once and feeling
+the car respond, not just reading the box. Separately, think about a shared
+kitchen with one "cut power to the stove" switch on the wall, distinct from the
+stove's own physical breaker. Pressing the wall switch is convenient and should be
+quick — but if it's the *only* thing standing between "the burner is on" and "the
+burner is off," you'd still want a half-second of "wait, yes, do it" before your
+hand hits it, not because the switch itself is dangerous to press, but because
+it's easy to bump and hard to instantly verify it worked. That's the Stop button
+here: task 5.3/5.4's confirmation dialog exists because a Bluetooth command over a
+radio link is a wall switch, not the breaker — the actual breaker is the
+treadmill's physical safety key, and the app is careful never to let its own UI
+imply otherwise (hence never labelling it "Emergency Stop").
+
+**Why not simpler.** The naive, less-code version of gating is right there in the
+spec: read `0x2ACC` once after connecting, and if the Speed Target Setting bit is
+set, enable the controls — zero extra round trips, one field read. This project
+doesn't do that not out of general caution, but because Phase 00 already measured
+this exact bit lying about incline on this exact device — trusting it for speed
+control means trusting a source with a demonstrated failure on the very same
+message. The actual approach costs one real round trip (`Request Control`, then a
+live `Set Target Speed`) before any button is enabled, plus re-running that same
+check after every reconnect and after any `ControlPermissionLost` event —
+noticeably more code than "check a bit." What it buys: the alternative failure
+mode is a treadmill that shows working +/- buttons that silently do nothing when
+tapped, which is worse than not showing them at all. For the Stop confirmation,
+the naive alternative is equally obvious — no dialog, tap Stop, command goes out
+immediately, matching how the +/- buttons already work with no confirmation. The
+reason Stop specifically gets the extra step and increase/decrease don't: a wrong
+tap on "+1 speed" is trivially correctable with one tap on "-1 speed," but a stop
+command has no correctable undo — belt state, in a fitness-safety context, is
+exactly where `00-Project-Plan.md`'s safety section draws the line for a
+deliberate second step, and nowhere else in this phase.
+
+**The pattern, named plainly.** The gating decision is **testing behaviour
+instead of trusting a declared capability** — not a formal GoF pattern, but the
+same instinct behind "don't trust a client-declared capability, verify it,"
+applied to a BLE feature bitmask instead of, say, an HTTP header. Cost: an extra
+async round trip before any control appears usable, and it has to be re-run on
+every reconnect and permission loss, which is more state to track than a one-time
+flag read. Payoff, specific to this device: it directly prevents the failure Phase
+00 already proved exists — controls that look live but aren't. It would **not**
+be worth it against a device whose self-reported capabilities had never been
+caught lying; re-verifying a capability bit you have no concrete reason to
+distrust is exactly the kind of defensive complexity Metz would cut. The Stop
+confirmation is a plain application of **friction as a deliberate safety cost**,
+not a named software design pattern — Uncle Bob's framing fits loosely ("confirm
+before an unrecoverable action" as a rule worth deliberately applying here, not
+followed blindly everywhere), but it's a UX/safety tradeoff more than a
+structural one: it costs one extra tap and one extra round trip through
+`DisplayAlert` every single time, on purpose, because the payoff — never silently
+letting a mis-tap interrupt the belt — is worth that friction specifically for a
+command with no undo. The same reasoning does not extend to the +/- buttons, which
+stay frictionless because a wrong tap there costs nothing.
+
 ## Learning goals
 
 - **Debounce/coalesce as a reusable pattern.** Phase 04's grace timer was the first

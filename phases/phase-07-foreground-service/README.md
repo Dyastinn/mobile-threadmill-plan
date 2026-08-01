@@ -20,6 +20,70 @@ surface here for the agent to hand you fully built. The one place declarative XM
 shown in full below is the manifest diff (task 7.1) — same reasoning as UI XAML: it's
 config, not logic.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** An office building with motion-sensing lights and
+climate control assumes nobody's in a room once it's been still for a while, and
+cuts power to save money — perfectly reasonable, most rooms most of the time
+really are empty. If you're working late in one of those rooms, the fix isn't to
+argue with the sensor; it's to put up a sign the building's system is built to
+recognize — "still occupied" — and the building holds up its end: power stays on
+as long as the sign is there. Android is that building. To save battery, it
+aggressively suspends work in apps that aren't visible on screen — exactly what
+this phase's intro warns about: "split screen — app visible but not focused — is
+exactly where Android starts restricting background work." By Phase 06, recording
+already works — `WorkoutSampleBuffer` and `WorkoutRepository` are solid — but none
+of it survives the screen turning off unless something holds up a sign Android
+respects. A **foreground service** with a persistent, user-visible notification
+*is* that sign: in exchange for a notification the user can always see and
+dismiss-proof ("elapsed time, distance, speed," per this phase's Features list),
+Android contractually agrees not to kill the process.
+
+**Why a plain background task isn't enough.** The simplest-sounding approach —
+just keep running the BLE read loop and the sample buffer on an ordinary
+background `Task`, no `Service`, no notification — works fine as long as the app
+is the thing on screen. The moment the user locks the phone or switches to
+another app mid-workout (a 20–60 minute session, easily), Android's power
+management throttles and eventually kills background work regardless of what the
+app intends — this isn't a setting the app can request around; it's enforced OS
+policy. The realistic failure isn't a clean stop, it's a silent one: the BLE
+connection drops and `WorkoutSample` rows stop appearing mid-workout, the exact
+gap Phase 06's `Flags` bit 0 gap marker exists to record after the fact rather
+than prevent. So "just use a background task" isn't a simpler-but-adequate
+alternative here — it's an alternative that predictably breaks the one thing this
+phase exists for (`../README.md`'s own framing: "every long-running test from here
+on is unreliable without this"). A closely related question is *why declare
+`connectedDevice` specifically* rather than the plainest possible foreground
+service. That's not invented complexity either — Android 14+ requires apps to
+state which of several defined types of long-running work a foreground service is
+doing, and background BLE specifically requires the `connectedDevice` type plus
+its own `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission (task 7.1). Get the type
+wrong or omit it and there's no build error and no exception — this phase's
+Implementation requirements call out exactly this: "the failure mode is a silent
+scan failure rather than an exception," which is a far worse debugging session
+than a naive attempt would suggest.
+
+**The pattern, named plainly.** `WorkoutRecordingService` is deliberately both
+**started and bound** — two Android service lifecycles layered on one class, named
+explicitly in this phase's Learning goals. *Started* (`StartForegroundService`,
+task 7.5) means the service keeps running independent of whoever launched it — it
+doesn't stop just because the screen that started it goes dark. *Bound*
+(`BindService`, task 7.6) means the UI can hold a direct reference to the running
+instance — `WorkoutRecordingServiceConnection.Service` — to read live
+elapsed/distance/speed for the in-app dashboard, rather than only being able to
+fire one-way `Intent`s at it. The cost is real: two lifecycles to reason about at
+once, and task 7.6 says as much — a service that's bound but never started dies
+the moment the activity unbinds, which is exactly backwards for a recording that
+must outlive the app being backgrounded. The payoff is exactly this project's
+shape: recording must survive UI teardown (started), while the dashboard wants
+push-style live access when the app *is* in front (bound) — one responsibility
+(own the BLE connection and the buffer) exposed two different ways to two
+different consumers (Android's process manager, and this app's own UI), rather
+than forcing one lifecycle to serve both needs badly. A one-off background job
+with no live UI to talk to — say, a single background upload — would only need
+"started," and adding a binder for it would be ceremony with no consumer to use
+it.
+
 ## Learning goals
 
 - Android's `Service` component and the **started + bound** hybrid pattern: started so

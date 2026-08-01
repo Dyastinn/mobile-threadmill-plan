@@ -8,6 +8,59 @@
 
 User preferences, persisted.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Think about how you organize things at home: your house
+keys go on a hook by the door — cheap to reach, always exactly one set, you just
+overwrite "where they are" every time you come in. Your tax documents go in a
+labeled filing cabinet, because there are many of them, they accumulate over
+years, and sometimes you need to find one, replace one, or throw an old one out.
+You wouldn't build a filing cabinet to hold your house keys, and you wouldn't nail
+a single hook to the wall for eight years of receipts — the storage mechanism has
+to match what's actually being stored. This phase hits exactly that fork: six
+settings ("dark mode: on", "units: metric") are single values that only ever get
+overwritten in place — the hook by the door. Saved Devices, by contrast, is a
+growing list of Bluetooth devices, each with its own name, MAC address, last-seen
+time, and preferred flag, individually added, removed, and queried — the filing
+cabinet. That's why this phase stores the first group in MAUI `Preferences` (a
+flat, synchronous key/value store — Android `SharedPreferences` underneath) and
+leaves the second group exactly where Phase 06 already put it: the SQLite
+`Device` table.
+
+**Why not put everything in one place.** The simplest-sounding rule would be
+"this app already has SQLite, so put every persisted thing there" — one
+mechanism, one thing to learn. Concretely, that means a `Settings` table, a
+schema migration every time a new toggle is added, and an async database round
+trip every time `SettingsViewModel` reads or writes a boolean the instant a
+`Switch` flips — real latency and real ceremony for data that's fundamentally
+just "hold six named values." The opposite naive rule — keep Saved Devices in
+`Preferences` too, as one JSON blob under a single key — is wrong in the other
+direction: adding one device means deserializing the whole blob, appending, and
+reserializing everything back; there's no way to update just one device's
+`LastSeenUtc` without touching every other device's data, and two writes racing
+(auto-reconnect updating `LastSeenUtc` while the settings page happens to be open)
+can silently clobber each other. SQLite exists specifically to make per-row
+updates and concurrent access safe; a hand-rolled JSON blob just reinvents a
+worse version of exactly that. Splitting the two isn't extra complexity for its
+own sake — each half is genuinely simpler than forcing the other mechanism onto
+it would be.
+
+**The pattern, named plainly.** `IPreferencesStore` (task 8.1) is the same
+**seam** you already built in Phase 01b for `ITreadmillService` — a small
+interface standing between logic (`AppSettingsService`) and a real platform API
+(`Preferences`) that `Core` isn't allowed to reference directly. The cost is the
+same kind, just smaller in this phase: one interface, one thin wrapper
+(`MauiPreferencesStore`), one fake (`FakePreferencesStore`) for tests — a handful
+of extra files for four method signatures. The payoff is the same shape too:
+`AppSettingsServiceTests` (task 8.4) can assert "an unrecognized theme string
+falls back to `System`, never throws" without an Android runtime anywhere in the
+loop. Worth noticing where this project *doesn't* draw the same line: it doesn't
+build a matching seam over SQLite for Saved Devices in this phase — the `Device`
+table already goes through a repository from Phase 06, its own seam, built when
+Phase 06 actually needed one. A seam earns its keep only where something on the
+other side of it genuinely needs to be swapped or faked for a test, not as a
+default habit applied to every dependency in the app.
+
 ## Learning goals
 
 - The **seam pattern again, one layer down**: `Preferences` (a MAUI/Android type) can't

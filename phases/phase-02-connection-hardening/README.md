@@ -12,6 +12,70 @@
 A GATT connection that survives the real world: range loss, Bluetooth toggles,
 treadmill power cycles, app restarts.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Think of wireless earbuds. Walk out of your phone's
+Bluetooth range and the music cuts out; walk back in, and good earbuds reconnect on
+their own within a couple of seconds — you never opened a settings screen. Cheap
+ones don't: you have to re-open the case, or dig into Bluetooth settings and tap
+the device name again. That gap between "recovers on its own" and "you have to
+notice and fix it" is exactly what this phase closes. Phase 00 built
+`TreadmillConnection`, and its own doc comment already says the honest thing:
+*"No auto-reconnect — that is Phase 02."* Right now, walking off the side of the
+treadmill deck (RSSI ≈ −49 dBm at the walking position, per the Traps section — a
+real, measured number, not a guess), toggling the phone's Bluetooth, power-cycling
+the treadmill, or just restarting the app all leave you back at a dead connection
+with no path forward except manually reconnecting through a diagnostics screen. For
+an app meant to sit untouched on a treadmill console shelf while you run, that's
+not acceptable — this phase turns "connects once, by hand" into "stays connected,
+and comes back on its own."
+
+**Why not just retry immediately, forever?** The simplest-sounding fix is: the
+moment `Disconnected` fires, immediately call `ConnectAsync` again, and keep
+calling it in a tight loop until it works. That's *not* the approach this phase
+takes, and the reason is concrete, not theoretical: GATT error 133 is already
+flagged in the Traps section as "the single most common Android BLE failure," and
+hammering a flaky radio stack with back-to-back connection attempts is a known way
+to make that worse, not better — plus a tight retry loop burns battery retrying a
+treadmill that might be powered off or out of the room for the next twenty
+minutes, with the phone screen off the whole time. The schedule this phase
+actually specifies — 1 s, 2 s, 4 s, 8 s, 16 s, then a steady 30 s, cancellable and
+capped — is barely more code than a naive `while(true)` retry loop (it's one pure
+function, `ReconnectBackoff.DelayForAttempt`, task 2.2), but it buys real
+behavior: fast recovery for the common case (you walked ten feet away and came
+back), and a low, sustainable retry rate for the case where the treadmill is
+genuinely off for a while. Nothing here reaches for more than that — no jittered
+randomization, no configurable retry policies, no circuit breaker. A static
+six-step schedule is the minimum shape that avoids both "hammering" and "gives up
+forever," and this project needs nothing more elaborate than that.
+
+**The pattern, named plainly.** The schedule itself is a textbook **Retry pattern
+with exponential backoff** — wait progressively longer between attempts at
+something that failed, on the reasonable assumption that a transient failure often
+needs a little time to clear. It isn't BLE-specific; the same idea shows up
+anywhere a client depends on something unreliable (HTTP calls to a flaky server,
+background sync). The cost here is genuinely small: one pure, unit-testable
+function. The payoff is specific to this project: a treadmill several feet away
+with a phone in your pocket will drop and regain signal routinely during a
+workout, and without this, every drop would otherwise require you to stop, look at
+the phone, and manually reconnect mid-run.
+
+There's a second, quieter pattern in how `ReconnectionManager` is built: it takes
+a `TreadmillConnection` in its constructor and wraps it, rather than adding retry
+logic inside `TreadmillConnection.cs` itself. That's **composition over modifying
+working code**, and the reasoning is Single-Responsibility-flavored:
+`TreadmillConnection`'s one job is "connect once, cleanly," and that path is
+already exercised by every Phase 00 screen. Bolting retry logic into the same
+class means a bug in the *new* retry loop can now break the *already-proven*
+connect-once path too. Keeping them as two classes — one wrapping the other —
+means `ReconnectionManager` can misbehave without `TreadmillConnection` ever
+knowing it exists. The tradeoff is real, not free: callers now go through one more
+layer (`ReconnectionManager.State` instead of `TreadmillConnection.State`
+directly), and that layer has to remember to forward events it didn't originate
+(see `StateChanged` re-firing in the skeleton). For a class this small, wrapping
+is worth that one extra layer of indirection; it would be overkill for, say, a
+one-line utility method with no meaningful "known-working path" to protect.
+
 ## Learning goals
 
 - **Composition over modifying working code.** `TreadmillConnection.cs`'s own doc

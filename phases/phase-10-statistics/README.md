@@ -13,6 +13,72 @@
 
 Aggregates and charts. LiveCharts2 (MIT).
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Say you keep a paper logbook of every treadmill
+session — one line per workout: date, distance, calories, duration. At the end of
+the month someone asks "how far did I go this month?" There are two ways to
+answer: photocopy every page, spread them across the table, and add up the
+distance column by hand — or hand the logbook to a bookkeeper whose entire job is
+running exactly this kind of column-total, who already has the book open and
+doesn't need you to move a single page. That's the choice task 10.1 is actually
+making: `Workout` rows live in a SQLite database that already has a purpose-built
+engine for "sum this column, grouped by that column" (`GROUP BY`/`SUM`/`COUNT`) —
+the query `14-Database.md` already gives for daily totals, which
+`SqliteStatisticsProvider.GetAggregatesAsync` extends to weekly/monthly/yearly.
+The naive alternative — `SELECT * FROM Workout`, pull every row into a C#
+`List<Workout>`, and `.Sum()`/`.GroupBy()` over it in memory — photocopies the
+whole logbook just to add one column.
+
+**Why aggregate in SQL, not a C# loop over a loaded table.** For the
+`Workout`-level aggregates (10.1/10.2), be honest about the actual stakes: this
+table, even after years of daily use, tops out around a few thousand rows — a
+naive `.Sum()` over that wouldn't be slow enough to notice today. So this isn't
+"SQL because performance demands it," it's "SQL because it's already the
+simplest correct tool for the job": a `GROUP BY date(...)` query is fewer lines
+and less code to own than a hand-rolled dictionary-keyed accumulator loop in C#,
+not a more complex alternative earning its keep. Where the stakes get real and
+quantified is task 10.4's per-workout sample series: a two-hour workout is 7,200
+rows in `WorkoutSample` (one per second), and a 400px-wide chart needs on the
+order of 200 points to render meaningfully. Loading all 7,200 rows just to thin
+them to 200 in a C# loop means shipping 36× more data across the SQLite driver
+than the chart will ever draw — for every workout, every time its detail page
+opens. The `WHERE ElapsedSec % $n = 0` downsampling query in
+`GetWorkoutSeriesAsync` does that thinning inside the database instead, so
+roughly 200 rows cross into the app, not 7,200. That's the one place in this
+phase where "compute it in SQL" earns its complexity over the loop-in-C#
+alternative with a real, quantified number behind it — everywhere else in this
+phase it's simply the shorter, more idiomatic way to ask the question.
+
+**The pattern, named plainly.** `14-Database.md`'s rule that a cache table is
+allowed "if a query becomes slow" but "do not start there" is an application of
+**YAGNI** (you aren't gonna need it — yet): resist adding a structure to solve a
+problem you haven't actually measured. The cost of *not* pre-building a cache
+table: every chart re-runs its aggregate query from scratch, with no
+memoization. The payoff: zero synchronization bugs — a cache table that ever
+drifts out of sync with `Workout`/`WorkoutSample` is worse than no cache at all,
+because it can silently lie, and there's one less thing to keep correct across
+every future phase that writes a workout. This tradeoff would flip — a
+rebuildable cache table becoming genuinely worth it — the moment this phase's
+own performance test (5,000 workouts, aggregate queries under 200ms) actually
+fails, not before that. That's the concrete, stated condition, not "in case it's
+slow later."
+
+**One thing to hold loosely.** The charts in this phase render through
+LiveCharts2, and it's worth being honest that this specific choice isn't fully
+settled. Per `02-Technology-Stack.md`, LiveCharts2 has stayed in beta/RC for
+multiple years without reaching a stable 1.0, with real 2026 community reports
+of maintenance concern — a legitimate risk, not pedantry, for a project one
+person maintains indefinitely. That's not a reason to avoid it *now*: Phase 10 is
+late enough in this plan that the choice has already had months to prove itself,
+and the chart-building code here stays isolated to
+`StatisticsViewModel`/`WorkoutDetailViewModel`, so a future swap — to OxyPlot if
+the dual-axis speed/heart-rate overlay stays a requirement, or to Microcharts if
+the heart-rate curve gets cut per Phase 00's V3 finding — wouldn't ripple into
+any other phase. Treat it as a dependency held under a specific, stated
+condition for revisiting, not one to assume is beyond question the way
+`Microsoft.Data.Sqlite` or MAUI Shell are.
+
 ## Features
 
 - Daily / weekly / monthly / yearly aggregates

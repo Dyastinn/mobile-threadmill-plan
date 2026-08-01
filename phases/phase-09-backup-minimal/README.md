@@ -12,6 +12,66 @@
 Get workout history off this phone and onto another one, without ever leaving the
 database in a state worse than before the attempt.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Imagine you're moving apartments and you can only make
+one non-negotiable promise to yourself: nothing that goes into a box disappears
+before it comes out the other end. Whether you also unpack faster, color-code the
+boxes, or merge duplicate furniture from both places is a nice-to-have for a
+later trip. This phase is that promise, applied to a phone: get every workout off
+this device and onto another one, intact, even if the process is interrupted
+halfway through. The line at the top of this phase's doc says exactly that —
+"without ever leaving the database in a state worse than before the attempt."
+Everything else — merging two phones' histories, a CSV export for spreadsheets,
+an older backup reading correctly in a newer app version — is explicitly Phase
+15's problem, not this one's.
+
+**Why "minimal" isn't corner-cutting.** The tempting alternative, once you're
+deep in `BackupExporter`/`BackupImporter` with the ZIP format and database
+queries fresh in your head, is to build the complete version now: add merge
+mode, add CSV, add version migration while you're already in the file. Each of
+the three is deferred for a specific, demonstrable reason, not laziness.
+**Merge mode** needs conflict-resolution rules for what happens when the same
+`WorkoutId` appears on both phones with a different `Notes` field or a different
+`EndedAtUtc` — rules nobody can write correctly today, because there's no real
+case yet to write them against; guessing now means designing against an imagined
+scenario instead of an observed one. **CSV** is a second output format with its
+own schema-mapping problem — `samples.json`'s nested, per-workout structure
+doesn't flatten into spreadsheet rows the same way `workouts.json` does — and
+nothing in this phase's scope actually needs it; the single ZIP already
+satisfies "get the data off the phone." **Version migration** is, almost by
+definition, something you cannot build correctly before a second format version
+exists to migrate *from* — `backupFormatVersion` is in the manifest today
+specifically so a real migration can be written later against a real old format,
+not an invented one now. So the "Out" column in the Scope section isn't three
+shortcuts, it's three things that are genuinely impossible to build well yet,
+deferred to the point where they become buildable. What's left in scope — full
+export, replace-only import, automatic local backup, pre-import safety backup —
+is the complete list of what's needed to make "you can always get your data
+back" true today, and no smaller.
+
+**The pattern, named plainly.** The zip-slip guard, decompression cap, and
+format-version check in `BackupImporter` (task 9.3, steps 1–3) are the same
+**fail-fast-at-the-trust-boundary** idea Phase 01a applied to BLE packets: check
+everything *before* trusting any of it, reject loudly and immediately, never
+partway through real work. The boundary just moved — there, the untrusted input
+was bytes off a Bluetooth radio; here, it's a ZIP file that might be corrupted,
+hand-edited, or actively hostile (a `../` entry trying to write outside the
+target directory is the same category of problem as a truncated BLE packet: data
+from outside the program's control, shaped to look valid). The cost is the same
+shape too — a handful of checks (an entry-name allowlist, a summed-length check,
+one manifest field read) before any real import work starts. The payoff is what
+makes it worth it here specifically: without the allowlist check, a crafted ZIP
+entry could write a file anywhere the app has permission to write; without the
+pre-import safety backup and the single SQLite transaction (task 9.3, steps 4–5),
+an import that fails at row 40,000 of `samples.json` leaves the user with neither
+their old data nor their new data — for a feature whose entire purpose is "never
+lose the user's workout history," a validation gap here would defeat the phase's
+own point. This is exactly what Uncle Bob's framing is actually about: fail-fast
+isn't sprinkled everywhere in this codebase, it's applied precisely at the
+boundary where control passes from something you don't trust (a file the user
+picked off their filesystem) to something you do (your own database).
+
 ## Learning goals
 
 - **Splitting a feature across the `Core`/app seam a third time.** The ZIP-building,

@@ -16,6 +16,69 @@
 
 Workout lifecycle, **independent of connection lifecycle**.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Picture a personal trainer running a class. The trainer
+keeps two separate kinds of awareness at once: what stage the *session* is at
+(warming up, mid-set, resting, done) and whether they can currently *see* you.
+Those are genuinely different facts — stepping behind a pillar for ten seconds
+doesn't cancel the class, it just means the trainer can't currently confirm what
+you're doing, so they wait a beat before assuming you left. And when the trainer
+counts your reps out loud, they need to know whether the number you're calling out
+is "reps this set" or "reps since you walked in the door" — get that wrong and
+every number they write in your log afterward is wrong, confidently and silently.
+`WorkoutEngine` is exactly this trainer. Its own state
+(`Idle`/`Active`/`Paused`/`Finished`) is deliberately a separate concept from
+`ITreadmillService.ConnectionStateChanged` (Phase 02's connection state:
+`Connecting`/`Discovering`/`Ready`/`Disconnected`) — the engine subscribes to
+connection events but tracks its own state independently, bridging the two only
+through `WorkoutPauseReason.ConnectionLost`. The 60-second grace timer in task 4.2
+is the "wait a beat before assuming you left" instinct, coded as a cancellable
+`Task.Delay`. And the counter-semantics block (task 4.3) is the "don't log a
+number whose units you don't know" problem — blocked, by design, on
+`PHASE-00-FINDINGS.md` V1.
+
+**Why not simpler.** Three places here where a flatter design looks tempting, and
+each one is worth naming why it loses. First: why not one combined enum instead of
+two state machines — say, a single `WorkoutState` with a `Disconnected` value
+bolted on? Because connection state and workout state don't actually vary
+together: you can be `Idle`+`Ready` (connected, not started), `Active`+
+`Disconnected` (mid-workout, radio dropped), even `Finished`+`Ready` (done, still
+connected). Cramming five connection values against four workout values into one
+enum means naming and reasoning about a combinatorial grid, most of whose cells
+never happen — two small, orthogonal machines with one explicit bridge field
+(`WorkoutPauseReason`) is less total surface than one bloated one. Second: why not
+skip the grace timer and end the workout the instant the connection drops? Because
+BLE drops transiently and often — walking past a microwave, the phone rotating in
+a pocket — for a second or two, not because the session is actually over. Ending
+the workout on every blip would make the app unreliable at the one thing it exists
+to do: keep a workout running while you walk on a treadmill. 60 seconds and one
+`CancellationTokenSource` is cheap for that much real-world tolerance. Third, and
+different in kind from the other two: the counter-semantics decision isn't a
+complexity tradeoff at all — there's no "simpler" version that's also correct.
+Guessing (say, defaulting to per-session because that's more common) doesn't fail
+loudly the way a malformed BLE packet does; it produces a plausible, wrong number
+that gets written to SQLite and stays wrong forever, because nothing about a
+wrong-but-plausible distance value looks broken. That's why task 4.3 says stop,
+not "guess and revisit" — there's no cheap version of "guess correctly" to fall
+back to.
+
+**The pattern, named plainly.** Keeping the workout and connection state machines
+separate is an application of **separation of concerns** to state design
+specifically: each machine only has to be provably correct against its own small
+diagram (the tests in this phase check illegal `WorkoutState` transitions in
+isolation, never a connection concern), rather than one sprawling machine where a
+bug in connection-handling can corrupt workout logic that has nothing to do with
+it. The cost is real — two mental models running concurrently, and one bridging
+field (`WorkoutPauseReason`) that has to be kept honest by hand. It's worth it
+here because the two concerns fail independently in the real world (a workout can
+be perfectly fine while Bluetooth misbehaves, and the reverse isn't even
+meaningful). It would **not** be worth it for a feature with only one plausible
+failure mode — if this app only ever ran against a wired, unloseable connection,
+bolting a `Disconnected` value onto `WorkoutState` directly would be the more
+honest, simpler design, and splitting it in two would be exactly the kind of
+complexity Metz would push back on.
+
 ## Learning goals
 
 - Building a second state machine that runs concurrently with Phase 02's connection

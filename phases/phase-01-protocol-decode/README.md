@@ -16,6 +16,48 @@
 anything that needs to display or react to treadmill data can now be built and tested
 without the real hardware in the room.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Imagine building a car's dashboard and cruise control
+before the engine exists. You can't check "does the speedometer needle move
+correctly" or "does cruise control actually hold speed" without something feeding
+the dashboard real-looking numbers — so car manufacturers build the dashboard
+against a **rig**: a box that fakes the engine's signals convincingly enough that
+everything downstream can be built and proven correct today, engine or no engine.
+That rig is exactly what `FakeTreadmillService` is. The "engine" here is the real
+Bluetooth connection to the treadmill, and Track 01a (the actual byte parsers) is
+blocked on physical access to the hardware — a scarce, in-person resource, not
+something that can be conjured by typing faster.
+
+**Why not just wait for the real thing?** The simplest-sounding plan is: don't
+build a fake at all, wait until 01a is unblocked and the real parsers exist, build
+one `TreadmillService`, done. The reason that's actually the *worse* plan here,
+not the simpler one: Phases 03, 04, 06, 09, 10, 11, and 12 all need treadmill data
+flowing to be built and tested at all. If everything waits on one in-person
+capture session, the entire rest of the project serializes behind a single
+bottleneck outside your control. So "build one small fake now" isn't complexity
+for its own sake — it's the thing that lets six other phases proceed in parallel
+with your actual schedule instead of the treadmill's availability. That's the
+concrete test for whether an abstraction earns its keep: **count how many things
+it unblocks.** Here, the answer is six phases for about 150 lines of code — a
+clear win, not a judgement call.
+
+**The pattern, named plainly.** What you're building is called **programming
+against an interface, not an implementation** — one of the oldest ideas in
+object-oriented design — applied here as a **seam**: a deliberately placed point
+where a real dependency (live Bluetooth) can be swapped for a stand-in (the fake)
+without anything on the other side of the seam noticing or changing.
+`ITreadmillService` *is* the seam. The cost is real: one extra layer of
+indirection — any code holding an `ITreadmillService` genuinely doesn't know
+whether it's talking to hardware or a simulation, which is one more thing to hold
+in your head. The payoff is also real and specific to *this* project: BLE
+hardware is expensive to keep "in the loop" for every phase's day-to-day
+development (you'd need the treadmill physically present and powered on for
+every single test run). Where the real dependency is cheap and instant to use
+directly — most plain data transformations, for instance — this same pattern
+would be needless ceremony. It earns its place here specifically because the real
+thing is hard to get to, not as a default habit for every dependency in the app.
+
 ### Learning goals
 
 - Implementing an interface against a contract someone else already designed
@@ -231,6 +273,47 @@ trustworthy. Nothing else is newly blocked on this beyond what it always blocked
 > Pure desk work once unblocked — no hardware in the loop. The hardware speaks in
 > Phase 00's capture files; this track turns that hex into parsers provably correct
 > against it.
+
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** The treadmill sends a stream of raw bytes over
+Bluetooth — no more meaningful on their own than a stranger reading you a string
+of numbers over the phone. A parser's job is translation: turn `"02 4B 00 A3 01
+..."` into `SpeedKph = 6.5, DistanceMeters = 412`. That translation step is where
+almost every real bug in a BLE app actually lives, because the "dictionary" you're
+translating against (the FTMS spec) is a *general* spec written for any fitness
+machine, and this specific treadmill — a FitShow module, not a native FTMS
+implementation — is already proven to deviate from it (see `05-FTMS-Protocol.md`'s
+own §2 finding that the feature flags over-claim). You're not just implementing a
+spec; you're implementing what this one device actually does, verified against
+real captured bytes.
+
+**Why the parser can't be "read the bytes in order."** The naive, simplest-sounding
+approach — read byte 0 as speed, byte 1 as distance, and so on at fixed positions —
+is exactly what FTMS's flag-driven format forbids, and this isn't an arbitrary
+rule. Different treadmill sessions send *different sets* of fields depending on
+what the machine detected (a field is absent, not zero, when it's not being
+reported), so a fixed-offset reader silently reads the wrong field the moment the
+flag pattern changes. The correct approach — walk a cursor through the buffer,
+consulting the flags bitmask to know what's present at each step — is more code
+than fixed-offset reading, but it isn't optional complexity; it's the minimum
+correct approach for a format that was designed to be variable-length. Where a
+fixed format genuinely has no variability (like `0x2AD4`'s three-`uint16` speed
+range, task 1a.3), this project reads it as plain fixed offsets — no cursor
+needed, because the extra machinery would buy nothing there. The rule isn't
+"always parse defensively"; it's "match the actual shape of the data you have."
+
+**The pattern, named plainly.** Length-validate-then-reject-malformed-input is an
+application of a much older idea: **fail loudly and immediately at the boundary,
+not silently deep inside the program** (sometimes called "fail fast"). The
+tradeoff: it's a few extra lines per parser (check the byte count before trusting
+any field), for a real payoff — a rejected packet shows up as one clear log line
+at the exact moment something's wrong, instead of a `TreadmillSample` with
+plausible-looking-but-wrong numbers silently corrupting a chart three screens
+later. Uncle Bob's framing applies directly here: this isn't a rule to follow
+blindly on every function — it's specifically valuable at a **trust boundary**
+(bytes arriving from outside your program's control), which is exactly what a BLE
+packet is.
 
 ### Reference docs
 

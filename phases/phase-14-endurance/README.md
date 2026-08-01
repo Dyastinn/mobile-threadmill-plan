@@ -300,6 +300,60 @@ should have) — note which day and what specifically was wrong.
 
 ---
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Every parser this project has is already proven
+correct — `TreadmillDataParser` and its siblings from Phase 01a pass against
+real captured bytes, matching the console's own numbers within rounding. But
+"the parser reads bytes correctly" and "the app survives someone's actual
+workout" are different claims, and only one of them can be checked by running
+`dotnet test`. A flight simulator can prove a pilot knows exactly which switch
+does what and can fly a textbook approach — but no airline puts a pilot in a
+real cockpit with real passengers on the strength of simulator hours alone.
+There's a category of failure a simulator structurally cannot produce: real
+turbulence, a real instrument glitch, three sustained hours instead of twenty
+minutes of scripted scenarios. This phase is the real flight hours. It exists
+because the actual risks to this app aren't in the math — they're in things no
+unit test can construct: a phone with its screen off for two hours while
+HyperOS's Autostart, Battery saver, Recents-lock, and Android battery
+optimization settings (see "Before starting" above) all quietly decide whether
+this app's Bluetooth connection is worth keeping alive, real BLE radio
+interference, and real OS lifecycle events (a force-close, a Bluetooth toggle,
+a treadmill power-cycle) landing at an arbitrary moment mid-workout.
+
+**Why this can't be shortened to a five-minute smoke test.** The naive,
+cheaper alternative is: run the app for a few minutes, watch it connect and
+receive a couple of samples, call it verified — after all, the parsers are
+already proven correct, so what's left to prove? The answer is specific to
+each of the nine tests, and none of it is padding. Test 2's 120 minutes exists
+because a memory leak of a few kilobytes per sample is invisible at five
+minutes and only shows up as a trend across three `dumpsys meminfo` readings
+taken over two hours — there is no way to observe "steady climb across three
+readings" in a five-minute run. Test 4's 20 lock/unlock cycles exists because
+the specific failure it's hunting — a duplicate sample re-delivered after a
+lock/unlock — is a timing race that may not reproduce on cycle 1 or 2 but
+reliably surfaces somewhere across twenty. Tests 5 and 6 exercise the 60-second
+connection-loss grace window (Phase 04's policy) under real BLE reconnection
+timing that `FakeTreadmillService` was never built to reproduce — it was
+explicitly built in Phase 01b to unblock other phases quickly, not to
+simulate radio dropout. Test 8's export/uninstall/reinstall/import check is
+the one case where "the automated test already covers this" is almost true —
+Phase 09 has a real xUnit test against a temp database — except that test
+can't observe what happens to a file that has to survive an actual uninstall,
+a share-sheet, and cloud storage in between, which is exactly the gap only a
+human running the real flow can close. Each of the nine tests maps to one
+specific, already-identified risk documented elsewhere in this project (the
+connection-loss policy, HyperOS's own battery controls, the `Status = 0`
+in-progress-workout recovery row, Phase 09's backup guarantees) — this isn't a
+speculative "test everything" pass, it's closing nine named, concrete gaps
+that automated tests structurally cannot reach.
+
+No "pattern, named plainly" section here — this phase is a manual test
+procedure, not a piece of code, so there's no abstraction or design pattern to
+name a tradeoff for.
+
+---
+
 ## Recording results
 
 Use the Phase 00 capture recorder for tests 1–6. A failure that is only described in

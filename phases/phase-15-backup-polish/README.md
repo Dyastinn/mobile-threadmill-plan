@@ -18,6 +18,71 @@ a human-readable CSV export for spreadsheets, a merge import mode that doesn't
 require wiping the phone's existing history first, and the plumbing for backup
 format migrations that don't have a real case to handle yet.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** Imagine two people who each kept a personal paper
+journal of the same shared project, and now you want to combine both journals
+into one without losing anything or duplicating entries. If each entry only has
+a handwritten date, you're stuck: two "Tuesday" entries might be the exact same
+event described twice, or two genuinely different events that happen to have
+occurred on the same day — the date alone can't tell you which. The only way to
+merge safely is if every entry already carries something no other entry has: a
+serial number, stamped once at the moment it was written, that means the same
+thing no matter which journal it ends up copied into. That's exactly the
+problem Task B (merge import) solves for this app: two phones can each
+accumulate their own workout history, and merging them means answering "is
+this the same workout, or two different ones?" — a question a `WorkoutId` (a
+GUID, stamped once per workout back in Phase 06) already answers by
+construction, because unlike the database's own auto-incrementing integer `Id`
+(which means "the Nth row on this phone" and nothing more), a GUID means the
+same workout no matter which phone's database it's sitting in.
+
+**Why merge wasn't built in Phase 09, and why it's cheap now.** The simpler
+alternative — the one Phase 09 actually shipped — is: import always means
+Replace, wipe the phone's existing history, restore from the file. That wasn't
+a shortcut that skipped real work; it was the correct call for a feature nobody
+had asked to use yet ("Only if Phases 00–14 are done **and the app is in daily
+use**," per the header above). What makes Merge affordable to add *now*,
+instead of a multi-day project, is that the one piece of infrastructure it
+actually needs — a way to tell "same workout" from "different workout" across
+two independent databases — was already paid for in Phase 06, for reasons that
+had nothing to do with backups. Task B's entire merge logic is one SQL
+statement (`INSERT OR IGNORE INTO Workout (WorkoutId, ...) VALUES (...)`,
+relying on `WorkoutId`'s uniqueness) plus a 4-case test matrix. Contrast that
+with what it would have cost to retrofit global identity after the fact: if
+Phase 06 had used only the auto-increment integer, adding merge later would
+mean migrating every already-shipped phone's data onto some new globally
+unique key, on databases already holding real history — a far bigger, riskier
+job than the near-zero cost of choosing `Guid` as the primary identity column
+back when the table was still empty.
+
+**The pattern, named plainly.** This is a case of paying a near-zero cost
+today to keep a future option open — deliberately provisioning a seam (global
+identity via GUID) before there's a demonstrated need for the feature that
+seam enables (merge import). It's worth naming directly against Metz's rule
+elsewhere in this project's teaching notes: "only justify a pattern when a
+demonstrated, concrete problem calls for it, never 'in case it's needed
+later.'" The GUID doesn't violate that rule, because its cost was genuinely
+negligible — swapping `int` for `Guid` as a primary key type is a one-line
+schema decision with no extra machinery, no speculative interface, no code
+written against a guessed future requirement. Compare that to the alternative
+shape of "preparing for merge" that *would* have been speculative overhead:
+building a full merge UI and conflict-resolution flow back in Phase 06, before
+Phase 09's backup format even existed to merge — that would have been exactly
+the kind of "in case it's needed later" complexity Metz warns against, because
+it's expensive machinery built against a guess. The test for whether a seam is
+worth placing early isn't "might this be useful someday" — it's "does placing
+it now cost close to nothing, and does retrofitting it later cost a lot." A
+primary key type is the former; a UI and merge algorithm is the latter. Task C
+in this same phase makes the identical call in the opposite direction, worth
+noting as the contrast: it ships the migration *mechanism* (an empty list, a
+runner that walks it) but deliberately holds off on writing any actual
+migration, "because `backupFormatVersion` has only ever had one value so
+far... a migration written against a guessed future format is a migration
+written against the wrong format." Same principle, applied consistently: cheap
+seam now, expensive guesswork deferred until there's something real to build
+against.
+
 ## Learning goals
 
 - **Culture-invariant formatting** — why any number that gets written to a file (as

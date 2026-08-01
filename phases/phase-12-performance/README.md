@@ -20,6 +20,62 @@ This phase is almost entirely **measurement**, not code-writing — see
 agent reviews" pattern. Everything else is process: attaching a profiler, reading
 its output, recording what it says.
 
+### Understanding what you're building (read this before the tasks)
+
+**The everyday problem.** A doctor doesn't hand you a prescription before running
+blood work — symptoms alone don't say which organ is failing, and treating the
+wrong one wastes time and can make things worse. Profiling a program before
+touching its code is the same discipline: "the workout list feels slow" tells you
+nothing about whether the cause is a missing SQLite index, a chatty BLE handler,
+or a memory leak slowly starving the whole app. This phase exists because Phases
+06–11 built the actual system — the database, the BLE stack, the recording
+pipeline — without ever running it against a realistic 5,000-workout dataset or a
+real one-hour session. The seeded database from step 2 and the
+`dotnet-trace`/`dotnet-gcdump` pipeline in step 0 are this project's blood test:
+they turn "feels slow" into an actual number next to an actual target in the
+Measure table, for an actual query or an actual hour of memory graph.
+
+The "flat, not just low" framing for memory deserves its own concrete picture.
+Imagine two hikers setting out on a two-hour hike: one carries a 20 kg pack the
+whole way — heavy, but the same weight at the trailhead and at the summit. The
+other starts with a 10 kg pack that gains half a kilogram every ten minutes
+without them noticing — lighter at first, but by hour two it's heavier than the
+first hiker's, and on a longer hike it eventually becomes impossible to carry. A
+workout app behaves the same way: 160 MB that stays 160 MB for the whole hour is
+a healthy app running a real workload. 90 MB that creeps to 150 MB over that same
+hour is a leak — a `SampleReceived` subscription that never unsubscribes, a
+buffer that grows and never gets flushed — and a two-hour workout or an older
+phone is the "longer hike" that turns a barely-noticeable slope into a crash.
+That's why the Measure table records a slope ("flat" vs. "rising, ~X MB/hour"),
+not just a single end-of-hour number.
+
+**Why not just add the obvious optimizations up front.** The simpler-sounding
+plan is to skip all this measurement and apply the fixes performance work
+"usually" needs: cache the workout list, pool the `TreadmillSample` objects
+instead of allocating one per second, wrap every query in a memoization layer.
+Each of those is real code, with its own bugs and its own maintenance cost, and
+every one of them is aimed at a guess. If the weekly-aggregate query is actually
+slow because it's missing the `Workout(StartedAtUtc)` index from Phase 10/11 — a
+one-line fix — then the caching layer added "just in case" is pure cost with no
+matching benefit: more code, more places a bug can hide, and still a query that's
+slow the first time it runs. `EXPLAIN QUERY PLAN` in step 3 answers "is this
+actually the index problem" directly, for the cost of one command, before any
+code changes. Measuring first isn't the cautious, slower option here — it's the
+cheaper one, because it replaces five possible fixes with the one that's actually
+needed.
+
+**The pattern, named plainly.** This is Donald Knuth's "premature optimization is
+the root of all evil," applied literally rather than as a slogan: optimize only
+what a measurement has shown to be slow. The cost is real — instrumenting and
+running the profiler pipeline takes longer than just changing code and hoping.
+The payoff, specific to this project, is that every optimization this phase
+produces is provably necessary, not speculative — which matters because Phase 12
+is the last chance before Phase 13's polish pass to catch a problem while it's
+still cheap to fix. Where this rule wouldn't be worth invoking: an obviously
+quadratic loop spotted by eye in code review doesn't need a `dotnet-trace`
+session to justify fixing it — the full measurement ceremony earns its keep when
+the cause isn't obvious, not for every single change.
+
 ## Learning goals
 
 - **Why `Release`, never `Debug`, for anything you're timing.** Debug builds run
