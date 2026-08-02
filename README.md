@@ -14,19 +14,13 @@ exactly how that works.
 
 ## Status
 
-**Phase 00 (the probe/diagnostic app) is built and working.** It's a lab
-instrument, not the product — six screens for finding the treadmill, dumping
-every GATT characteristic as hex, watching the live notification stream, and
-sending raw control-point commands by hand with the decoded response shown
-back. Its job was to answer "what does this specific treadmill actually do"
-with real bytes instead of assumptions, and it did: see
-[`phases/phase-00-probe-app/PHASE-00-FINDINGS.md`](phases/phase-00-probe-app/PHASE-00-FINDINGS.md)
-and [`DEVICE.md`](DEVICE.md) for what's been measured so far.
-
-**Next up:** [Phase 01b](phases/phase-01-protocol-decode/README.md) —
-`ITreadmillService` skeleton + `FakeTreadmillService` — the first task in the
-real app, unblocked and ready to start. Phase 01a (the real protocol parsers)
-is still waiting on one more hands-on session with the treadmill.
+**Starting fresh: no code in the repo yet.** An earlier build of Phase 00 (the
+probe/diagnostic app) ran on the real treadmill and its measurements are still
+good; see [`phases/phase-00-probe-app/PHASE-00-FINDINGS.md`](phases/phase-00-probe-app/PHASE-00-FINDINGS.md)
+and [`DEVICE.md`](DEVICE.md) for what's already known. The `src/` project
+itself is being rebuilt from scratch, following
+[`phases/phase-00-probe-app/`](phases/phase-00-probe-app/) (start with
+`TASKS.md`).
 
 ---
 
@@ -62,6 +56,8 @@ full decision record (problem it solves, alternatives considered, why they lost)
 
 ## Repository layout
 
+This is the structure Phase 00 sets up; `src/` doesn't exist yet in this repo.
+
 ```
 src/
 ├── MyHi.Companion/            the Android app — XAML, ViewModels, BLE plumbing
@@ -83,6 +79,8 @@ ITreadmillService.cs           the seam most of the app builds against, not BLE 
 ```
 
 ## Building and running
+
+Once the project exists (see Status above), these are the commands you'll use:
 
 ```powershell
 cd src
@@ -119,6 +117,5 @@ step and says so.
 
 ## Non-goals
 
-Cloud sync, social features, multi-user, iOS, Strava/Garmin export, training
-plans, coaching. See [`00-Project-Plan.md`](00-Project-Plan.md) for the full
+See [`00-Project-Plan.md`](00-Project-Plan.md) for the full list and the
 reasoning behind the stack and scope.
