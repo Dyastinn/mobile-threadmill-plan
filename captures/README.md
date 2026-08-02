@@ -1,7 +1,7 @@
 # Captures
 
 Raw BLE session captures produced by the Phase 00 probe app. **Committed to the
-repository** — these are the project's primary evidence and the source of every
+repository.** These are the project's primary evidence and the source of every
 parser test fixture.
 
 ## Format
@@ -34,7 +34,7 @@ append-only, flushed per line so a crash costs the last line at most.
 - **Hex is space-separated, uppercase, with leading zeros preserved.** `02 00` and
   `2 0` are not the same thing and the second is unusable as a fixture.
 - Never edit a capture file by hand. If something is wrong, capture again and note why.
-- `console` events are the highest-value lines in the file — they are the only thing
+- `console` events are the highest-value lines in the file. They are the only thing
   that can prove a decoder correct rather than merely non-crashing.
 - `note` events with `ok: true` are the record of what is *right*: this exact byte
   sequence produced this exact physical result.

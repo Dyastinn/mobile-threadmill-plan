@@ -1,11 +1,11 @@
 # What is .NET MAUI?
 
-> Written for: you know C# already (if you don't yet — you know programming in
-> general, just not C# specifically — read
+> Written for: you know C# already (if you don't yet, but know programming in
+> general, just not C# specifically: read
 > [`00a-CSharp-Essentials.md`](00a-CSharp-Essentials.md) first, it's short and
 > exactly closes that gap), but have never touched MAUI, XAML, or mobile app
 > patterns like MVVM. This doc uses real files from `src/MyHi.Companion/` as
-> examples — open them side by side as you read.
+> examples. Open them side by side as you read.
 
 ---
 
@@ -19,7 +19,7 @@ think of MAUI here as just "the UI framework," without worrying about the
 multi-platform part.
 
 It's the successor to **Xamarin.Forms** (same idea, same company, newer and better
-integrated into plain .NET — you don't need to know Xamarin, it's just useful context
+integrated into plain .NET; you don't need to know Xamarin, it's just useful context
 if you see it mentioned in older tutorials/StackOverflow answers).
 
 MAUI is **not** a wrapper around a web view (like React Native or Ionic can be, in
@@ -48,19 +48,19 @@ describing UI declaratively:
 
 You *could* build this same UI by writing `new Grid { ... }` in C#, but XAML reads
 better for layout-heavy UI, and MAUI compiles it to real object construction at build
-time (via a "XAML compiler," `XamlC`) — so there's no meaningful runtime cost to using
+time (via a "XAML compiler," `XamlC`), so there's no meaningful runtime cost to using
 it. Every `.xaml` file in this project has a matching `.xaml.cs` "code-behind" file
-(`HomePage.xaml.cs`) for the C# that isn't pure layout — usually just the
+(`HomePage.xaml.cs`) for the C# that isn't pure layout, usually just the
 constructor.
 
 **Layout controls worth knowing** (all used already in `src/`):
-- `Grid` — rows and columns, like a table. `RowDefinitions="Auto,*"` means "first row
+- `Grid`: rows and columns, like a table. `RowDefinitions="Auto,*"` means "first row
   sized to its content, second row takes all remaining space."
-- `VerticalStackLayout` / `HorizontalStackLayout` — simple stacking, like flexbox
+- `VerticalStackLayout` / `HorizontalStackLayout`: simple stacking, like flexbox
   with one axis.
-- `ScrollView` — makes its single child scrollable (see `ControlConsolePage.xaml`).
-- `CollectionView` — a virtualized, scrollable list bound to a collection (see
-  `ScanPage.xaml`'s device list) — the MAUI equivalent of Android's `RecyclerView` or
+- `ScrollView`: makes its single child scrollable (see `ControlConsolePage.xaml`).
+- `CollectionView`: a virtualized, scrollable list bound to a collection (see
+  `ScanPage.xaml`'s device list). It's the MAUI equivalent of Android's `RecyclerView` or
   a web `<ul>` with a loop.
 
 ---
@@ -75,7 +75,7 @@ This is the part that feels like magic until it clicks. In `HomePage.xaml`:
 
 `{Binding X}` means: "look at whatever object is set as this page's `BindingContext`,
 read its `X` property, and put the value here." When `X` changes, the label updates
-itself — **you never write `label.Text = "..."` by hand.**
+itself. **You never write `label.Text = "..."` by hand.**
 
 The "whatever object" is set in the code-behind constructor:
 
@@ -88,11 +88,11 @@ public HomePage(HomeViewModel viewModel)
 }
 ```
 
-That `viewModel` is a **ViewModel** — see the next section.
+That `viewModel` is a **ViewModel**; see the next section.
 
 ---
 
-## MVVM: Model — View — ViewModel
+## MVVM: Model, View, ViewModel
 
 This is the dominant UI architecture pattern in MAUI (and WPF, and Xamarin before
 it). The point is to keep UI code (XAML + code-behind) completely free of business
@@ -104,12 +104,12 @@ logic, so the logic can be tested without spinning up a UI.
 | **View** | The `.xaml` + `.xaml.cs` pair. Only layout + wiring `BindingContext`. | `HomePage.xaml` |
 | **ViewModel** | The class the View binds to. Holds state, exposes commands, talks to services. | `HomeViewModel.cs` |
 
-A ViewModel never references a `Page` or a `Button` directly — it exposes properties
+A ViewModel never references a `Page` or a `Button` directly. It exposes properties
 and commands, and the View decides how to display them. This is what makes
 `MyHi.Companion.Core` possible: it's pure logic with zero MAUI references, fully
 testable with plain xUnit (see `MyHi.Companion.Tests`).
 
-### `[ObservableProperty]` and `[RelayCommand]` — what they actually generate
+### `[ObservableProperty]` and `[RelayCommand]`: what they actually generate
 
 Open `HomeViewModel.cs`:
 
@@ -125,12 +125,12 @@ public sealed partial class HomeViewModel : BaseViewModel
 ```
 
 These attributes come from the `CommunityToolkit.Mvvm` NuGet package and are
-**source generators** — code that runs at compile time and writes extra C# into your
+**source generators**: code that runs at compile time and writes extra C# into your
 class, in a hidden generated file you never edit. Concretely:
 
 - `[ObservableProperty] private NavDestination? selectedDestination;` generates a
   public `SelectedDestination` property with a getter/setter that raises
-  `PropertyChanged` — the event that makes `{Binding SelectedDestination}` actually
+  `PropertyChanged`, the event that makes `{Binding SelectedDestination}` actually
   update the UI when the value changes. Without the attribute, you'd hand-write:
   ```csharp
   private NavDestination? _selectedDestination;
@@ -146,12 +146,12 @@ class, in a hidden generated file you never edit. Concretely:
 - `[RelayCommand] private static async Task NavigateAsync(string route) => ...`
   generates a public `ICommand NavigateCommand` property. `ICommand` is what
   `Button.Command="{Binding SomeCommand}"` or a `CollectionView`'s `SelectedItem`
-  handler (see `partial void OnSelectedDestinationChanged`) expects — it's the
+  handler (see `partial void OnSelectedDestinationChanged`) expects. It's the
   standard .NET interface for "a thing that can be invoked, and knows if it currently
   can be." The naming convention is fixed: a method named `NavigateAsync` (or just
   `Navigate`) produces a command property named `NavigateCommand`.
 
-- The class must be declared `partial` — that's the syntax that lets the source
+- The class must be declared `partial`; that's the syntax that lets the source
   generator's separate file contribute members to the *same* class.
 
 Every ViewModel in this project inherits from `BaseViewModel`
@@ -189,12 +189,12 @@ When Shell needs a `ScanPage`, the container sees `ScanPage`'s constructor wants
 `BluetoothReadinessService`, etc., and builds the whole chain automatically. You
 never call `new ScanViewModel(...)` anywhere.
 
-**`AddSingleton` vs. `AddTransient`** — the two you'll actually use in this project:
-- `AddSingleton<T>()` — one instance for the entire app's lifetime, shared everywhere.
+**`AddSingleton` vs. `AddTransient`**: the two you'll actually use in this project:
+- `AddSingleton<T>()`: one instance for the entire app's lifetime, shared everywhere.
   Used for things that represent real, ongoing state: `TreadmillConnection` (there's
   only one BLE connection), `CaptureSessionManager` (one capture session at a time).
-- `AddTransient<T>()` — a new instance every time one is requested. Used for
-  ViewModels and Pages — you don't want the Scan screen's state to leak into a second
+- `AddTransient<T>()`: a new instance every time one is requested. Used for
+  ViewModels and Pages; you don't want the Scan screen's state to leak into a second
   visit to the Scan screen.
 
 ---
@@ -223,14 +223,14 @@ page (with DI) for you.
 
 `src/` has three projects:
 
-- **`MyHi.Companion.Core`** — plain `net10.0` class library. Zero MAUI references.
+- **`MyHi.Companion.Core`**: plain `net10.0` class library. Zero MAUI references.
   Hex helpers, FTMS command encoding, the capture file format, SQLite plumbing.
-- **`MyHi.Companion`** — the actual MAUI Android app (`net10.0-android`). XAML,
+- **`MyHi.Companion`**: the actual MAUI Android app (`net10.0-android`). XAML,
   ViewModels, BLE plumbing (Plugin.BLE only makes sense on a real platform).
-- **`MyHi.Companion.Tests`** — xUnit tests, referencing only `Core`.
+- **`MyHi.Companion.Tests`**: xUnit tests, referencing only `Core`.
 
 The reason for the split: **you cannot run a normal xUnit test suite against a
-`net10.0-android` project** without an emulator or device — there's no desktop
+`net10.0-android` project** without an emulator or device; there's no desktop
 runtime for it. Anything you want unit-tested (parsers, encoders, pure logic) has to
 live somewhere a plain `dotnet test` can reach, which means `Core`. This is also just
 good MVVM discipline: if a piece of logic is hard to put in `Core` because it "needs"
@@ -244,5 +244,5 @@ split further.
 - `docs/learning/01-Emulator-Setup.md` if you want to smoke-test UI without your
   phone (with the caveat that it can't test real Bluetooth).
 - `docs/learning/02-Glossary.md` any time you hit a term mid-phase you don't
-  recognize — add to it as we go.
+  recognize; add to it as we go.
 - `phases/README.md` for how phases work now that you're writing the code.

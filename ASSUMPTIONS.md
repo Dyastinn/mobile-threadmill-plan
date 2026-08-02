@@ -16,7 +16,7 @@ Last updated: 2026-07-28
 
 ---
 
-## Open — blocking
+## Open: blocking
 
 ### A1. Counter reset semantics
 **Blocks:** Phase 7 (entirely) · **Resolve:** Probe Part C7 · **Effort:** 15 min
@@ -37,11 +37,11 @@ Guessing wrong makes every stored workout wrong. **Do not start Phase 7 without 
 set. Neither is strong evidence given that the same bitmask claims incline support on a
 machine with no incline (see A3).
 
-**Update 2026-07-31 (operator, via the Control Console, ad hoc — not yet the full D1–D8
+**Update 2026-07-31 (operator, via the Control Console, ad hoc, not yet the full D1–D8
 matrix):** Request Control, Set Target Speed, and Start all produced a physical effect.
-So the control point does honour commands — the open question has narrowed from
+So the control point does honour commands. The open question has narrowed from
 *"does it work"* to *"in what order."* Observed: setting a target speed and then
-starting does **not** bring the belt to that speed — it ramps at a slow/default pace
+starting does **not** bring the belt to that speed. It ramps at a slow/default pace
 with an unusual "all lights" console indicator. Working theory: the target speed must
 be (re-)set **after** `Start`, not only before. If confirmed, Phase 05's `StartAsync`
 must internally re-issue the last requested `SetSpeedAsync` once the belt is
@@ -58,7 +58,7 @@ Outcome is binary: the app either controls speed or is read-only. Both are shipp
 **Blocks:** parser tests, capability logic · **Resolve:** capture raw hex · **Effort:** 2 min
 
 The feature list was decoded but the raw bytes were not recorded. The decode is already
-known to describe an impossible device, so it cannot be checked for self-consistency —
+known to describe an impossible device, so it cannot be checked for self-consistency,
 only against the actual bytes.
 
 *Working assumption:* the bitmask over-claims and must be treated as advisory. Confidence
@@ -73,19 +73,19 @@ matched console-vs-hex pairs there is no way to prove it decodes correctly.
 
 ---
 
-## Open — non-blocking but cheap
+## Open: non-blocking but cheap
 
 ### A5. Is `0x1826` in the advertisement?
 **Blocks:** Phase 1 scan filter · **Effort:** 1 min
 
-*Working assumption:* yes. If wrong, fall back to the `FS-` name prefix — not to
+*Working assumption:* yes. If wrong, fall back to the `FS-` name prefix, not to
 unfiltered scanning, which is slower and drains more battery.
 
 ### A6. BLE address type
 **Blocks:** device persistence, schema · **Effort:** 1 min
 
 *Working assumption:* public static. If it is random resolvable, the MAC is not stable
-between sessions and `UX_Device_MacAddress` in `14-Database.md` is wrong — match on
+between sessions and `UX_Device_MacAddress` in `14-Database.md` is wrong. Match on
 device name instead.
 
 ### A7. Negotiated MTU and record splitting
@@ -113,7 +113,7 @@ a valid outcome, not a failure.
 
 ---
 
-## Open — design decisions not yet validated
+## Open: design decisions not yet validated
 
 ### A10. `Plugin.BLE` vs. direct Android bindings
 **Affects:** Phases 2, 8 · **Resolve:** experience during Phase 2
@@ -147,7 +147,7 @@ Android 15's 6-hour foreground service limit applies only to `dataSync` and
 `mediaProcessing`. A two-hour workout should be unaffected and no `onTimeout()` handling
 is needed.
 
-*Confidence: high — current Android documentation.* The two-hour endurance test is the
+*Confidence: high (current Android documentation).* The two-hour endurance test is the
 empirical check.
 
 ---

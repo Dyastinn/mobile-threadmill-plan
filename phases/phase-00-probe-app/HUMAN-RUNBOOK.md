@@ -18,14 +18,14 @@
 
 **Safety.** Parts D and E move the belt while you hold a phone. Stand on the side
 rails, not the belt, when starting a remote-control test. If the belt does something
-unexpected, **pull the safety key** — do not try to fix it from the phone.
+unexpected, **pull the safety key**. Do not try to fix it from the phone.
 
 **Copy the capture after each part**, not at the very end. If the app crashes at Part
 E you do not want to lose Part A.
 
 ---
 
-## Ten-minute quick wins — do these first
+## Ten-minute quick wins (do these first)
 
 No walking, no belt, no risk. These five unblock the entire Phase 01 desk work, so if
 the full session has to wait, do at least these.
@@ -44,7 +44,7 @@ that protects the whole project.
 
 ---
 
-## Part A — Static reads · 5 min · belt stopped
+## Part A: Static reads · 5 min · belt stopped
 
 Connect, let discovery finish, **Dump All** on the Read Dump screen.
 
@@ -58,7 +58,7 @@ Tap **Confirm** on each row you have cross-checked against nRF Connect.
 
 ---
 
-## Part B — Idle stream · 5 min · belt stopped
+## Part B: Idle stream · 5 min · belt stopped
 
 Notification Log screen. Subscribe to `0x2ACD` and `0x2ADA`. **Do not walk yet.**
 Let it run two minutes.
@@ -71,11 +71,11 @@ Let it run two minutes.
 - [ ] Any `0x2ADA` traffic while idle? op codes: ______
 
 If the rate is ~1 Hz the FTMS spec's recommendation holds. If it is genuinely higher,
-say so — the dashboard will need UI throttling.
+say so. The dashboard will need UI throttling.
 
 ---
 
-## Part C — Walking capture · 15 min · **the important one**
+## Part C: Walking capture · 15 min · **the important one**
 
 **Console controls only.** Do not touch the app's control console yet.
 
@@ -93,7 +93,7 @@ can prove the parser is right; there is no substitute.
 - [ ] Heart rate: is a plausible value ever populated? value seen: ______ bpm
 - [ ] Stop from the console → `0x2ADA` op code emitted: ______
 
-### C7 — the critical one · counter reset behaviour
+### C7: the critical one · counter reset behaviour
 
 After stopping, note distance / calories / elapsed time. Then start a **new** session
 on the console and check the same fields immediately.
@@ -119,7 +119,7 @@ Guessing wrong makes every stored workout wrong. Do not skip it and do not guess
 
 ---
 
-## Part D — Control point · 15 min · **decides whether Phase 05 exists**
+## Part D: Control point · 15 min · **decides whether Phase 05 exists**
 
 Control Console screen. **Stand on the side rails.** The belt may start.
 
@@ -130,7 +130,7 @@ Indication received? yes / no      Raw response: ____________   Result: 0x____
 ```
 
 If this fails, record the result code and **stop Part D**. Speed control is not
-available and Phase 05 is void — which is a valid finding, not a failure. The app is
+available and Phase 05 is void. That's a valid finding, not a failure. The app is
 still worth shipping read-only.
 
 **D2.** Set Target Speed while stopped, at your minimum. (2.0 km/h → `02 C8 00`.)
@@ -180,7 +180,7 @@ result.** That annotation is what turns a hex log into a specification.
 
 ---
 
-## Part E — Resilience · 10 min
+## Part E: Resilience · 10 min
 
 | | Test | Record |
 |---|------|--------|
@@ -190,26 +190,26 @@ result.** That annotation is what turns a hex log into a specification.
 | E4 | Power the treadmill off and on | Reconnects? Counters reset or retained? |
 | E5 | Screen off 5 min during a session | Survives? Max notification gap: ______ s |
 
-Reconnect is manual in this phase — that is by design, Phase 02 automates it. And **if
+Reconnect is manual in this phase, by design. Phase 02 automates it. And **if
 E5 fails, that is expected here.** It is the reason the foreground service exists as
 its own phase. Note it and move on.
 
 ---
 
-## Part F — Advertisement and bonding
+## Part F: Advertisement and bonding
 
 - [ ] Did Android ever show a pairing prompt? (Expected: no)
 - [ ] Is `0x1826` in the advertised service UUIDs? yes / no
 - [ ] Advertised name: ______   MAC: ______   Address type: public / random
 
 If `0x1826` is not advertised, the production scan filter must fall back to the `FS-`
-name prefix — **not** to unfiltered scanning, which is slower and drains more battery.
+name prefix, **not** to unfiltered scanning, which is slower and drains more battery.
 If the address is random resolvable, remembering the device by MAC will break and the
 schema's `UX_Device_MacAddress` is wrong.
 
 ---
 
-## Part G — Heart rate · 10 min
+## Part G: Heart rate · 10 min
 
 Subscribe to `0x2A37` in service `180D`.
 
@@ -228,7 +228,7 @@ Stable, or jumps by ______ bpm?
 
 **G4.** Release the grips. → drops to 0 / holds last value / stops notifying
 
-**G5 — the decision.** Be honest; this determines whether HR ships at all.
+**G5: the decision.** Be honest; this determines whether HR ships at all.
 
 ```
 [ ] Usable    — within ~10 bpm, stable, contact status reliable
@@ -239,7 +239,7 @@ Stable, or jumps by ______ bpm?
                 → cut heart rate from the app entirely
 ```
 
-A metric that is wrong half the time is worse than no metric — it will permanently
+A metric that is wrong half the time is worse than no metric. It will permanently
 pollute the average and maximum HR columns of every stored workout. **Cutting it is a
 perfectly good outcome.**
 
@@ -250,7 +250,7 @@ perfectly good outcome.**
 1. Export the Probe Checklist → paste into `PHASE-00-FINDINGS.md`.
 2. Share the capture JSONL files → commit them under `../../captures/`.
 3. Share the app log file.
-4. Fill in `../../DEVICE.md` — **measured facts only.** Anything still uncertain goes
+4. Fill in `../../DEVICE.md` with **measured facts only.** Anything still uncertain goes
    in `../../ASSUMPTIONS.md` instead, with the phase it blocks.
 5. Hand back to the agent with: *"Update `05-FTMS-Protocol.md` with these measured
    values, build parser fixtures from the captured hex, and list what is still

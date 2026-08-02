@@ -1,6 +1,6 @@
-# FTMS Protocol Specification — MY-HI Q8Y
+# FTMS Protocol Specification: MY-HI Q8Y
 
-> **Status: PARTIALLY VERIFIED** — updated 2026-07-28 from the first nRF Connect
+> **Status: PARTIALLY VERIFIED**, updated 2026-07-28 from the first nRF Connect
 > capture. Static reads are done; the data stream and control point are not.
 > Sections marked `TBD` must be resolved by running
 > `05a-FTMS-Probe-Procedure.md` against the real device.
@@ -12,8 +12,8 @@
 
 The device advertises as **`FS-9F4235`**. `FS-` is FitShow (Xiamen) Information
 Technology, who manufacture transparent-UART BLE modules for treadmills, exercise
-bikes and rowers. This is confirmed by the presence of `FFE0` and `FFF0` — both
-common transparent-serial service UUIDs — alongside the FTMS service.
+bikes and rowers. This is confirmed by the presence of `FFE0` and `FFF0`, both
+common transparent-serial service UUIDs, alongside the FTMS service.
 
 ```
 treadmill motor board ←UART→ FitShow BLE module ←BLE→ phone
@@ -51,14 +51,14 @@ All multi-byte integers are **little-endian**.
 
 Source of the protocol facts below: Bluetooth SIG *Fitness Machine Service*
 specification v1.0 and the GATT Specification Supplement. Where this document states
-a fact with a confidence qualifier, that qualifier is meaningful — treat anything
+a fact with a confidence qualifier, that qualifier is meaningful. Treat anything
 below "high" as needing confirmation from the probe capture.
 
 ---
 
 ## 1. Service and characteristics
 
-### Services discovered — VERIFIED
+### Services discovered: VERIFIED
 
 | UUID | Name | Used by this app |
 |------|------|------------------|
@@ -69,7 +69,7 @@ below "high" as needing confirmation from the probe capture.
 | `FFF0` | Vendor (FitShow transparent serial) | No — recorded only |
 | `1826` | **Fitness Machine** | **Yes — primary** |
 
-### FTMS characteristics — VERIFIED PRESENT
+### FTMS characteristics: VERIFIED PRESENT
 
 | UUID | Name | Properties | Required by this app |
 |------|------|------------|----------------------|
@@ -81,7 +81,7 @@ below "high" as needing confirmation from the probe capture.
 | `0x2AD3` | Training Status | Read + Notify | Optional — display only |
 
 All six are present. That is better than expected for a shim implementation, but
-**presence is not function** — `0x2AD9` exposing Write and Indicate says nothing about
+**presence is not function.** `0x2AD9` exposing Write and Indicate says nothing about
 whether it honours commands. See §7.
 
 The app must still degrade gracefully: if the control point handshake fails, hide all
@@ -89,7 +89,7 @@ speed controls. Never fall back to guessed limits if `0x2AD4` is unreadable.
 
 ---
 
-## 2. Fitness Machine Feature (`0x2ACC`) — Read
+## 2. Fitness Machine Feature (`0x2ACC`): Read
 
 **8 bytes: two little-endian uint32 bitfields.**
 
@@ -140,7 +140,7 @@ speed controls. Never fall back to guessed limits if `0x2AD4` is unreadable.
 *Confidence: high on bits 0–13 of machine features and bits 0–4 of target settings;
 moderate on the higher bits, which this device almost certainly does not set anyway.*
 
-### ⚠️ THIS DEVICE'S FEATURE FLAGS ARE UNRELIABLE — DO NOT GATE ON THEM
+### ⚠️ THIS DEVICE'S FEATURE FLAGS ARE UNRELIABLE. DO NOT GATE ON THEM
 
 Decoded from the first capture:
 
@@ -164,7 +164,7 @@ capability it does not report having. This is internally contradictory, which me
 bitmask is a stock value baked into FitShow module firmware rather than a description
 of this treadmill.
 
-Note also that the four claimed target bits are 0, 1, 2, 3 = `0x0000000F` — a
+Note also that the four claimed target bits are 0, 1, 2, 3 = `0x0000000F`, a
 suspiciously round "all of them" value.
 
 **Required handling (implemented in Phases 3, 4 and 6):**
@@ -173,12 +173,12 @@ suspiciously round "all of them" value.
 - **Dashboard fields** derive from the union of `0x2ACD` flag bits observed over the
   first ~30 seconds of a connection. A field is real if it arrives in packets.
 - **Speed control** derives from the live control point handshake (§7), not from the
-  Speed Target Setting bit — which is set, but carries little weight given the above.
+  Speed Target Setting bit, which is set, but carries little weight given the above.
 
-*Confidence: high that the bitmask over-claims — the incline contradiction is direct
+*Confidence: high that the bitmask over-claims. The incline contradiction is direct
 evidence. The raw hex is still needed to confirm the exact decode.*
 
-### `TBD` — raw bytes still needed
+### `TBD`: raw bytes still needed
 
 ```
 Raw hex: ________________________________
@@ -195,7 +195,7 @@ are noisy when they do. See §4a for the preferred source and the decision rule.
 
 ---
 
-## 3. Supported Speed Range (`0x2AD4`) — Read
+## 3. Supported Speed Range (`0x2AD4`): Read
 
 **6 bytes, three uint16 LE values, all in units of 0.01 km/h.**
 
@@ -217,7 +217,7 @@ Increment: 0.1 km/h
 
 The original spec draft's values were **correct**. An earlier revision of this document
 questioned the 16 km/h figure as a running-treadmill number; that scepticism was
-misplaced — this is a full folding treadmill, not a walking pad.
+misplaced. This is a full folding treadmill, not a walking pad.
 
 Still read this characteristic at runtime rather than hardcoding the values. The
 methodology holds even where the guess happened to be right: `0x2AD4` is the only
@@ -227,19 +227,19 @@ Preset buttons should be generated from this range. Suggested set for 1.0–16.0
 2, 4, 6, 8, 10, 12 km/h, generated rather than hardcoded so the code survives a
 firmware change or a different treadmill.
 
-### `TBD` — raw bytes still needed
+### `TBD`: raw bytes still needed
 
 ```
 Raw hex: ____________
 ```
 
 Expected to decode as `64 00 40 06 0A 00` (1.00 / 16.00 / 0.10 km/h in 0.01 units).
-**Capture the actual bytes and confirm** — if they differ from this prediction, the
+**Capture the actual bytes and confirm.** If they differ from this prediction, the
 decode above is wrong and everything downstream inherits the error.
 
 ---
 
-## 4. Treadmill Data (`0x2ACD`) — Notify
+## 4. Treadmill Data (`0x2ACD`): Notify
 
 The primary data stream. **This is the single most error-prone parse in the project.**
 
@@ -252,13 +252,13 @@ The primary data stream. **This is the single most error-prone parse in the proj
 
 ### The three traps
 
-**Trap 1 — bit 0 is inverted.** The FTMS spec defines bit 0 as *More Data*.
+**Trap 1: bit 0 is inverted.** The FTMS spec defines bit 0 as *More Data*.
 Instantaneous Speed is present when bit 0 is **`0`**, absent when it is `1`. This is
 the opposite of every other bit in the field. Decoding it as a normal presence bit
 shifts every subsequent field and corrupts the entire packet. This trips up most
 first-time FTMS implementations.
 
-**Trap 2 — Total Distance is uint24.** Three bytes, little-endian. There is no
+**Trap 2: Total Distance is uint24.** Three bytes, little-endian. There is no
 `BitConverter` overload; assemble it manually:
 
 ```csharp
@@ -266,7 +266,7 @@ uint distance = (uint)(data[i] | (data[i + 1] << 8) | (data[i + 2] << 16));
 i += 3;
 ```
 
-**Trap 3 — Expended Energy is one flag bit but three fields**, 5 bytes total:
+**Trap 3: Expended Energy is one flag bit but three fields**, 5 bytes total:
 Total Energy (uint16, kcal), Energy Per Hour (uint16, kcal), Energy Per Minute
 (uint8, kcal). Advancing 2 bytes instead of 5 misaligns everything after it.
 
@@ -296,7 +296,7 @@ Fields appear in this order. Skip any whose flag bit is clear.
 
 Bits 3 and 4 each gate **two** fields (4 bytes each). Bit 7 gates three (5 bytes).
 
-*Confidence: high on bits 0, 1, 2, 7, 8, 10 — these are the ones this device will
+*Confidence: high on bits 0, 1, 2, 7, 8, 10, these are the ones this device will
 actually use. Moderate on the pace resolution (bits 5–6) and metabolic equivalent;
 verify from the capture if the device sets them.*
 
@@ -320,7 +320,7 @@ MAUI will jank in split screen. The 5-second telemetry sampling cadence in
 | Total Energy (uint16) | 65,535 kcal | not reachable in a session |
 
 None of these will roll over in a single workout. **They may roll over or reset
-across sessions** — see the counter semantics question below.
+across sessions.** See the counter semantics question below.
 
 ### Parser requirements
 
@@ -332,7 +332,7 @@ across sessions** — see the counter semantics question below.
 - Treat every field as optional in the domain model (`double?`, `int?`), because
   presence is per-packet, not per-device.
 
-### `TBD` — counter semantics
+### `TBD`: counter semantics
 
 **This determines the entire Phase 7 recording implementation.**
 
@@ -350,7 +350,7 @@ or accumulate since power-on?
   workout start, and the engine must detect a mid-workout reset (value decreases) and
   re-baseline.
 
-### `TBD` — measured sample packets
+### `TBD`: measured sample packets
 
 ```
 Flags observed (hex):       ____________
@@ -363,12 +363,12 @@ Sample packet at max speed: ____________________________
 
 ---
 
-## 4a. Heart Rate Service (`180D`) — the preferred HR source
+## 4a. Heart Rate Service (`180D`): the preferred HR source
 
 The device exposes a **standard Heart Rate Service** in addition to the FTMS heart rate
 field. Two sources for the same value.
 
-### Characteristic `0x2A37` — Heart Rate Measurement, Notify
+### Characteristic `0x2A37`: Heart Rate Measurement, Notify
 
 ```
 [0]     Flags (uint8)
@@ -381,7 +381,7 @@ field. Two sources for the same value.
 [..]    RR-Intervals (uint16 each, 1/1024 s) if flagged
 ```
 
-For a treadmill handgrip sensor, expect flags `0x00` and a single uint8 — the simplest
+For a treadmill handgrip sensor, expect flags `0x00` and a single uint8, the simplest
 possible case.
 
 **Sensor contact status (bits 1–2)** is directly useful here: it distinguishes "user is
@@ -394,7 +394,7 @@ create.
 | `0b10` | Contact detection supported, **contact not detected** |
 | `0b11` | Contact detection supported, contact detected |
 
-*Confidence: high — this is a long-stable, widely-implemented standard service.*
+*Confidence: high. This is a long-stable, widely-implemented standard service.*
 
 ### Why prefer this over the FTMS field
 
@@ -410,13 +410,13 @@ therefore among the first to be corrupted.
 
 Handgrip sensors only read while gripped, and are noisy when they do. **If the capture
 shows sparse, implausible, or wildly unstable values, cut heart rate from the dashboard
-and charts entirely.** A metric that is wrong half the time is worse than no metric —
+and charts entirely.** A metric that is wrong half the time is worse than no metric:
 it will pollute the average and maximum HR columns in every stored workout.
 
 Recording the field in `WorkoutSample` while hiding it from the UI is a reasonable
 middle position if you want to revisit later.
 
-### `TBD` — measurement needed
+### `TBD`: measurement needed
 
 ```
 Does 0x2A37 notify?                        [ ] yes  [ ] no
@@ -431,7 +431,7 @@ Behaviour on release:                       [ ] goes to 0  [ ] holds last  [ ] s
 
 ---
 
-## 5. Fitness Machine Status (`0x2ADA`) — Notify
+## 5. Fitness Machine Status (`0x2ADA`): Notify
 
 **This is an event stream, not a state string.** The original draft described it as
 returning `{"status": "Running"}`. That is not what this characteristic does. It
@@ -471,7 +471,7 @@ speed controls and re-issue `Request Control` before re-enabling them.
 **`0x03` (safety key) matters:** treat as an immediate hard stop. Do not attempt to
 restart the machine over BLE in response.
 
-### `TBD` — which events does this device actually emit?
+### `TBD`: which events does this device actually emit?
 
 ```
 Observed op codes: ____________________________________
@@ -481,11 +481,11 @@ Does it emit 0x05 when you change speed on the console?  [ ] yes  [ ] no
 ```
 
 If the device emits nothing here, the app must infer machine state from `0x2ACD`
-speed values instead — workable, but less precise. Note that in `ASSUMPTIONS.md`.
+speed values instead, workable, but less precise. Note that in `ASSUMPTIONS.md`.
 
 ---
 
-## 6. Training Status (`0x2AD3`) — Read + Notify
+## 6. Training Status (`0x2AD3`): Read + Notify
 
 Distinct from both Machine Status and the app's workout state. Display-only.
 
@@ -528,11 +528,11 @@ Many budget machines report a single value permanently.*
 
 ---
 
-## 7. Fitness Machine Control Point (`0x2AD9`) — Write + Indicate
+## 7. Fitness Machine Control Point (`0x2AD9`): Write + Indicate
 
 The only writable characteristic. Governs speed control, start, and stop.
 
-### Mandatory sequence — omitting any step is the usual cause of silent failure
+### Mandatory sequence: omitting any step is the usual cause of silent failure
 
 1. **Enable indications** on `0x2AD9` by writing `0x0002` to its CCCD descriptor
    (`0x2902`). Some machines reject writes if indications aren't enabled.
@@ -588,7 +588,7 @@ Other opcodes exist (`0x04` resistance, `0x05` power, `0x06` target heart rate,
 These result codes are **machine-level and unrelated to the app-level error codes in
 section 9.** Do not merge the two numbering schemes.
 
-### `TBD` — control point behaviour
+### `TBD`: control point behaviour
 
 ```
 Does the device expose 0x2AD9?                        [ ] yes  [ ] no
@@ -643,7 +643,7 @@ using the More Data bit. Requesting a larger MTU (`requestMtu(517)`) after conne
 usually avoids this and is worth doing, but the parser **must still handle the split
 case correctly** rather than assuming it won't happen.
 
-**`TBD` — negotiated MTU: ______ · Does the device ever split records? [ ] yes [ ] no**
+**`TBD`: negotiated MTU: ______ · Does the device ever split records? [ ] yes [ ] no**
 
 ---
 
@@ -683,7 +683,7 @@ all reachable in practice.
 | Is heart rate available? | `180D` present; usability unverified |
 | Signal strength at walking position | ≈ −49 dBm (strong) |
 
-### Outstanding — priority order
+### Outstanding: priority order
 
 | # | Question | Blocks | Needs the belt? |
 |---|----------|--------|-----------------|

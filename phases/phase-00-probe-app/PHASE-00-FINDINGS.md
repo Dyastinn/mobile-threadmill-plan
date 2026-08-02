@@ -2,15 +2,15 @@
 
 > Filled in by the operator after the `[HUMAN]` run. **Measured values only.**
 > Anything still uncertain belongs in `../../ASSUMPTIONS.md`, not here.
-> Every `TBD` below is a real unknown — **do not invent a value for one.**
+> Every `TBD` below is a real unknown. **Do not invent a value for one.**
 
 Run date: ____________  ·  App version: ____________  ·  Capture file(s): ____________
 
 ---
 
-## Verdicts — the four that decide later phases
+## Verdicts: the four that decide later phases
 
-### V1 · Counter semantics — **blocks Phase 06 entirely**
+### V1 · Counter semantics (**blocks Phase 06 entirely**)
 
 ```
 [ ] Per-session — counters reset between sessions
@@ -27,7 +27,7 @@ Evidence
 **Cumulative** → every workout value is a delta against a workout-start baseline, and
 the engine must detect a mid-workout decrease and re-baseline.
 
-### V2 · Control point — **decides whether Phase 05 exists**
+### V2 · Control point (**decides whether Phase 05 exists**)
 
 | Command | Bytes sent | Response | Result | Physical effect |
 |---------|-----------|----------|--------|-----------------|
@@ -55,7 +55,7 @@ Verdict:
 
 **Preliminary, not yet confirmed via the full structured D1–D8 matrix above.** Working
 theory (operator's, 2026-07-31): the device does not carry a pre-Start target speed
-into the running state — `Set Target Speed` must be **re-issued after Start**, not
+into the running state. `Set Target Speed` must be **re-issued after Start**, not
 only before it, to actually reach the desired pace. This reframes the expected
 command sequence as `Request Control → Start → Set Target Speed` rather than
 `Request Control → Set Target Speed → Start`.
@@ -67,13 +67,13 @@ timestamps land in the capture file):
 2. Compare against Set Target Speed *before* Start (the D2/D3 order in the table
    above) to confirm that path really is the one that produces the "all lights /
    wrong speed" behaviour.
-3. Note what "all lights" means precisely — every speed indicator LED lit simultaneously?
+3. Note what "all lights" means precisely. Every speed indicator LED lit simultaneously?
    A specific fault/ramp icon? This matters for whether it's a ramp-up animation
    (harmless, just re-set the speed) or a genuine fault state.
 
 A read-only app is still worth shipping. "Void" here is a finding, not a failure.
 This finding currently points to Phase 05 existing but needing a specific command
-*order*, not the naive one — see `../../ASSUMPTIONS.md` A2.
+*order*, not the naive one (see `../../ASSUMPTIONS.md` A2).
 
 ### V3 · Heart rate
 
@@ -86,7 +86,7 @@ This finding currently points to Phase 05 existing but needing a specific comman
 FTMS 0x2ACD HR field agrees? yes / no / field absent
 ```
 
-### V4 · Scan filter — production choice
+### V4 · Scan filter: production choice
 
 ```
 Is 0x1826 in the advertisement?  [ ] yes → filter on service UUID
@@ -97,7 +97,7 @@ Never fall back to unfiltered scanning. Ship one filter, not both.
 
 ---
 
-## Raw hex — Phase 01 parser fixtures
+## Raw hex: Phase 01 parser fixtures
 
 ```
 0x2ACC (Feature):            ________________________________
@@ -124,7 +124,7 @@ Device ever splits records?    [ ] yes  [ ] no
 Negotiated MTU:                ______
 ```
 
-### Matched console-vs-hex pairs — minimum four
+### Matched console-vs-hex pairs (minimum four)
 
 | Console speed | Console distance | Console time | Raw `0x2ACD` hex |
 |---------------|------------------|--------------|------------------|
@@ -134,7 +134,7 @@ Negotiated MTU:                ______
 | | | | |
 
 These are the parser unit-test fixtures. Without matched pairs there is no way to
-prove the decoder is correct — only that it does not crash.
+prove the decoder is correct, only that it does not crash.
 
 ---
 
@@ -147,8 +147,8 @@ prove the decoder is correct — only that it does not crash.
 | Change speed | |
 | Pull safety key | |
 
-If nothing is emitted, machine state must be inferred from `0x2ACD` speed values —
-workable but less precise. Record that in `../../ASSUMPTIONS.md`.
+If nothing is emitted, machine state must be inferred from `0x2ACD` speed values.
+That's workable but less precise. Record that in `../../ASSUMPTIONS.md`.
 
 ---
 
@@ -177,7 +177,7 @@ Random resolvable → the MAC is not stable and `UX_Device_MacAddress` in
 | Screen off 5 min | (failure expected pre-Phase 07) |
 | GATT error codes seen | |
 
-RSSI at the walking position is ≈ −49 dBm — strong. **Any disconnect here is a
+RSSI at the walking position is ≈ −49 dBm, strong. **Any disconnect here is a
 software problem, not a radio one.** Useful framing for Phase 02.
 
 ---

@@ -1,7 +1,7 @@
 # MyHi Companion
 
 A personal Android app that replaces FitShow for daily use with the MY-HI Q8Y
-treadmill — connects over Bluetooth FTMS, shows live metrics, controls speed,
+treadmill. Connects over Bluetooth FTMS, shows live metrics, controls speed,
 and records workout history with per-workout telemetry. Fully offline: no
 account, no network calls, no cloud sync.
 

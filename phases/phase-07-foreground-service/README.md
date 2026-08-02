@@ -1,7 +1,7 @@
 # Phase 07 — Foreground Service
 
-> Every long-running test from here on is unreliable without this, and split screen —
-> app visible but not focused — is exactly where Android starts restricting background
+> Every long-running test from here on is unreliable without this, and split screen
+> (app visible but not focused) is exactly where Android starts restricting background
 > work.
 
 **Hardware:** required · **Size:** M · **Blocked by:** Phase 06
@@ -12,77 +12,69 @@
 
 Keep BLE alive and recording while the screen is off or the app is unfocused.
 
-This phase is almost entirely **Android platform code**, not MAUI XAML — a `Service`
+This phase is almost entirely **Android platform code**, not MAUI XAML: a `Service`
 subclass, a manifest permission change, and a notification built with Android's own
 `NotificationCompat` APIs. It follows the same "you write the logic, the agent
 explains and reviews" rule as everything else in this project; there's just no XAML
 surface here for the agent to hand you fully built. The one place declarative XML gets
-shown in full below is the manifest diff (task 7.1) — same reasoning as UI XAML: it's
-config, not logic.
+shown in full below is the manifest diff (task 7.1), for the same reason as UI XAML:
+it's config, not logic.
 
 ### Understanding what you're building (read this before the tasks)
 
-**The everyday problem.** An office building with motion-sensing lights and
-climate control assumes nobody's in a room once it's been still for a while, and
-cuts power to save money — perfectly reasonable, most rooms most of the time
-really are empty. If you're working late in one of those rooms, the fix isn't to
-argue with the sensor; it's to put up a sign the building's system is built to
-recognize — "still occupied" — and the building holds up its end: power stays on
-as long as the sign is there. Android is that building. To save battery, it
-aggressively suspends work in apps that aren't visible on screen — exactly what
-this phase's intro warns about: "split screen — app visible but not focused — is
-exactly where Android starts restricting background work." By Phase 06, recording
-already works — `WorkoutSampleBuffer` and `WorkoutRepository` are solid — but none
-of it survives the screen turning off unless something holds up a sign Android
-respects. A **foreground service** with a persistent, user-visible notification
-*is* that sign: in exchange for a notification the user can always see and
-dismiss-proof ("elapsed time, distance, speed," per this phase's Features list),
-Android contractually agrees not to kill the process.
+Android aggressively suspends work in apps that aren't visible on screen, to save
+battery. That's exactly what this phase's intro warns about: split screen (app
+visible but not focused) is where Android starts restricting background work. By
+Phase 06, recording already works (`WorkoutSampleBuffer` and `WorkoutRepository`
+are solid), but none of it survives the screen turning off unless something tells
+Android to leave the process alone. A **foreground service** with a persistent,
+user-visible notification does that: in exchange for a notification the user can
+always see and dismiss-proof ("elapsed time, distance, speed," per this phase's
+Features list), Android agrees not to kill the process.
 
-**Why a plain background task isn't enough.** The simplest-sounding approach —
-just keep running the BLE read loop and the sample buffer on an ordinary
-background `Task`, no `Service`, no notification — works fine as long as the app
-is the thing on screen. The moment the user locks the phone or switches to
-another app mid-workout (a 20–60 minute session, easily), Android's power
-management throttles and eventually kills background work regardless of what the
-app intends — this isn't a setting the app can request around; it's enforced OS
-policy. The realistic failure isn't a clean stop, it's a silent one: the BLE
-connection drops and `WorkoutSample` rows stop appearing mid-workout, the exact
-gap Phase 06's `Flags` bit 0 gap marker exists to record after the fact rather
-than prevent. So "just use a background task" isn't a simpler-but-adequate
-alternative here — it's an alternative that predictably breaks the one thing this
+**Why a plain background task isn't enough.** Just running the BLE read loop and
+the sample buffer on an ordinary background `Task` (no `Service`, no
+notification) works fine as long as the app is the thing on screen. The moment
+the user locks the phone or switches to another app mid-workout (a 20–60 minute
+session, easily), Android's power management throttles and eventually kills
+background work regardless of what the app intends. That's enforced OS policy,
+not a setting the app can request around. The realistic failure isn't a clean
+stop, it's a silent one: the BLE connection drops and `WorkoutSample` rows stop
+appearing mid-workout, the exact gap Phase 06's `Flags` bit 0 gap marker exists to
+record after the fact rather than prevent. So "just use a background task" isn't
+a simpler-but-adequate alternative here. It predictably breaks the one thing this
 phase exists for (`../README.md`'s own framing: "every long-running test from here
-on is unreliable without this"). A closely related question is *why declare
-`connectedDevice` specifically* rather than the plainest possible foreground
-service. That's not invented complexity either — Android 14+ requires apps to
-state which of several defined types of long-running work a foreground service is
-doing, and background BLE specifically requires the `connectedDevice` type plus
-its own `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission (task 7.1). Get the type
-wrong or omit it and there's no build error and no exception — this phase's
-Implementation requirements call out exactly this: "the failure mode is a silent
-scan failure rather than an exception," which is a far worse debugging session
-than a naive attempt would suggest.
+on is unreliable without this").
+
+A related question: why declare `connectedDevice` specifically, rather than the
+plainest possible foreground service? Android 14+ requires apps to state which of
+several defined types of long-running work a foreground service is doing, and
+background BLE specifically requires the `connectedDevice` type plus its own
+`FOREGROUND_SERVICE_CONNECTED_DEVICE` permission (task 7.1). Get the type wrong or
+omit it and there's no build error and no exception. This phase's Implementation
+requirements call out exactly this: "the failure mode is a silent scan failure
+rather than an exception," a far worse debugging session than getting it right
+the first time would have cost.
 
 **The pattern, named plainly.** `WorkoutRecordingService` is deliberately both
-**started and bound** — two Android service lifecycles layered on one class, named
+**started and bound**, two Android service lifecycles layered on one class, named
 explicitly in this phase's Learning goals. *Started* (`StartForegroundService`,
-task 7.5) means the service keeps running independent of whoever launched it — it
+task 7.5) means the service keeps running independent of whoever launched it. It
 doesn't stop just because the screen that started it goes dark. *Bound*
 (`BindService`, task 7.6) means the UI can hold a direct reference to the running
-instance — `WorkoutRecordingServiceConnection.Service` — to read live
+instance (`WorkoutRecordingServiceConnection.Service`) to read live
 elapsed/distance/speed for the in-app dashboard, rather than only being able to
 fire one-way `Intent`s at it. The cost is real: two lifecycles to reason about at
-once, and task 7.6 says as much — a service that's bound but never started dies
+once, and task 7.6 says as much. A service that's bound but never started dies
 the moment the activity unbinds, which is exactly backwards for a recording that
-must outlive the app being backgrounded. The payoff is exactly this project's
-shape: recording must survive UI teardown (started), while the dashboard wants
-push-style live access when the app *is* in front (bound) — one responsibility
-(own the BLE connection and the buffer) exposed two different ways to two
-different consumers (Android's process manager, and this app's own UI), rather
-than forcing one lifecycle to serve both needs badly. A one-off background job
-with no live UI to talk to — say, a single background upload — would only need
-"started," and adding a binder for it would be ceremony with no consumer to use
-it.
+must outlive the app being backgrounded. The payoff matches this project's shape:
+recording must survive UI teardown (started), while the dashboard wants
+push-style live access when the app *is* in front (bound). One responsibility,
+owning the BLE connection and the buffer, gets exposed two different ways to two
+different consumers: Android's process manager, and this app's own UI. A one-off
+background job with no live UI to talk to, say a single background upload, would
+only need "started." Adding a binder for it would be ceremony with no consumer
+to use it.
 
 ## Learning goals
 
@@ -92,14 +84,14 @@ it.
 - Foreground services specifically: why they exist (Android otherwise kills background
   work), the mandatory notification, and `foregroundServiceType` as a declared
   contract with the OS about *what kind* of long-running work this is
-- `PendingIntent` — how a notification action button hands control back into your app
+- `PendingIntent`: how a notification action button hands control back into your app
   code without your app needing to already be in the foreground when the user taps it
 - Runtime permissions beyond BLE: `POST_NOTIFICATIONS` (Android 13+), requested with
   the exact same MAUI `Permissions.BasePlatformPermission` pattern Phase 00 already
   used for `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT`
 - Where Android C# attributes end and hand-written manifest XML begins in this
   project: `MainActivity`'s `[Activity(...)]` attribute is already merged into the
-  manifest at build time — permissions are the one thing still hand-declared, and
+  manifest at build time. Permissions are the one thing still hand-declared, and
   this phase adds to that list rather than introducing a new mechanism
 - Resolving DI-registered services from inside a class Android constructs for you
   (a `Service` isn't built by the MAUI container, so constructor injection doesn't
@@ -139,7 +131,7 @@ it.
 - `foregroundServiceType="connectedDevice"` **and** the
   `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission. Since Android 15 a generic
   foreground service is not sufficient for background BLE, and **the failure mode is a
-  silent scan failure rather than an exception** — easy to misdiagnose for hours.
+  silent scan failure rather than an exception**, easy to misdiagnose for hours.
   (Tasks 7.1, 7.2)
 - Pass the type constant to `startForeground()` as well as declaring it. (Task 7.2)
 - `POST_NOTIFICATIONS` runtime permission. (Tasks 7.1, 7.4)
@@ -161,8 +153,8 @@ the empirical check.
 
 Touches: `src/MyHi.Companion/Platforms/Android/AndroidManifest.xml`.
 
-Three new permissions. Unlike `MainActivity`'s activity entry — generated from its
-`[Activity(...)]` C# attribute at build time — permissions in this project are
+Three new permissions. Unlike `MainActivity`'s activity entry, which is generated from
+its `[Activity(...)]` C# attribute at build time, permissions in this project are
 hand-declared in the manifest. Add these next to the existing
 `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT` lines:
 
@@ -173,9 +165,9 @@ hand-declared in the manifest. Add these next to the existing
 ```
 
 `FOREGROUND_SERVICE_CONNECTED_DEVICE` is specific to this service's declared type
-(task 7.2) — a generic foreground-service permission is not sufficient for background
+(task 7.2). A generic foreground-service permission is not sufficient for background
 BLE since Android 15, and the failure mode when it's missing is a **silent** scan
-failure, not an exception. `POST_NOTIFICATIONS` is unrelated to BLE — it's the
+failure, not an exception. `POST_NOTIFICATIONS` is unrelated to BLE; it's the
 Android 13+ runtime permission for showing any notification at all, including this
 service's mandatory one.
 
@@ -191,11 +183,11 @@ Concrete steps:
 
 Creates: `src/MyHi.Companion/Platforms/Android/WorkoutRecordingService.cs`.
 
-An Android `Service`, declared with its foreground type via a C# attribute — the same
-mechanism `MainActivity.cs` uses for `[Activity(...)]` — rather than by hand-editing
+An Android `Service`, declared with its foreground type via a C# attribute, the same
+mechanism `MainActivity.cs` uses for `[Activity(...)]`, rather than by hand-editing
 the manifest. Note the namespace: `MainActivity.cs` and `MainApplication.cs` both use
-plain `namespace MyHi.Companion;` even though they live under `Platforms/Android/` —
-match that existing convention rather than introducing a new one.
+plain `namespace MyHi.Companion;` even though they live under `Platforms/Android/`.
+Match that existing convention rather than introducing a new one.
 
 ```csharp
 using Android.App;
@@ -272,11 +264,11 @@ Concrete steps:
 2. Fill in `OnCreate`'s dependency resolution.
 3. Fill in the three `OnStartCommand` branches. Re-read `ITreadmillService`'s doc
    comment on `StartAsync` (in whichever project Phase 01b moved it to): **never call
-   it from here.** Pause and Stop only — see the safety note in "Implementation
+   it from here.** Pause and Stop only. See the safety note in "Implementation
    requirements" above.
 4. Fill in `OnDestroy`'s final flush.
 5. Build the app project. A `Service` with no `<service>` manifest entry and no
-   `[Service]` attribute silently never runs — confirm the attribute is actually
+   `[Service]` attribute silently never runs. Confirm the attribute is actually
    being picked up by checking the merged manifest in
    `obj/Debug/net10.0-android/android/AndroidManifest.xml` after building, if
    anything about task 7.5 later seems not to be starting the service at all.
@@ -334,14 +326,14 @@ public static class WorkoutNotificationBuilder
 
 Concrete steps:
 1. Create the file with the shape above.
-2. Fill in `EnsureChannel` — call it once from `WorkoutRecordingService.OnCreate`.
+2. Fill in `EnsureChannel`. Call it once from `WorkoutRecordingService.OnCreate`.
 3. Fill in `Build`'s content fields and `BuildActionPendingIntent`.
 4. For `SetSmallIcon`: a real status-bar icon is a small monochrome silhouette
    drawable (`Platforms/Android/Resources/drawable/`), not the launcher icon.
    Reusing `Resource.Mipmap.appicon` as a placeholder is fine to get this task
-   working end to end — a proper status-bar glyph isn't this phase's learning goal,
+   working end to end. A proper status-bar glyph isn't this phase's learning goal;
    swap it in later.
-5. Have `WorkoutRecordingService` call `Build(...)` again — not just once — whenever
+5. Have `WorkoutRecordingService` call `Build(...)` again, not just once, whenever
    elapsed/distance/speed change enough to be worth showing, and re-post via
    `NotificationManager.Notify(NotificationId, notification)`. Throttle this: a
    notification update on every ~1 Hz sample is wasteful for a value the user only
@@ -352,7 +344,7 @@ Concrete steps:
 Creates: `src/MyHi.Companion/Features/Recording/PostNotificationsPermission.cs`.
 
 Same pattern as `BluetoothScanPermission`/`BluetoothConnectPermission` in
-`src/MyHi.Companion/Features/Bluetooth/BluetoothPermissions.cs` — a
+`src/MyHi.Companion/Features/Bluetooth/BluetoothPermissions.cs`: a
 `Permissions.BasePlatformPermission` subclass naming the one Android permission it
 wraps:
 
@@ -371,7 +363,7 @@ public sealed class PostNotificationsPermission : Permissions.BasePlatformPermis
 ```
 
 Concrete steps:
-1. Create the file with the shape above — it's small enough that the shape is most
+1. Create the file with the shape above. It's small enough that the shape is most
    of it; the interesting part is step 2.
 2. Request it from wherever the user taps Start, following the same "only from a
    user-visible action" rule `BluetoothReadinessService.RequestPermissionsAsync`
@@ -381,7 +373,7 @@ Concrete steps:
    ```
 3. Decide what happens if it's denied. Unlike BLE permission denial (scanning simply
    can't work), a denied `POST_NOTIFICATIONS` on Android 13+ still lets the
-   foreground service **run** — it just can't show its notification. Recording can
+   foreground service **run**; it just can't show its notification. Recording can
    reasonably continue; the UI should say so rather than silently showing nothing.
 
 ### 7.5 — Starting the service from the UI
@@ -391,11 +383,11 @@ Touches: wherever your Phase 04 Start-button command lives.
 Concrete steps:
 1. Request `PostNotificationsPermission` (7.4) if not already granted.
 2. Build an `Intent` targeting `WorkoutRecordingService` and call
-   `Context.StartForegroundService(intent)` — **not** `StartService`. That
+   `Context.StartForegroundService(intent)`, **not** `StartService`. That
    distinction matters on API 26+: `StartForegroundService` gives the service a
    five-second window to call `StartForeground()` before the OS considers it
    misbehaving and kills it.
-3. Confirm this call site is reachable **only** from the Start button's tap handler —
+3. Confirm this call site is reachable **only** from the Start button's tap handler,
    never from app launch, never from a restored or backgrounded state. Search the
    codebase for any other place a similar `Intent` could plausibly get built, and
    make sure this is the only one.
@@ -404,8 +396,8 @@ Concrete steps:
 
 Creates: `src/MyHi.Companion/Platforms/Android/WorkoutRecordingServiceConnection.cs`.
 
-The UI needs live access to the service instance — to read its current elapsed
-time/distance/speed for the in-app dashboard, not just the notification — which is
+The UI needs live access to the service instance, to read its current elapsed
+time/distance/speed for the in-app dashboard, not just the notification. That's
 what *binding* gets you, as opposed to only firing an `Intent` at it.
 
 ```csharp
@@ -441,9 +433,9 @@ Concrete steps:
 3. From `MainActivity` (or a thin wrapper it constructs), call
    `BindService(intent, connection, Bind.None)` **after** the service is already
    started (7.5). Binding without also starting means the service dies the moment
-   the activity unbinds — wrong for a recording that must survive the app being
+   the activity unbinds, wrong for a recording that must survive the app being
    backgrounded.
-4. This is genuinely fiddly platform plumbing — bring what you've written to the
+4. This is genuinely fiddly platform plumbing. Bring what you've written to the
    review checkpoint before wiring a ViewModel to it, rather than debugging silently
    failing binder casts solo for hours.
 
@@ -451,8 +443,8 @@ Concrete steps:
 
 Before running the `[HUMAN]` tests: the agent reviews the manifest diff, the filled-in
 `OnStartCommand`, and the binder wiring together. This is the phase where a silent
-Android platform failure — a missing type, a missing permission, a wrong
-`PendingIntent` flag — is genuinely easy to lose hours to, and a second pair of eyes
+Android platform failure (a missing type, a missing permission, a wrong
+`PendingIntent` flag) is genuinely easy to lose hours to, and a second pair of eyes
 on the exact API calls before the phone comes out is worth it.
 
 ---
@@ -464,9 +456,9 @@ optimisation being disabled is not sufficient.** These are separate Xiaomi contr
 they are the ones that actually kill long-running services.
 
 - [ ] Android battery optimisation disabled *(already confirmed done)*
-- [ ] **Autostart** enabled for the app — separate HyperOS menu
-- [ ] App's **Battery saver** set to **"No restrictions"** — HyperOS's own setting in
-      app info, distinct from Android's toggle
+- [ ] **Autostart** enabled for the app (separate HyperOS menu)
+- [ ] App's **Battery saver** set to **"No restrictions"** (HyperOS's own setting in
+      app info, distinct from Android's toggle)
 - [ ] App **locked in Recents** (padlock in the task switcher) to resist memory reclaim
 
 *These controls exist and matter; the exact menu names vary between HyperOS versions.*
@@ -475,7 +467,7 @@ they are the ones that actually kill long-running services.
 unrelated to the code and the resulting debugging is wasted. Record their state in
 `../../DEVICE.md`.
 
-The app should still **prompt and explain** rather than require them — but on this
+The app should still **prompt and explain** rather than require them, but on this
 device they are effectively mandatory.
 
 ---

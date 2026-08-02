@@ -14,79 +14,75 @@ database in a state worse than before the attempt.
 
 ### Understanding what you're building (read this before the tasks)
 
-**The everyday problem.** Imagine you're moving apartments and you can only make
-one non-negotiable promise to yourself: nothing that goes into a box disappears
-before it comes out the other end. Whether you also unpack faster, color-code the
-boxes, or merge duplicate furniture from both places is a nice-to-have for a
-later trip. This phase is that promise, applied to a phone: get every workout off
-this device and onto another one, intact, even if the process is interrupted
-halfway through. The line at the top of this phase's doc says exactly that —
-"without ever leaving the database in a state worse than before the attempt."
-Everything else — merging two phones' histories, a CSV export for spreadsheets,
-an older backup reading correctly in a newer app version — is explicitly Phase
-15's problem, not this one's.
+**The everyday problem.** This phase makes one promise, the same one you'd make to
+yourself packing boxes for a move: nothing that goes in disappears before it comes
+out the other end. Get every workout off this device and onto another one, intact,
+even if the process is interrupted halfway through. The line at the top of this
+phase's doc says exactly that: "without ever leaving the database in a state worse
+than before the attempt." Everything else (merging two phones' histories, a CSV
+export for spreadsheets, an older backup reading correctly in a newer app version)
+is explicitly Phase 15's problem, not this one's.
 
-**Why "minimal" isn't corner-cutting.** The tempting alternative, once you're
-deep in `BackupExporter`/`BackupImporter` with the ZIP format and database
-queries fresh in your head, is to build the complete version now: add merge
-mode, add CSV, add version migration while you're already in the file. Each of
-the three is deferred for a specific, demonstrable reason, not laziness.
-**Merge mode** needs conflict-resolution rules for what happens when the same
-`WorkoutId` appears on both phones with a different `Notes` field or a different
-`EndedAtUtc` — rules nobody can write correctly today, because there's no real
-case yet to write them against; guessing now means designing against an imagined
-scenario instead of an observed one. **CSV** is a second output format with its
-own schema-mapping problem — `samples.json`'s nested, per-workout structure
-doesn't flatten into spreadsheet rows the same way `workouts.json` does — and
-nothing in this phase's scope actually needs it; the single ZIP already
-satisfies "get the data off the phone." **Version migration** is, almost by
-definition, something you cannot build correctly before a second format version
-exists to migrate *from* — `backupFormatVersion` is in the manifest today
-specifically so a real migration can be written later against a real old format,
-not an invented one now. So the "Out" column in the Scope section isn't three
-shortcuts, it's three things that are genuinely impossible to build well yet,
-deferred to the point where they become buildable. What's left in scope — full
-export, replace-only import, automatic local backup, pre-import safety backup —
-is the complete list of what's needed to make "you can always get your data
-back" true today, and no smaller.
+**Why "minimal" isn't corner-cutting.** The tempting alternative, once you're deep
+in `BackupExporter`/`BackupImporter` with the ZIP format and database queries fresh
+in your head, is to build the complete version now: add merge mode, add CSV, add
+version migration while you're already in the file. Each of the three is deferred
+for a specific, demonstrable reason, not laziness. **Merge mode** needs
+conflict-resolution rules for what happens when the same `WorkoutId` appears on
+both phones with a different `Notes` field or a different `EndedAtUtc`. Nobody can
+write those rules correctly today, because there's no real case yet to write them
+against; guessing now means designing against an imagined scenario instead of an
+observed one. **CSV** is a second output format with its own schema-mapping
+problem: `samples.json`'s nested, per-workout structure doesn't flatten into
+spreadsheet rows the same way `workouts.json` does, and nothing in this phase's
+scope actually needs it. The single ZIP already satisfies "get the data off the
+phone." **Version migration** is, almost by definition, something you cannot build
+correctly before a second format version exists to migrate *from*.
+`backupFormatVersion` is in the manifest today specifically so a real migration can
+be written later against a real old format, not an invented one now. So the "Out"
+column in the Scope section isn't three shortcuts. It's three things that are
+genuinely impossible to build well yet, deferred to the point where they become
+buildable. What's left in scope (full export, replace-only import, automatic local
+backup, pre-import safety backup) is the complete list of what's needed to make
+"you can always get your data back" true today, and no smaller.
 
 **The pattern, named plainly.** The zip-slip guard, decompression cap, and
 format-version check in `BackupImporter` (task 9.3, steps 1–3) are the same
 **fail-fast-at-the-trust-boundary** idea Phase 01a applied to BLE packets: check
 everything *before* trusting any of it, reject loudly and immediately, never
-partway through real work. The boundary just moved — there, the untrusted input
-was bytes off a Bluetooth radio; here, it's a ZIP file that might be corrupted,
-hand-edited, or actively hostile (a `../` entry trying to write outside the
-target directory is the same category of problem as a truncated BLE packet: data
-from outside the program's control, shaped to look valid). The cost is the same
-shape too — a handful of checks (an entry-name allowlist, a summed-length check,
-one manifest field read) before any real import work starts. The payoff is what
-makes it worth it here specifically: without the allowlist check, a crafted ZIP
-entry could write a file anywhere the app has permission to write; without the
-pre-import safety backup and the single SQLite transaction (task 9.3, steps 4–5),
-an import that fails at row 40,000 of `samples.json` leaves the user with neither
-their old data nor their new data — for a feature whose entire purpose is "never
-lose the user's workout history," a validation gap here would defeat the phase's
-own point. This is exactly what Uncle Bob's framing is actually about: fail-fast
-isn't sprinkled everywhere in this codebase, it's applied precisely at the
-boundary where control passes from something you don't trust (a file the user
-picked off their filesystem) to something you do (your own database).
+partway through real work. The boundary just moved. There, the untrusted input was
+bytes off a Bluetooth radio; here, it's a ZIP file that might be corrupted,
+hand-edited, or actively hostile (a `../` entry trying to write outside the target
+directory is the same category of problem as a truncated BLE packet: data from
+outside the program's control, shaped to look valid). The cost is the same shape
+too: a handful of checks (an entry-name allowlist, a summed-length check, one
+manifest field read) before any real import work starts. The payoff is what makes
+it worth it here specifically. Without the allowlist check, a crafted ZIP entry
+could write a file anywhere the app has permission to write. Without the pre-import
+safety backup and the single SQLite transaction (task 9.3, steps 4–5), an import
+that fails at row 40,000 of `samples.json` leaves the user with neither their old
+data nor their new data. For a feature whose entire purpose is "never lose the
+user's workout history," a validation gap here would defeat the phase's own point.
+This codebase doesn't apply fail-fast reflexively everywhere; it applies it
+precisely at the boundary where control passes from something you don't trust (a
+file the user picked off their filesystem) to something you do (your own
+database).
 
 ## Learning goals
 
 - **Splitting a feature across the `Core`/app seam a third time.** The ZIP-building,
   the SQL, the JSON streaming, and every safety check (zip-slip, decompression cap,
   atomic export, single-transaction replace) are pure logic with zero MAUI
-  dependency — they belong in `Core`, get real xUnit tests, and are built the same
+  dependency. They belong in `Core`, get real xUnit tests, and are built the same
   "spec, not code" way as `FakeTreadmillService` (Phase 01b) and `AppSettingsService`
-  (Phase 08). Only the *transfer* — the share sheet, the file picker, the confirmation
-  dialog — touches a MAUI API and lives in the app project.
-- **Streaming JSON**, not `JsonSerializer.Deserialize<List<T>>` — the difference
-  between reading a whole multi-megabyte array into memory and reading it one element
-  at a time. This is the actual mechanism behind "streaming import" in the scope
-  below, not just a phrase.
+  (Phase 08). Only the *transfer* (the share sheet, the file picker, the confirmation
+  dialog) touches a MAUI API and lives in the app project.
+- **Streaming JSON**, not `JsonSerializer.Deserialize<List<T>>`. The difference
+  is between reading a whole multi-megabyte array into memory and reading it one
+  element at a time. This is the actual mechanism behind "streaming import" in the
+  scope below, not just a phrase.
 - **Why settings are applied *after* the database transaction commits, never
-  during it.** `Preferences` has no transaction of its own — see "Safety
+  during it.** `Preferences` has no transaction of its own. See "Safety
   requirements" below for the exact reasoning, ported straight from the project plan
   because it is not optional.
 
@@ -96,7 +92,7 @@ picked off their filesystem) to something you do (your own database).
 backup on workout finish (last 5 kept, app-private storage) · pre-import safety backup.
 
 **Out (Phase 15):** merge mode · CSV export · backup format *migrations* (the
-mechanism ships here; migrations do not) · statistics/PR export — those are **derived
+mechanism ships here; migrations do not) · statistics/PR export. Those are **derived
 from workouts and must be recomputed on import**, never exported. Exporting derived
 data creates two sources of truth.
 
@@ -111,14 +107,14 @@ MyHiBackup_2026-07-28_1930.zip
 └── settings.json
 ```
 
-One manifest, not a `metadata.json` + `version.json` pair — two files with overlapping
+One manifest, not a `metadata.json` + `version.json` pair. Two files with overlapping
 responsibility drift apart.
 
 `backupFormatVersion` is an **integer independent of the app version**. A UI bugfix
 bumping the app version must not invalidate backups.
 
 Identities in the file are `WorkoutId` and `DeviceUid`. **Integer `Id` values are not
-exported** and are reassigned on import — see `14-Database.md`'s "Backup mapping"
+exported** and are reassigned on import. See `14-Database.md`'s "Backup mapping"
 section, which this phase implements field-for-field (task 9.1 below mirrors its
 `Workout`/`WorkoutSample`/`Device` columns exactly).
 
@@ -143,12 +139,12 @@ section, which this phase implements field-for-field (task 9.1 below mirrors its
 
 ## Safety requirements — these are the point of the phase
 
-**Replace must not be destructive on failure.** "Delete current data, then restore" —
+**Replace must not be destructive on failure.** "Delete current data, then restore":
 if that throws at file 3 of 5 the user has neither. Required:
 
 1. Write an automatic pre-import backup to app-private storage **first**
 2. Perform the entire data import inside **one SQLite transaction**
-3. Apply settings **after** the transaction commits — `Preferences` sits outside the
+3. Apply settings **after** the transaction commits. `Preferences` sits outside the
    transaction, and losing six toggles is recoverable while losing years of workouts
    is not
 4. Offer "undo last import" for one session
@@ -165,7 +161,7 @@ Also:
 - **Block export during an active workout**; **block import while connected or
   mid-workout.**
 - **Timestamps are UTC plus stored offset**, serialised as ISO 8601 with offset.
-- **Restored saved devices will not auto-connect** on a new phone — the MAC restores
+- **Restored saved devices will not auto-connect** on a new phone: the MAC restores
   but the bond does not. Tell the user they need to reconnect once, rather than letting
   it look broken.
 
@@ -173,39 +169,39 @@ Also:
 
 ## Reference docs
 
-- **`ZipFile` class** (`ZipFile.CreateFromDirectory`, `ZipFile.OpenRead`) —
-  https://learn.microsoft.com/en-us/dotnet/api/system.io.compression.zipfile —
-  everything task 9.2/9.3 need is on this one page; no third-party ZIP library.
-- **`JsonSerializer.DeserializeAsyncEnumerable`** —
-  https://learn.microsoft.com/en-us/dotnet/api/system.text.json.jsonserializer.deserializeasyncenumerable —
-  read this before task 9.3. It streams a root-level JSON *array* one element at a
-  time — exactly the shape of `workouts.json`/`samples.json`/`devices.json` — which is
+- **`ZipFile` class** (`ZipFile.CreateFromDirectory`, `ZipFile.OpenRead`):
+  https://learn.microsoft.com/en-us/dotnet/api/system.io.compression.zipfile.
+  Everything task 9.2/9.3 need is on this one page; no third-party ZIP library.
+- **`JsonSerializer.DeserializeAsyncEnumerable`**:
+  https://learn.microsoft.com/en-us/dotnet/api/system.text.json.jsonserializer.deserializeasyncenumerable.
+  Read this before task 9.3. It streams a root-level JSON *array* one element at a
+  time, exactly the shape of `workouts.json`/`samples.json`/`devices.json`, which is
   what makes "streaming import" concrete rather than aspirational.
-- **`Microsoft.Data.Sqlite` transactions** —
-  https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/transactions —
-  the single-transaction replace-import in task 9.3 is exactly the pattern this page
+- **`Microsoft.Data.Sqlite` transactions**:
+  https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/transactions.
+  The single-transaction replace-import in task 9.3 is exactly the pattern this page
   describes; `MigrationRunner.Apply` (Phase 00) already uses the same
   `BeginTransaction`/`Commit` shape if you want a second example in this codebase.
-- **`Share` (`Share.RequestAsync`)** —
-  https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/data/share —
+- **`Share` (`Share.RequestAsync`)**:
+  https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/data/share.
   `HomeViewModel.ShareLogAsync` (Phase 00) already calls this for the log file; task
   9.7's export button does the same thing with the backup ZIP instead.
-- **`FilePicker`** —
-  https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/storage/file-picker —
-  read the "pick a file" section for `PickOptions`; task 9.7's import button uses it.
-- **File system helpers (`FileSystem.CacheDirectory`)** —
-  https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/storage/file-system-helpers —
-  the export target directory; note the platform note that the OS may clear this
+- **`FilePicker`**:
+  https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/storage/file-picker.
+  Read the "pick a file" section for `PickOptions`; task 9.7's import button uses it.
+- **File system helpers (`FileSystem.CacheDirectory`)**:
+  https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/storage/file-system-helpers.
+  The export target directory; note the platform note that the OS may clear this
   storage, which is exactly why the pre-import *safety* backup in task 9.3 goes to
-  `FileSystem.AppDataDirectory` instead (app-private, not cache — the two are not
+  `FileSystem.AppDataDirectory` instead (app-private, not cache; the two are not
   interchangeable in this phase).
-- **`CommunityToolkit.Maui` `FileSaver`** —
-  https://learn.microsoft.com/en-us/dotnet/communitytoolkit/maui/essentials/file-saver —
-  already listed in `docs/learning/03-Doc-Links.md`; used only for the optional
+- **`CommunityToolkit.Maui` `FileSaver`**:
+  https://learn.microsoft.com/en-us/dotnet/communitytoolkit/maui/essentials/file-saver.
+  Already listed in `docs/learning/03-Doc-Links.md`; used only for the optional
   secondary "Save a Copy to Device" button in task 9.8.
-- **Getting started with `CommunityToolkit.Maui`** —
-  https://learn.microsoft.com/en-us/dotnet/communitytoolkit/maui/get-started —
-  the package isn't referenced yet (check `MyHi.Companion.csproj` — it currently only
+- **Getting started with `CommunityToolkit.Maui`**:
+  https://learn.microsoft.com/en-us/dotnet/communitytoolkit/maui/get-started.
+  The package isn't referenced yet (check `MyHi.Companion.csproj`; it currently only
   has `CommunityToolkit.Mvvm`, a different package). Task 9.8 adds it and calls
   `.UseMauiCommunityToolkit()`.
 
@@ -217,7 +213,7 @@ Also:
 
 Creates: `src/MyHi.Companion.Core/Backup/BackupDtos.cs`.
 
-These are plain data records, not logic — same category as `NavDestination` or
+These are plain data records, not logic, same category as `NavDestination` or
 `TreadmillSample`, safe to write in full rather than from a skeleton. Every field maps
 1:1 to a column in `14-Database.md`, with the portable GUID identities swapped in for
 the integer `Id`/`WorkoutRowId`/`DeviceId` columns that never leave the phone:
@@ -267,10 +263,10 @@ public sealed record DeviceExportDto(
     bool IsPreferred);
 ```
 
-`settings.json` doesn't need its own DTO — it's just the
+`settings.json` doesn't need its own DTO; it's just the
 `IReadOnlyDictionary<string,string>` that `AppSettingsService` (Phase 08) already
 speaks in terms of its `Preferences` keys. Add these two methods to
-`AppSettingsService` now (small enough to write directly, no skeleton needed — it's
+`AppSettingsService` now (small enough to write directly, no skeleton needed; it's
 straight delegation to the store you already wrote):
 
 ```csharp
@@ -354,7 +350,7 @@ public sealed class BackupExporter(SqliteConnectionFactory connectionFactory)
 
 Creates: `src/MyHi.Companion.Core/Backup/BackupImporter.cs`.
 
-This is the phase's highest-stakes file — every numbered step below is one of the
+This is the phase's highest-stakes file. Every numbered step below is one of the
 "Safety requirements" above turned into code, not extra caution:
 
 ```csharp
@@ -481,8 +477,8 @@ public sealed class AutoBackupService(BackupExporter exporter, string backupDire
 }
 ```
 
-This runs from wherever Phase 04's workout engine raises its "workout finished" event —
-by the time you reach this phase that event exists; wire a call to `RunAsync` into its
+This runs from wherever Phase 04's workout engine raises its "workout finished" event.
+By the time you reach this phase that event exists; wire a call to `RunAsync` into its
 handler the same way `HomeViewModel` already wires `_captures.SessionChanged` in
 Phase 00. The exact hookup point is a one-line call, not designed here, because it
 depends on Phase 04's actual API.
@@ -491,32 +487,32 @@ depends on Phase 04's actual API.
 
 Creates: `src/MyHi.Companion.Tests/Backup/BackupExportImportTests.cs`.
 
-This is the test the phase's acceptance criteria are built around — "no data loss" has
+This is the test the phase's acceptance criteria are built around. "No data loss" has
 to mean something more precise than eyeballing a row count.
 
 Concrete steps:
-1. Same setup pattern as `MigrationRunnerTests` (Phase 00) —
+1. Same setup pattern as `MigrationRunnerTests` (Phase 00):
    `Directory.CreateTempSubdirectory`, a `SqliteConnectionFactory` per test, disposed
    in `Dispose()`. Apply the real migration set from Phase 06 (whatever
    `AppDatabase`/`MauiProgram.cs` passes to `MigrationRunner` by the time you reach
    this phase) so the test runs against the actual schema, not a hand-rolled one.
 2. Seed 10–50 workouts with samples and a couple of devices directly via SQL (or via
-   whatever repository Phase 06 built — either is fine, the point is realistic data,
+   whatever repository Phase 06 built, either is fine, the point is realistic data),
    including at least one workout with `EndedAtUtc == null`, at least one with
-   `AvgHeartRate == null`, and a sample with `Flags` bit 0 set for a connection gap).
-3. `[Fact] Export_then_wipe_then_import_reproduces_the_original_data` — export to a
+   `AvgHeartRate == null`, and a sample with `Flags` bit 0 set for a connection gap.
+3. `[Fact] Export_then_wipe_then_import_reproduces_the_original_data`: export to a
    temp directory, compute a canonical checksum of the seeded data (e.g. SHA-256 over
-   every row serialized in a fixed field order — write a small helper for this, it's
+   every row serialized in a fixed field order; write a small helper for this, it's
    test infrastructure, not phase logic), wipe the three tables, import the exported
    ZIP, compute the same checksum again, assert equality. This is the literal
    "SHA-256 of a canonically-ordered dump matches" row in the table below.
-4. `[Fact] Import_rejects_an_archive_entry_outside_the_allowlist` — hand-build a ZIP
+4. `[Fact] Import_rejects_an_archive_entry_outside_the_allowlist`: hand-build a ZIP
    with an extra entry named `../evil.txt` (or any name not in
    `BackupExporter.EntryNames`), assert `ImportAsync` throws `BackupValidationException`
    and that none of `Workout`/`WorkoutSample`/`Device` were touched.
-5. `[Fact] Import_rejects_a_newer_format_version` — hand-build a manifest.json with
+5. `[Fact] Import_rejects_a_newer_format_version`: hand-build a manifest.json with
    `BackupFormatVersion = BackupExporter.CurrentFormatVersion + 1`, assert the same.
-6. `dotnet test src/MyHi.Companion.Tests` — all green, including every prior phase.
+6. `dotnet test src/MyHi.Companion.Tests`: all green, including every prior phase.
 
 ### 9.6 — Wiring `BackupImporter`'s dependencies in `MauiProgram.cs`
 
@@ -632,7 +628,7 @@ public sealed partial class BackupViewModel : BaseViewModel
 
 ### 9.8 — Add `CommunityToolkit.Maui` (for the optional "Save to Device" button)
 
-The package isn't referenced yet — check `src/MyHi.Companion/MyHi.Companion.csproj`,
+The package isn't referenced yet. Check `src/MyHi.Companion/MyHi.Companion.csproj`,
 it currently only has `CommunityToolkit.Mvvm`. Concrete steps:
 
 1. Add the package:
@@ -648,16 +644,16 @@ it currently only has `CommunityToolkit.Mvvm`. Concrete steps:
        .ConfigureFonts(fonts => { ... });
    ```
 3. Add a `SaveCopyAsync` command to `BackupViewModel` following the "Save to device"
-   flow on the `FileSaver` doc page linked above — export the same way as 9.7 step 3,
+   flow on the `FileSaver` doc page linked above, exporting the same way as 9.7 step 3,
    then `await FileSaver.Default.SaveAsync(fileName, stream, cancellationToken)`
    instead of `Share.Default.RequestAsync`. Wrap in try/catch: the doc page's known
    permission failures on API 33+ are exactly why this is the *secondary* button, not
-   the primary one — a failure here should not read as "backup failed," just "couldn't
+   the primary one. A failure here should not read as "backup failed," just "couldn't
    save a copy," since the primary export already succeeded.
 
 ### 9.9 — UI: `BackupPage.xaml` (agent-authored)
 
-Per the collaboration model in `../README.md`, this is UI — full XAML below, using
+Per the collaboration model in `../README.md`, this is UI. Full XAML below, using
 only tokens/styles from `docs/learning/04-Monochrome-Theme.md`.
 
 Creates: `src/MyHi.Companion/Features/Backup/BackupPage.xaml` and `BackupPage.xaml.cs`.
@@ -725,9 +721,9 @@ Creates: `src/MyHi.Companion/Features/Backup/BackupPage.xaml` and `BackupPage.xa
 ```
 
 `InverseBoolConverter` and `NotNullConverter` are both already registered in `App.xaml`
-(Phase 00) — no new converters needed.
+(Phase 00), so no new converters are needed.
 
-**`BackupPage.xaml.cs`** — identical pattern to every other page:
+**`BackupPage.xaml.cs`**: identical pattern to every other page:
 
 ```csharp
 namespace MyHi.Companion.Features.Backup;

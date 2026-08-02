@@ -4,12 +4,12 @@ Work in order. Each task lists the files it creates or touches. Commit after eac
 
 ---
 
-## 0.1 — Project scaffold
+## 0.1: Project scaffold
 
 **Creates:** `src/MyHi.Companion/` (MAUI Android head), `src/MyHi.Companion.Tests/`
 
-- .NET 10 MAUI, **Android only**. Single TFM `net10.0-android`. Do not add other heads —
-  conditional compilation is a non-goal.
+- .NET 10 MAUI, **Android only**. Single TFM `net10.0-android`. Do not add other heads.
+  Conditional compilation is a non-goal.
 - `minSdkVersion` **31**, `targetSdkVersion` **36**.
 - **The legacy Bluetooth permission path is out of scope.** No `BLUETOOTH`,
   `BLUETOOTH_ADMIN`, `ACCESS_FINE_LOCATION`. It is dead code on this device and an
@@ -30,7 +30,7 @@ five probe screens.
 
 ---
 
-## 0.2 — Permissions and adapter state
+## 0.2: Permissions and adapter state
 
 **Creates:** `Features/Bluetooth/BluetoothPermissions.cs`, `AndroidManifest.xml` edits
 
@@ -40,8 +40,8 @@ five probe screens.
 <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 ```
 
-`neverForLocation` is correct — the app never derives location from scan results —
-and it avoids the location prompt entirely.
+`neverForLocation` is correct: the app never derives location from scan results, and
+it avoids the location prompt entirely.
 
 - Request at first scan, not at launch.
 - Denied → explanatory message plus a button that opens app settings. Never a dead end.
@@ -52,7 +52,7 @@ produce a distinct, useful screen.
 
 ---
 
-## 0.3 — Scan screen
+## 0.3: Scan screen
 
 **Creates:** `Features/Bluetooth/ScanPage.xaml(.cs)`, `ScanViewModel.cs`,
 `Features/Bluetooth/IBleScanner.cs` + implementation
@@ -74,16 +74,16 @@ with **no error**. Debounce; never auto-restart in a tight loop.
 
 ---
 
-## 0.4 — Connect and service discovery
+## 0.4: Connect and service discovery
 
 **Creates:** `Features/Bluetooth/TreadmillConnection.cs`, `Features/Diagnostics/GattTreePage.xaml(.cs)`
 
-Sequence — order matters, see `../../05-FTMS-Protocol.md` §8:
+Sequence (order matters, see `../../05-FTMS-Protocol.md` §8):
 
 1. Connect with `autoConnect: false`.
 2. Wait ~200 ms.
 3. `discoverServices()`.
-4. Request MTU 517. **Record the negotiated value** — it is an open question (A7).
+4. Request MTU 517. **Record the negotiated value**; it is an open question (A7).
 
 GATT tree screen shows every service → characteristic → properties
 (Read/Write/Notify/Indicate) and every descriptor. Tap a characteristic to act on it.
@@ -95,12 +95,12 @@ GATT tree screen shows every service → characteristic → properties
   is Phase 02 and mixing them here makes failures unreadable.
 - **No bond handling.** Bonding is confirmed not required (`../../DEVICE.md`).
 
-**Trap — GATT 133:** always `close()` the gatt object before reconnecting, not just
+**Trap, GATT 133:** always `close()` the gatt object before reconnecting, not just
 `disconnect()`. Expect to see 133 regardless; log every GATT status code numerically.
 
 ---
 
-## 0.5 — Read dump screen
+## 0.5: Read dump screen
 
 **Creates:** `Features/Diagnostics/ReadDumpPage.xaml(.cs)`
 
@@ -119,7 +119,7 @@ Priority targets, because they are needed as Phase 01 test fixtures:
 
 ---
 
-## 0.6 — Notification log screen
+## 0.6: Notification log screen
 
 **Creates:** `Features/Diagnostics/NotificationLogPage.xaml(.cs)`
 
@@ -128,13 +128,13 @@ Priority targets, because they are needed as Phase 01 test fixtures:
 - Live rolling list, newest at top, capped at ~500 rows in the UI while writing **all**
   rows to the capture file.
 - Row format: `HH:mm:ss.fff | uuid | len | hex`.
-- A **rate counter** per characteristic — packets in the last 10 s, shown as Hz. This
+- A **rate counter** per characteristic: packets in the last 10 s, shown as Hz. This
   is the measurement for open question A8; expect ~1 Hz per the FTMS spec, and the
   original "5–10/sec" figure is almost certainly wrong.
 - A **flags tracker** for `0x2ACD`: show the distinct set of first-two-byte values seen
   this session, with a count each. If this set has more than one member, the device is
   varying its packet layout mid-session and Phase 01's parser must handle it.
-- Pause/resume the display without unsubscribing — the operator needs to read a packet
+- Pause/resume the display without unsubscribing. The operator needs to read a packet
   while walking.
 - Tap a row → "confirm + note" (task 0.8).
 
@@ -142,7 +142,7 @@ Priority targets, because they are needed as Phase 01 test fixtures:
 
 ---
 
-## 0.7 — Control point console ← the centrepiece
+## 0.7: Control point console ← the centrepiece
 
 **Creates:** `Features/Diagnostics/ControlConsolePage.xaml(.cs)`,
 `Features/Bluetooth/ControlPointClient.cs`, `Features/Bluetooth/FtmsCommands.cs`
@@ -151,9 +151,9 @@ This is the screen that answers *"what data should be sent to the treadmill"*.
 
 ### Mandatory sequence, enforced by the UI
 
-1. **Enable indications** on `0x2AD9` — write `0x0002` to its CCCD `0x2902`. Do this
+1. **Enable indications** on `0x2AD9`: write `0x0002` to its CCCD `0x2902`. Do this
    automatically on entering the screen, and show whether it succeeded.
-2. **Request Control** `00` — a prominent button. Nothing else is enabled until it
+2. **Request Control** `00`, a prominent button. Nothing else is enabled until it
    returns a result, and the raw response is displayed either way.
 3. Everything else.
 4. Re-issue Request Control after any reconnect and after any `0xFF`
@@ -193,7 +193,7 @@ For each write, log and display:
    Result          0x01  Success
 ```
 
-Result code lookup — the only decoding permitted this phase:
+Result code lookup, the only decoding permitted this phase:
 
 | Result | Meaning |
 |--------|---------|
@@ -212,7 +212,7 @@ finding, not a missing log line.
 - **One outstanding command at a time.** Queue writes; wait for the indication or the
   3 s timeout before sending the next. Concurrent writes get dropped or error, and the
   resulting confusion is indistinguishable from the device not working.
-- Round-trip latency measured and displayed — Probe D4 asks for it.
+- Round-trip latency measured and displayed. Probe D4 asks for it.
 - Every send and every response goes to the capture file with both timestamps.
 
 ### Safety
@@ -224,11 +224,11 @@ finding, not a missing log line.
 
 ---
 
-## 0.8 — Capture recorder
+## 0.8: Capture recorder
 
 **Creates:** `Features/Diagnostics/CaptureRecorder.cs`, `../../captures/` output
 
-### Format — JSONL, one event per line, append-only
+### Format: JSONL, one event per line, append-only
 
 ```json
 {"t":"2026-07-31T14:22:31.402Z","kind":"write","uuid":"2AD9","hex":"02 8A 02"}
@@ -243,7 +243,7 @@ file. JSONL rather than JSON for exactly this reason.
 
 - One file per session: `captures/session-YYYY-MM-DD-HHmm.jsonl`.
 - **Confirm + note:** any row on any screen can be tapped to attach
-  `{ok: true|false, text: "..."}`. This is the "record what is correct" mechanism —
+  `{ok: true|false, text: "..."}`. This is the "record what is correct" mechanism:
   the operator marks, in the moment, that a specific byte sequence produced the
   intended physical result.
 - **Console-value capture:** a dedicated quick-entry (speed / distance / time as shown
@@ -256,7 +256,7 @@ file. JSONL rather than JSON for exactly this reason.
 
 ---
 
-## 0.9 — Guided probe checklist
+## 0.9: Guided probe checklist
 
 **Creates:** `Features/Diagnostics/ProbeChecklistPage.xaml(.cs)`, `ProbeChecklist.json`
 
@@ -266,7 +266,7 @@ is not holding a phone, a treadmill handrail, and a markdown file at the same ti
 - One step per screen, ordered, with the procedure's own text.
 - Each step's answer fields typed appropriately: yes/no, number, hex, free text.
 - Steps that the app can answer itself are **pre-filled from live data** and marked as
-  such — negotiated MTU, notification rate, flags seen, raw hex for `0x2ACC` / `0x2AD4`,
+  such: negotiated MTU, notification rate, flags seen, raw hex for `0x2ACC` / `0x2AD4`,
   advertisement contents. The operator confirms rather than transcribes.
 - Progress persists across app restarts. The session will not be completed in one sitting.
 - **Export** → markdown matching the shape of `../../DEVICE.md`, ready to paste, plus
@@ -283,7 +283,7 @@ Highest-priority steps, flagged in the UI as blocking:
 
 ---
 
-## 0.10 — Logging
+## 0.10: Logging
 
 **Creates:** `Features/Shared/Logging.cs`
 
@@ -294,7 +294,7 @@ Highest-priority steps, flagged in the UI as blocking:
 
 ---
 
-## 0.11 — SQLite factory and migration runner
+## 0.11: SQLite factory and migration runner
 
 **Creates:** `Data/SqliteConnectionFactory.cs`, `Data/MigrationRunner.cs`,
 `Data/Migrations/` (empty)
@@ -302,7 +302,7 @@ Highest-priority steps, flagged in the UI as blocking:
 Small and cheap now so Phase 06 only writes migrations, not plumbing.
 
 - `Microsoft.Data.Sqlite`. Rationale in `../../00-Project-Plan.md`.
-- Apply these PRAGMAs on **every** connection — `foreign_keys` in particular is off by
+- Apply these PRAGMAs on **every** connection. `foreign_keys` in particular is off by
   default in `Microsoft.Data.Sqlite` and `ON DELETE CASCADE` silently does nothing
   without it:
   ```sql

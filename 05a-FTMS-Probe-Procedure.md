@@ -1,4 +1,4 @@
-# FTMS Probe Procedure — `[HUMAN]`
+# FTMS Probe Procedure (`[HUMAN]`)
 
 > Run this on the real treadmill. Its output resolves every `TBD` in
 > `05-FTMS-Protocol.md`.
@@ -6,7 +6,7 @@
 
 ---
 
-## Progress — updated 2026-07-28
+## Progress (updated 2026-07-28)
 
 | Part | Status |
 |------|--------|
@@ -20,20 +20,20 @@
 
 ---
 
-## Ten-minute quick wins — do these first
+## Ten-minute quick wins: do these first
 
 Five items need no walking, no belt, and no app build. Just nRF Connect:
 
-1. **Raw hex of `0x2ACC`** — read the characteristic, copy the byte string. Needed as a
+1. **Raw hex of `0x2ACC`.** Read the characteristic, copy the byte string. Needed as a
    parser test fixture and to independently verify the decoded feature list, which is
    known to over-claim (see protocol doc §2).
-2. **Raw hex of `0x2AD4`** — same. Predicted to be `64 00 40 06 0A 00`; confirm or
+2. **Raw hex of `0x2AD4`.** Same. Predicted to be `64 00 40 06 0A 00`; confirm or
    disprove.
-3. **MAC address and address type** (public vs. random resolvable) — from the scanner
+3. **MAC address and address type** (public vs. random resolvable), from the scanner
    view. If random, the database's unique index on MAC is wrong.
-4. **Is `0x1826` in the advertisement?** — inspect the raw advertising packet. Decides
+4. **Is `0x1826` in the advertisement?** Inspect the raw advertising packet. Decides
    the Phase 1 scan filter.
-5. **Negotiated MTU** — nRF Connect shows this after connecting.
+5. **Negotiated MTU.** nRF Connect shows this after connecting.
 
 Capturing these unblocks parser work and the Phase 1 scan implementation without
 waiting for a full session.
@@ -65,7 +65,7 @@ app's diagnostic screen has bugs.
 
 **Safety:** Parts D and E involve the belt moving while you interact with the phone.
 Stand on the side rails, not the belt, when starting a remote-control test. Keep the
-safety key clipped on. If the belt does something unexpected, pull the key — do not
+safety key clipped on. If the belt does something unexpected, pull the key. Do not
 try to fix it from the phone.
 
 ---
@@ -73,31 +73,31 @@ try to fix it from the phone.
 ## Recording your results
 
 Fill in `docs/DEVICE.md` as you go. Copy the log after each part rather than at the
-very end — if the app crashes you lose the capture.
+very end: if the app crashes you lose the capture.
 
 For every hex value, record the **complete** byte string, including leading zeros.
 `02 00` and `2 0` are not the same thing and the second is unusable.
 
 ---
 
-## Part A — Static reads (5 min, belt stopped)
+## Part A: Static reads (5 min, belt stopped)
 
 Connect and let service discovery complete.
 
-**A1. Full characteristic inventory. — ✅ DONE 2026-07-28**
+**A1. Full characteristic inventory (✅ DONE 2026-07-28)**
 
 All six FTMS characteristics present with expected properties. Services: `1800`,
 `180A`, `180D`, `FFE0`, `FFF0`, `1826`.
 
 `FFE0` and `FFF0` identified as FitShow transparent-serial services. Recorded for
-completeness; **not a fallback plan** — the FitShow UART protocol is undocumented and
+completeness; **not a fallback plan.** The FitShow UART protocol is undocumented and
 prior public decoding attempts have not succeeded.
 
 `180D` (Heart Rate) is a useful find and adds **Part G** below.
 
 Remaining from this step: nothing.
 
-**A2. Read `0x2ACC` (Feature). — ⚠️ DECODED, RAW HEX STILL NEEDED**
+**A2. Read `0x2ACC` (Feature): ⚠️ DECODED, RAW HEX STILL NEEDED**
 
 Decoded feature list captured. **It is provably wrong in at least one respect:** the
 device claims Inclination Target Setting on a machine with no incline, while omitting
@@ -111,14 +111,14 @@ Raw hex STILL NEEDED: ________________________________
 **Capture the raw bytes.** Two reasons: they become a parser unit test fixture, and
 they let the decode be independently verified rather than trusted.
 
-**A3. Read `0x2AD4` (Supported Speed Range). — ✅ DECODED, RAW HEX STILL NEEDED**
+**A3. Read `0x2AD4` (Supported Speed Range): ✅ DECODED, RAW HEX STILL NEEDED**
 
 ```
 Min: 1.0 km/h   Max: 16.0 km/h   Increment: 0.1 km/h
 Raw hex STILL NEEDED: ____________________
 ```
 
-Predicted bytes: `64 00 40 06 0A 00`. Confirm or disprove — if the actual bytes differ,
+Predicted bytes: `64 00 40 06 0A 00`. Confirm or disprove. If the actual bytes differ,
 the decode is wrong and everything downstream inherits the error.
 
 Sanity check passed: 16 km/h matches a full folding treadmill. (An earlier revision of
@@ -132,7 +132,7 @@ Raw hex: ____________  Decoded status value: 0x____
 
 ---
 
-## Part B — Idle notification stream (5 min, belt stopped)
+## Part B: Idle notification stream (5 min, belt stopped)
 
 Subscribe to `0x2ACD` and `0x2ADA`. **Do not walk yet.** Let it run for 2 minutes.
 
@@ -151,12 +151,12 @@ If yes, op codes:                                 ______________
 ```
 
 **Rate matters.** If it's ~1 Hz, the FTMS spec's recommendation holds and the original
-"5–10/sec" figure was wrong. If it's genuinely higher, note it — Phase 4 needs UI
+"5–10/sec" figure was wrong. If it's genuinely higher, note it. Phase 4 needs UI
 throttling.
 
 ---
 
-## Part C — Walking capture (15 min) — the important one
+## Part C: Walking capture (15 min, the important one)
 
 Walk on the treadmill using the **console controls only**. Do not touch the app's
 speed controls yet.
@@ -184,14 +184,14 @@ no way to prove the decoder is right.
 
 ```
 [ ] no, constant
-[ ] yes — values seen: ____________________________
+[ ] yes, values seen: ____________________________
 ```
 
 If it changes, the device is splitting records across notifications (More Data bit) or
 conditionally including fields. Either way the parser must be flag-driven, which it
 already must be.
 
-**C5.** Heart rate — quick check here, full comparison in **Part G**.
+**C5.** Heart rate: quick check here, full comparison in **Part G**.
 
 ```
 Is bit 8 set in the 0x2ACD flags?         [ ] yes  [ ] no
@@ -205,7 +205,7 @@ Value seen: ______ bpm
 0x2ADA op code emitted on stop:  0x____  parameters: ______
 ```
 
-**C7 — THE CRITICAL ONE. Counter reset behaviour.**
+**C7. THE CRITICAL ONE. Counter reset behaviour.**
 
 After stopping, note the reported distance / calories / elapsed time. Then start a
 **new** session on the console and check the same fields immediately.
@@ -219,9 +219,9 @@ Calories at end of session 1:     ______ kcal
 Calories at start of session 2:   ______ kcal
 
 Verdict:
-[ ] Per-session — counters reset to 0
-[ ] Cumulative — counters continue from the previous value
-[ ] Mixed — specify which fields do what: ________________________
+[ ] Per-session: counters reset to 0
+[ ] Cumulative: counters continue from the previous value
+[ ] Mixed: specify which fields do what: ________________________
 ```
 
 Also test: **power-cycle the treadmill**, reconnect, and check whether counters reset.
@@ -235,7 +235,7 @@ and do not guess.
 
 ---
 
-## Part D — Control point (15 min) — belt stopped initially
+## Part D: Control point (15 min, belt stopped initially)
 
 Only if `0x2AD9` was found in A1.
 
@@ -250,7 +250,7 @@ Result code:          0x____   (0x01 = success)
 ```
 
 If this fails, record the result code and stop Part D. Speed control is not available
-and Phase 6 is void — which is a valid finding, not a failure.
+and Phase 6 is void. That's a valid finding, not a failure.
 
 **D2. Set Target Speed while stopped.** Write `02` followed by your minimum speed as
 uint16 LE. For 2.0 km/h: `02 C8 00`.
@@ -306,12 +306,12 @@ Approximate expiry window if it did expire: ______ minutes
 Target Speed **without** Request Control.
 
 ```
-Result code: 0x____  (expect 0x05 — confirms control must be re-requested)
+Result code: 0x____  (expect 0x05, confirms control must be re-requested)
 ```
 
 ---
 
-## Part E — Resilience (10 min)
+## Part E: Resilience (10 min)
 
 **E1.** Start a workout, then walk out of range (~15 m or into another room).
 
@@ -354,13 +354,13 @@ was moved earlier. Note it and move on.
 
 ---
 
-## Part F — Bonding and advertisement
+## Part F: Bonding and advertisement
 
 **F1.** Did Android ever show a pairing prompt?
 
 ```
-[ ] yes — bonding required
-[ ] no  — bonding not required
+[ ] yes, bonding required
+[ ] no, bonding not required
 ```
 
 **F2.** In nRF Connect's scanner, inspect the raw advertisement.
@@ -374,11 +374,11 @@ Address type: [ ] public  [ ] random
 
 If `0x1826` is not advertised, the service-UUID scan filter finds nothing and Phase 1
 must scan unfiltered. If the address type is random/resolvable, remembering the device
-by MAC will break and you'll need to match on name instead — note it prominently.
+by MAC will break and you'll need to match on name instead. Note it prominently.
 
 ---
 
-## Part G — Heart rate: two sources (10 min) — NEW
+## Part G (NEW): Heart rate, two sources (10 min)
 
 The device exposes standard Heart Rate Service `180D` **and** an FTMS heart rate field.
 This part decides which to use, and whether to use either.
@@ -416,18 +416,18 @@ Behaviour on release:  [ ] drops to 0  [ ] holds last value  [ ] stops notifying
 Sensor contact bits (flags bits 1-2) change?  [ ] yes  [ ] no
 ```
 
-**G5. Decision.** Be honest here — this determines whether HR ships.
+**G5. Decision.** Be honest here. This determines whether HR ships.
 
 ```
-[ ] Usable — accurate within ~10 bpm, stable, contact status reliable
+[ ] Usable: accurate within ~10 bpm, stable, contact status reliable
       → use 0x2A37, show in dashboard and charts
-[ ] Marginal — works but noisy or slow to settle
+[ ] Marginal: works but noisy or slow to settle
       → record to WorkoutSample, hide from the UI, revisit later
-[ ] Unusable — implausible, wildly unstable, or never populates
+[ ] Unusable: implausible, wildly unstable, or never populates
       → cut heart rate from the app entirely
 ```
 
-A metric that is wrong half the time is worse than no metric — it will pollute the
+A metric that is wrong half the time is worse than no metric. It will pollute the
 average and maximum HR columns of every stored workout, permanently. Cutting it is a
 perfectly good outcome.
 
@@ -447,9 +447,9 @@ perfectly good outcome.
 - Every outstanding question in `05-FTMS-Protocol.md` §10 has an answer
 - Raw hex captured for `0x2ACC` and `0x2AD4`
 - At least four matched console-vs-hex pairs captured at different speeds
-- **The counter reset question (C7) is answered unambiguously** — this is the one that
+- **The counter reset question (C7) is answered unambiguously.** This is the one that
   determines the entire Phase 7 implementation
-- **The control point verdict (Part D) is unambiguous** — Phase 6 either exists or
+- **The control point verdict (Part D) is unambiguous.** Phase 6 either exists or
   doesn't
 - The heart rate decision (G5) is made, including "cut it" as a valid answer
 - Parser unit tests exist using the captured hex as fixtures, and pass

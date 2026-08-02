@@ -1,6 +1,6 @@
 # Phase 03 — Live Dashboard + Contribution Graph
 
-> See `../README.md` for the collaboration model — you write the code, the agent
+> See `../README.md` for the collaboration model: you write the code, the agent
 > explains concepts up front and reviews after.
 
 **Hardware:** none for development (`FakeTreadmillService`), yes to verify at the end
@@ -17,45 +17,45 @@ graph" at the top of the screen, using a fake data source until Phase 06 provide
 real workout history.
 
 This screen replaces Phase 00's `HomePage` as the app's actual front door. Phase 00's
-six diagnostic screens don't disappear — they're still useful for debugging — but
-they stop being the first thing the app shows. (Exactly how they're relocated, e.g.
+six diagnostic screens don't disappear (they're still useful for debugging), but
+they stop being the first thing the app shows. Exactly how they're relocated, e.g.
 into a hidden diagnostics menu, is a small decision to make together when we get
-there — not blocking for this phase.)
+there, not blocking for this phase.
 
 ## Learning goals
 
 - Building the **same seam/fake pattern from Phase 01b**, applied to a second,
-  unrelated problem (workout history instead of BLE) — the point is to notice it's a
-  repeatable technique, not a one-off trick
+  unrelated problem (workout history instead of BLE). The point is to notice it's a
+  repeatable technique, not a one-off trick.
 - A `CollectionView` with a **grid layout** (`GridItemsLayout`), for laying out many
-  small uniform items — different from the single-column lists you've seen so far
-  (Scan screen, Notification Log)
+  small uniform items, different from the single-column lists you've seen so far
+  (Scan screen, Notification Log).
 - Throttling a high-frequency event stream for UI binding, so updates don't outpace
-  what a screen can usefully render
-- Deciding what belongs in `Core` vs. the app project — you'll make this call
+  what a screen can usefully render.
+- Deciding what belongs in `Core` vs. the app project. You'll make this call
   yourself this time, using the same test the agent applied in Phase 01b: does this
   code reference MAUI/Android at all?
 - This is also the first phase where you'll see the project's existing MVVM shape
   (`BaseViewModel` + CommunityToolkit.Mvvm's `[ObservableProperty]`/`[RelayCommand]`,
-  already used by every Phase 00 screen — see `ScanViewModel.cs` for a working
-  example) applied to a *new* feature rather than read secondhand — worth comparing
+  already used by every Phase 00 screen; see `ScanViewModel.cs` for a working
+  example) applied to a *new* feature rather than read secondhand. Worth comparing
   your `DashboardViewModel` against `ScanViewModel.cs` once both exist.
 
 ## Reference docs
 
 - `src/MyHi.Companion.Core/Treadmill/ITreadmillService.cs` (moved here in Phase 01b)
 - `../../05-FTMS-Protocol.md` §4 (fields), §4a (heart rate)
-- `../phase-00-probe-app/PHASE-00-FINDINGS.md` — notification rate, flags observed,
+- `../phase-00-probe-app/PHASE-00-FINDINGS.md`: notification rate, flags observed,
   V3 heart rate verdict
-- `docs/learning/02-Glossary.md` — add `GridItemsLayout` and anything else new here
+- `docs/learning/02-Glossary.md`: add `GridItemsLayout` and anything else new here
   as you go
-- `docs/learning/04-Monochrome-Theme.md` — every token/style this phase's XAML uses
+- `docs/learning/04-Monochrome-Theme.md`: every token/style this phase's XAML uses
   is defined there; read it before task 3.3 if you haven't already
-- **`CollectionView` overview** — https://learn.microsoft.com/en-us/dotnet/maui/user-interface/controls/collectionview/
-- **`CollectionView` layout (`GridItemsLayout`, `Span`)** — https://learn.microsoft.com/en-us/dotnet/maui/user-interface/controls/collectionview/layout
-  — read this before task 3.7; `Span="7"` is what turns a flat list into rows of 7
-- **How to use `DateOnly`** — https://learn.microsoft.com/en-us/dotnet/standard/datetime/how-to-use-dateonly-timeonly
-  — task 3.5's `IWorkoutHistoryProvider` shape uses `DateOnly`, not `DateTimeOffset`,
+- **`CollectionView` overview**: https://learn.microsoft.com/en-us/dotnet/maui/user-interface/controls/collectionview/
+- **`CollectionView` layout (`GridItemsLayout`, `Span`)**: https://learn.microsoft.com/en-us/dotnet/maui/user-interface/controls/collectionview/layout.
+  Read this before task 3.7; `Span="7"` is what turns a flat list into rows of 7
+- **How to use `DateOnly`**: https://learn.microsoft.com/en-us/dotnet/standard/datetime/how-to-use-dateonly-timeonly.
+  Task 3.5's `IWorkoutHistoryProvider` shape uses `DateOnly`, not `DateTimeOffset`,
   because a contribution-graph cell is a calendar day, not an instant
 
 ---
@@ -64,53 +64,51 @@ there — not blocking for this phase.)
 
 ### Understanding what you're building (read this before the tasks)
 
-**The everyday problem.** A car's speedometer sensor can sample wheel rotation
-hundreds of times a second, but the needle only moves smoothly around 10–20 times
-a second — showing every single raw sample would make the needle vibrate rather
-than move, and a human eye can't use information faster than that anyway. The
-same mismatch shows up here: the treadmill can push `SampleReceived` notifications
-faster than a screen full of `Border` tiles can usefully redraw (Phase 00's
-findings recorded the actual notification rate — see `PHASE-00-FINDINGS.md`).
-`DashboardViewModel` sits between a fast, uneven data source and a UI where five
-bound properties (`SpeedKph`, `DistanceMeters`, `Calories`, `ElapsedSeconds`,
-`HeartRate`) all repaint tiles from — every unnecessary update is a wasted layout
-pass on a phone screen, and the Implementation requirements section below is
-explicit about the cost: "Above that, MAUI janks in split screen for no visible
-benefit."
+**The problem.** The treadmill can push `SampleReceived` notifications faster than
+a screen full of `Border` tiles can usefully redraw (Phase 00's findings recorded
+the actual notification rate; see `PHASE-00-FINDINGS.md`). It's the same mismatch
+as a car's speedometer needle: the sensor samples hundreds of times a second, but
+the needle only moves smoothly 10-20 times a second, and a human eye can't use
+information faster than that anyway. `DashboardViewModel` sits between a fast,
+uneven data source and a UI where five bound properties (`SpeedKph`,
+`DistanceMeters`, `Calories`, `ElapsedSeconds`, `HeartRate`) all repaint tiles.
+Every unnecessary update is a wasted layout pass on a phone screen, and the
+Implementation requirements section below is explicit about the cost: "Above
+that, MAUI janks in split screen for no visible benefit."
 
-**Why not just render every sample as it arrives?** The naive version — bind
+**Why not just render every sample as it arrives?** The naive version (bind
 directly and let every `SampleReceived` event push straight into the observable
-properties — is what task 3.2's skeleton starts from, then explicitly guards
+properties) is what task 3.2's skeleton starts from, then explicitly guards
 against with one `if` check. The fix isn't a timer, a queue, or a reactive
 pipeline; it's the plainest possible throttle: remember `_lastUiUpdateUtc`, and if
 less than ~250 ms have passed, skip the update and let the next sample (a
 quarter-second later, at most) carry the fresher number instead. That single
-comparison is enough to guarantee both things this phase actually needs — no more
+comparison is enough to guarantee both things this phase actually needs: no more
 than 4 updates a second, and the *displayed* value is never stale, because a
 skipped sample is simply superseded by the next one rather than queued up behind
 it. Reaching for a dedicated timer object or a full reactive `Sample`/`Throttle`
 operator here would solve a problem this app doesn't have: there's no backlog to
 drain, no requirement to batch multiple samples together, just "don't repaint
-faster than useful." The skeleton's own comment in task 3.2 — "think about whether
-a plain 'skip if too soon' check already satisfies both guarantees" — is the whole
+faster than useful." The skeleton's own comment in task 3.2, "think about whether
+a plain 'skip if too soon' check already satisfies both guarantees," is the whole
 design decision.
 
 **The pattern, named plainly.** What's being applied here is specifically
 **throttle**, not its cousin **debounce**, and the distinction matters for picking
 the right one. Debounce waits for a stream to go *quiet* before firing (useful for
 a search box: wait until the user stops typing). Throttle fires at a bounded,
-regular rate *while* the stream keeps producing, always carrying the latest value
-— which is what a continuously-changing number like treadmill speed needs;
-debouncing it would mean the UI barely updates at all during a steady, ongoing
-workout, since the stream never really goes quiet. The cost of throttling here is
-one extra field (`_lastUiUpdateUtc`) and one comparison per event — genuinely
-cheap. The payoff is a UI that stays responsive under a notification rate the
-phone can't (and doesn't need to) fully render. It's worth noting when this
-pattern is *not* needed: Phase 01b's `FakeTreadmillService` raises samples roughly
-once a second by design (its own `PeriodicTimer` loop), which is already under the
-4 Hz ceiling — no throttle was needed there because the *source*, not just the
-consumer, was already UI-safe. It only earns its place in Part 1 because the real
-device's notification rate isn't guaranteed to be.
+regular rate *while* the stream keeps producing, always carrying the latest value.
+That's what a continuously-changing number like treadmill speed needs; debouncing
+it would mean the UI barely updates at all during a steady, ongoing workout, since
+the stream never really goes quiet. The cost of throttling here is one extra field
+(`_lastUiUpdateUtc`) and one comparison per event, genuinely cheap. The payoff is
+a UI that stays responsive under a notification rate the phone can't (and doesn't
+need to) fully render. The pattern isn't needed everywhere, though: Phase 01b's
+`FakeTreadmillService` raises samples roughly once a second by design (its own
+`PeriodicTimer` loop), already under the 4 Hz ceiling. No throttle was needed
+there because the *source*, not just the consumer, was already UI-safe. It only
+earns its place in Part 1 because the real device's notification rate isn't
+guaranteed to be.
 
 ### Your tasks
 
@@ -122,30 +120,30 @@ device's notification rate isn't guaranteed to be.
 
 ### Walkthrough
 
-**3.1 — Where this lives**
+**3.1: Where this lives**
 
 1. Create the folder `src/MyHi.Companion/Features/Dashboard/`.
 2. Files you'll add in this part: `DashboardPage.xaml` + `.xaml.cs` (UI, given in
-   full below), `DashboardViewModel.cs` (yours to write — spec below), and
+   full below), `DashboardViewModel.cs` (yours to write, spec below), and
    `DashboardConverters.cs` (UI-support code, given in full below).
 3. Confirm `ITreadmillService` has actually moved to
    `src/MyHi.Companion.Core/Treadmill/ITreadmillService.cs` with namespace
    `MyHi.Companion.Core.Treadmill` (Phase 01b's task 1b.1) and `FakeTreadmillService`
-   is registered in `MauiProgram.cs` before starting — every binding below assumes
+   is registered in `MauiProgram.cs` before starting. Every binding below assumes
    that seam already exists.
 
-**3.2 — `DashboardViewModel`: the spec**
+**3.2: `DashboardViewModel`: the spec**
 
-- Depends on `ITreadmillService` (constructor-injected) — nothing else for Part 1.
+- Depends on `ITreadmillService` (constructor-injected); nothing else for Part 1.
 - Subscribes to `SampleReceived` and `ConnectionStateChanged` in its constructor.
 - One `[ObservableProperty]` per metric the UI binds to directly: `SpeedKph`,
-  `DistanceMeters` (store metres — task 3.3's XAML converts to km for display only),
+  `DistanceMeters` (store metres; task 3.3's XAML converts to km for display only),
   `Calories`, `ElapsedSeconds`, `HeartRate` (nullable, matching `TreadmillSample`'s
   own nullability) plus `ConnectionState`.
 - One `bool` per metric for the "hidden not `--`" rule: `ShowsSpeed`, `ShowsDistance`,
   `ShowsCalories`, `ShowsElapsedTime`, `ShowsHeartRate`. Until Phase 01a's
   `CapabilityTracker` exists, the honest rule available today is "shown if the latest
-  sample actually carries a non-null value for it" — a field genuinely absent from
+  sample actually carries a non-null value for it": a field genuinely absent from
   every packet stays hidden; once 01a lands, swap this for the accumulated-flags
   check the Goal section already describes. The XAML doesn't change either way.
 - Heart rate additionally needs a manual override for the V3 verdict in
@@ -155,10 +153,10 @@ device's notification rate isn't guaranteed to be.
 - The throttle is **your design decision**, per the Implementation requirements
   below. Whatever mechanism you pick has to guarantee two things: no bound property
   updates more than 4 times a second, and the *most recent* sample always wins (never
-  hold on to a stale "last known good" speed while a fresher one waits behind it —
+  hold on to a stale "last known good" speed while a fresher one waits behind it,
   that's actively misleading mid-workout, not just slow).
 
-Skeleton — shape only:
+Skeleton, shape only:
 
 ```csharp
 namespace MyHi.Companion.Features.Dashboard;
@@ -208,10 +206,10 @@ public sealed partial class DashboardViewModel : BaseViewModel
 }
 ```
 
-**3.3 — The dashboard page (UI, written in full)**
+**3.3: The dashboard page (UI, written in full)**
 
 Two display-formatting converters first
-(`src/MyHi.Companion/Features/Dashboard/DashboardConverters.cs`) — pure formatting,
+(`src/MyHi.Companion/Features/Dashboard/DashboardConverters.cs`), pure formatting,
 not the throttle/mapping logic above, so these are given complete:
 
 ```csharp
@@ -248,7 +246,7 @@ alongside the existing `xmlns:shared`):
 <dash:SecondsToClockConverter x:Key="SecondsToClockConverter" />
 ```
 If Phase 02's task 2.7 already registered `ConnectionStateToConnectedConverter`,
-reuse it below as-is — it lives in `shared:`, not `dash:`.
+reuse it below as-is; it lives in `shared:`, not `dash:`.
 
 `DashboardPage.xaml`:
 
@@ -338,31 +336,31 @@ public partial class DashboardPage : ContentPage
 
 Two things worth understanding, even though you didn't write this file:
 - Every metric tile is the exact `Border`/`MetricValue`/`MetricLabel` pattern from
-  `docs/learning/04-Monochrome-Theme.md`'s own example, repeated five times — nothing
+  `docs/learning/04-Monochrome-Theme.md`'s own example, repeated five times; nothing
   here is a new style.
 - `IsVisible="{Binding ShowsSpeed}"` etc. *is* the entire "hidden not `--`"
   implementation on the UI side: the `Border` simply doesn't lay out at all when the
-  bound bool is false — no empty space, no dash.
+  bound bool is false, no empty space, no dash.
 
-**3.4 — Register and route to it**
+**3.4: Register and route to it**
 
 1. `MauiProgram.cs`: add `builder.Services.AddTransient<DashboardViewModel>();` and
    `builder.Services.AddTransient<DashboardPage>();`, same pattern as every other
    page already registered there.
 2. `AppShell.xaml`: add a new `ShellContent` for `dash:DashboardPage` with
-   `Route="dashboard"`, placed **first**, before the existing `home` entry — Shell
+   `Route="dashboard"`, placed **first**, before the existing `home` entry. Shell
    shows whichever `ShellContent` is listed first by default, and this phase's Goal
    is for the dashboard to become that front door. The existing `home` entry (Phase
-   00's diagnostics menu) stays reachable as the second item for now — exactly how it
+   00's diagnostics menu) stays reachable as the second item for now; exactly how it
    gets relocated later is the "small decision to make together" the Goal section
    already flags, not blocking here. Add
    `xmlns:dash="clr-namespace:MyHi.Companion.Features.Dashboard"` to `AppShell.xaml`'s
    root tag alongside the existing `xmlns:shared`.
-3. Build and run against `FakeTreadmillService` — you should land on the dashboard on
+3. Build and run against `FakeTreadmillService`. You should land on the dashboard on
    launch and watch metrics move.
 
 **Field visibility** comes from the union of observed `0x2ACD` flag bits (Phase 01a's
-capability tracker, once it exists), **not** from `0x2ACC` — that bitmask on this
+capability tracker, once it exists), **not** from `0x2ACC`. That bitmask on this
 device over-claims (it advertises incline target setting on a machine with no
 incline). Log it; never branch on it. Until Phase 01a lands, it's fine to show
 whatever fields `FakeTreadmillService` populates.
@@ -375,14 +373,14 @@ keep recording it (Phase 06) and hide it on this screen.
 
 - Notification callbacks from `ITreadmillService` are documented as already
   marshalled to the UI thread at the service boundary (see the interface's doc
-  comments) — don't marshal again, and don't assume they aren't if you changed that
+  comments). Don't marshal again, and don't assume they aren't if you changed that
   in Phase 01b.
 - **Throttle UI updates to at most 4 Hz** even if notifications arrive faster. Above
-  that, MAUI janks in split screen for no visible benefit. (How you throttle —
-  a timer sampling the latest value, a debounce, something else — is your design
+  that, MAUI janks in split screen for no visible benefit. (How you throttle,
+  a timer sampling the latest value, a debounce, something else, is your design
   decision; think about what "throttle" actually needs to guarantee before picking
   one.)
-- Format at display time only. **Never convert units before storage** — metric
+- Format at display time only. **Never convert units before storage**: metric
   always, everywhere below the ViewModel.
 
 ### Tests
@@ -398,20 +396,17 @@ keep recording it (Phase 06) and hide it on this screen.
 
 ### Understanding what you're building (read this before the tasks)
 
-**The everyday problem.** Picture a paper wall calendar where you put a small
-sticker on any day you actually worked out. You don't need to read a single
-number to see the pattern — a run of stickers down one row says "consistent," a
-blank week says "fell off." That's the entire point of a contribution graph: turn
-a list of workout dates into something you can read at a glance instead of
-scrolling a log. The catch is that the real list of workout dates doesn't exist
-yet — Phase 06 (Recording & Schema) is what will actually write rows to the
-database and let you query `Workout.StartedAtUtc` grouped by day. Part 2 is being
-built now, ahead of that, using the same seam/fake technique this project already
-used once in Phase 01b for the treadmill connection itself (`ITreadmillService` /
-`FakeTreadmillService`) — `IWorkoutHistoryProvider` and
-`FakeWorkoutHistoryProvider` are that same idea applied to a second, unrelated
-problem. That repetition is worth noticing rather than re-deriving: if Phase 01b's
-rig-and-engine analogy made sense there, it applies here unchanged — swap
+**The problem.** A contribution graph turns a list of workout dates into
+something you can read at a glance instead of scrolling a log, the way a wall
+calendar with a sticker on each workout day shows a pattern without you reading
+any numbers. The catch is that the real list of workout dates doesn't exist yet.
+Phase 06 (Recording & Schema) is what will actually write rows to the database
+and let you query `Workout.StartedAtUtc` grouped by day. Part 2 is being built
+now, ahead of that, using the same seam/fake technique this project already used
+once in Phase 01b for the treadmill connection itself (`ITreadmillService` /
+`FakeTreadmillService`). `IWorkoutHistoryProvider` and `FakeWorkoutHistoryProvider`
+are that same idea applied to a second, unrelated problem. If Phase 01b's
+rig-and-engine reasoning made sense there, it applies here unchanged: swap
 "treadmill hardware" for "SQLite workout history," and everything else about
 *why* holds.
 
@@ -420,38 +415,38 @@ separate "why not simpler" questions sit inside this feature, pulling in opposit
 directions. First: why not just leave this part of the dashboard blank until
 Phase 06 ships real data? Because the interface costs almost nothing to define
 now (`GetDailyCountsAsync(DateOnly, DateOnly)` returning a list of
-`DailyWorkoutCount`, task 3.5) and doing so means the widget, the grid layout, and
-the "how do lit days look" decisions all get built and reviewed *this* phase
-instead of blocking on Phase 06's database work — a smaller win than Phase 01b's
-six-phase unblock, but the same shape of win: one phase's UI work stops waiting on
-another phase's I/O work. Second, pulling the other way: why not build GitHub's
-actual gradient-by-count coloring now, since the data
+`DailyWorkoutCount`, task 3.5), and doing so means the widget, the grid layout,
+and the "how do lit days look" decisions all get built and reviewed *this* phase
+instead of blocking on Phase 06's database work. It's a smaller win than Phase
+01b's six-phase unblock, but the same shape of win: one phase's UI work stops
+waiting on another phase's I/O work. Second, pulling the other way: why not build
+GitHub's actual gradient-by-count coloring now, since the data
 (`DailyWorkoutCount.Count` is already an `int`, not just a bool) technically
-supports it? Because nothing in this project has asked for that yet — the phase
+supports it? Because nothing in this project has asked for that yet. The phase
 spec itself says plainly, "**Simplified from GitHub's original**: no gradient by
 count... If you want the gradient-by-count version later, that's a good
 follow-up... not a requirement now." Here the simpler version (lit/unlit)
-genuinely *is* the right amount of complexity, not a corner cut — there's no
+genuinely *is* the right amount of complexity, not a corner cut. There's no
 demonstrated need for five shades of intensity yet, just "did a workout happen
 this day or not."
 
 **The pattern, named plainly.** The gradient decision is a clean example of
-**YAGNI** ("You Aren't Gonna Need It") — deliberately not building a feature until
+**YAGNI** ("You Aren't Gonna Need It"): deliberately not building a feature until
 something concrete actually calls for it, rather than speculatively supporting it
 "in case." What makes it cheap to defer here specifically: `DailyWorkoutCount`
 already carries the full `int Count`, not just a boolean, so
 `ContributionDayViewModel`'s `count > 0` mapping (task 3.6) is the only place that
-would need to change later — the seam and the data shape underneath it don't need
+would need to change later. The seam and the data shape underneath it don't need
 to be redesigned to add color intensity later, only the one line that decides what
 "lit" means. That's what makes deferring it free instead of risky: YAGNI is a bad
 trade when skipping a feature now means an expensive redesign later, and a good
-one when — as here — the door is already left open at zero cost.
+one when, as here, the door is already left open at zero cost.
 
 ### The feature
 
 A GitHub-style grid showing which days had a workout, at the top of the dashboard,
 above the connection status. **Simplified from GitHub's original**: no gradient by
-count — each day is either lit (≥1 workout) or unlit (none). If you want the
+count; each day is either lit (≥1 workout) or unlit (none). If you want the
 gradient-by-count version later, that's a good follow-up once the simple version
 works and is reviewed, not a requirement now.
 
@@ -462,15 +457,15 @@ wait, define the shape you need and fake it:
 
 - **Interface**, in `Core` (it's plain data, no MAUI dependency):
   a method that returns daily workout counts over a date range. Design the exact
-  signature yourself — think about what Phase 06's real SQLite-backed implementation
+  signature yourself. Think about what Phase 06's real SQLite-backed implementation
   will need to accept and return, and what's easiest for a UI to bind against. (Hint:
-  look at how `ITreadmillService` shapes its return types — `TreadmillSample` is a
+  look at how `ITreadmillService` shapes its return types: `TreadmillSample` is a
   `readonly record struct`; is a `record` right here too?)
 - **Fake implementation**, also in `Core`: generates a plausible several-months of
   synthetic daily counts (some days with 0, some with 1+) so the widget has something
   real to render and look right immediately.
 - **Real implementation** arrives in Phase 06, reading `Workout.StartedAtUtc` grouped
-  by local day (there's a query pattern for exactly this in `14-Database.md`) — the
+  by local day (there's a query pattern for exactly this in `14-Database.md`). The
   dashboard's UI code does not change when this swap happens, only a `MauiProgram.cs`
   registration does.
 
@@ -478,11 +473,11 @@ wait, define the shape you need and fake it:
 
 - A reusable view bound to a collection of "day + lit/unlit" data.
 - Look into `CollectionView`'s `GridItemsLayout` (`Span="7"` for a GitHub-style
-  7-rows-per-week layout, or however you decide to orient it) — this is a different
+  7-rows-per-week layout, or however you decide to orient it). This is a different
   `ItemsLayout` than the single-column lists you've built so far. Read MAUI's docs on
   `GridItemsLayout` before starting; it's a good excuse to learn a control you
   haven't used yet, rather than something to guess at.
-- Roughly the last 3–6 months is a reasonable range to start with — full year of
+- Roughly the last 3–6 months is a reasonable range to start with. A full year of
   GitHub-style history can come later once you're happy with the layout at a smaller
   size.
 - Placed at the very top of the new dashboard page, above the connection indicator
@@ -490,7 +485,7 @@ wait, define the shape you need and fake it:
 
 ### Walkthrough
 
-**3.5 — The seam, in `Core`**
+**3.5: The seam, in `Core`**
 
 1. Create `src/MyHi.Companion.Core/History/` (new folder in `Core`, alongside
    `Treadmill/`, `Ftms/`, `Capture/`, `Data/`).

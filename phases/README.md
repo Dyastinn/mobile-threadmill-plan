@@ -1,9 +1,9 @@
-# Phases — implementation index
+# Phases: implementation index
 
-One folder per phase. Phase 00 was built by an implementing agent working alone —
+One folder per phase. Phase 00 was built by an implementing agent working alone,
 appropriate for a throwaway diagnostic instrument. **Every phase from here on is
 built by the project owner, learning MAUI as they go, with the agent teaching rather
-than implementing — except UI code, which the agent writes directly.** See "How a
+than implementing, except UI code, which the agent writes directly.** See "How a
 phase actually runs" below for what that split means day-to-day, and
 `../docs/learning/` for the standing teaching material (MAUI/.NET primer, emulator
 setup, glossary, doc links, the monochrome theme).
@@ -20,35 +20,35 @@ the docs."
 
 **Two different rules, by kind of code:**
 
-### Logic — BLE, parsers, services, ViewModels, state machines: you write it, the agent teaches
+### Logic (BLE, parsers, services, ViewModels, state machines): you write it, the agent teaches
 
 For each step in a phase's task list:
 
-1. **Concept first.** The agent explains what you're about to build and why — the
+1. **Concept first.** The agent explains what you're about to build and why: the
    pattern, the relevant part of `docs/learning/`, a link to the real Microsoft/
    vendor doc (see `docs/learning/03-Doc-Links.md`), anything genuinely new. Ask
    questions here; this is the part that's supposed to be slow.
 2. **Spec, not code.** The agent describes what the file/class should do and what
-   "done" looks like — files touched, an interface to satisfy, a short illustrative
+   "done" looks like: files touched, an interface to satisfy, a short illustrative
    snippet showing the *shape* of the solution (never the whole thing), an
-   acceptance bullet — but never hands over the actual implementation.
+   acceptance bullet. It never hands over the actual implementation.
 3. **You write it.** In your own editor, at your own pace.
 4. **Review.** The agent reads the real file you wrote, flags bugs, explains better
    patterns where they exist, and answers "why is this wrong" rather than just
    fixing it silently.
-5. **Verify together** — run the tests, run the app — before moving to the next
+5. **Verify together**: run the tests, run the app, before moving to the next
    task.
 
-### UI — XAML pages, styles, widgets, converters: the agent writes it
+### UI (XAML pages, styles, widgets, converters): the agent writes it
 
 Every phase that produces a screen or a visual widget includes the **full XAML/C#
 code** for it, built on the shared monochrome theme
 (`docs/learning/04-Monochrome-Theme.md`, already implemented in
 `src/MyHi.Companion/Resources/Styles/`). You paste it in, wire the bindings to
-match your ViewModel's actual property names, and build — you are not expected to
+match your ViewModel's actual property names, and build. You are not expected to
 design layouts or pick colors. The agent still explains what the code does and why
-it's structured that way (so the *concepts* — data templates, grid layouts,
-`AppThemeBinding` — still transfer), but you don't have to produce the XAML
+it's structured that way (so the *concepts*, like data templates, grid layouts,
+and `AppThemeBinding`, still transfer), but you don't have to produce the XAML
 yourself. This is a deliberate exception to "you write it": UI layout is not what
 this project is trying to teach; BLE, protocol parsing, state machines, and data
 modelling are.
@@ -56,7 +56,7 @@ modelling are.
 New vocabulary gets added to `docs/learning/02-Glossary.md` as it comes up, not
 dumped all at once.
 
-## Division of labour — not optional
+## Division of labour: not optional
 
 | Actor | Can do | Cannot do |
 |-------|--------|-----------|
@@ -91,18 +91,18 @@ No phase begins until the previous phase's acceptance criteria are met, with two
 exceptions:
 
 - **Phase 01b** (`ITreadmillService` skeleton + `FakeTreadmillService`) needs no
-  probe data at all — the interface already exists at `../ITreadmillService.cs`. It
+  probe data at all: the interface already exists at `../ITreadmillService.cs`. It
   is available to start immediately.
 - **Phase 01a** (the actual parsers) is still blocked: Probe Part C (four-plus
   matched console-vs-hex pairs) and C7 (counter reset semantics) haven't been done
   yet. See `phase-00-probe-app/HUMAN-RUNBOOK.md`.
 
-Phase 03 depends only on 01b, not 01a — it builds against `FakeTreadmillService`,
+Phase 03 depends only on 01b, not 01a. It builds against `FakeTreadmillService`,
 same as before.
 
 ---
 
-## Renumbering — what changed and why
+## Renumbering: what changed and why
 
 Plan v2.1 had Phase 0 as bare scaffolding, Phase 1 scan, Phase 2 connect, Phase 3
 protocol discovery. Four phases had to complete before anyone could send a single
@@ -115,7 +115,7 @@ response. The point is to answer "what data should be sent to the treadmill, and
 is correct" on day one, with real bytes, instead of building three phases of product
 on unverified assumptions.
 
-Everything after that is unchanged in substance — only renumbered.
+Everything after that is unchanged in substance, only renumbered.
 
 | New | Old | Note |
 |-----|-----|------|
@@ -164,7 +164,7 @@ Everything after that is unchanged in substance — only renumbered.
 - All prior phase tests still pass.
 - Metric in the database, always. Convert at display time only.
 - All timestamps UTC plus a stored local offset.
-- Never gate a feature on `0x2ACC` — it is proven to over-claim. Gate on observed
+- Never gate a feature on `0x2ACC`: it is proven to over-claim. Gate on observed
   behaviour. See `../05-FTMS-Protocol.md` §2.
 - Never call a Bluetooth stop command an emergency stop. The safety key is the
   emergency stop.

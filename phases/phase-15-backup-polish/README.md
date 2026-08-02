@@ -2,11 +2,11 @@
 
 > Only if Phases 00–14 are done **and the app is in daily use.** If it isn't in daily
 > use, this phase is speculative work on a product nobody has proven they want yet.
-> See `../README.md` for the collaboration model — you write the logic, the agent
+> See `../README.md` for the collaboration model: you write the logic, the agent
 > writes the UI. This phase has a small UI surface: a Merge/Replace choice on import,
 > and a CSV export button next to Phase 09's existing ZIP export.
 
-**Hardware:** none · **Size:** M · **Blocked by:** Phase 09 (Backup — minimal). Needs
+**Hardware:** none · **Size:** M · **Blocked by:** Phase 09 (Backup, minimal). Needs
 `WorkoutId` and the single-ZIP export/import flow that phase already ships.
 
 ---
@@ -20,58 +20,54 @@ format migrations that don't have a real case to handle yet.
 
 ### Understanding what you're building (read this before the tasks)
 
-**The everyday problem.** Imagine two people who each kept a personal paper
-journal of the same shared project, and now you want to combine both journals
-into one without losing anything or duplicating entries. If each entry only has
-a handwritten date, you're stuck: two "Tuesday" entries might be the exact same
-event described twice, or two genuinely different events that happen to have
-occurred on the same day — the date alone can't tell you which. The only way to
-merge safely is if every entry already carries something no other entry has: a
-serial number, stamped once at the moment it was written, that means the same
-thing no matter which journal it ends up copied into. That's exactly the
-problem Task B (merge import) solves for this app: two phones can each
-accumulate their own workout history, and merging them means answering "is
-this the same workout, or two different ones?" — a question a `WorkoutId` (a
-GUID, stamped once per workout back in Phase 06) already answers by
-construction, because unlike the database's own auto-incrementing integer `Id`
-(which means "the Nth row on this phone" and nothing more), a GUID means the
-same workout no matter which phone's database it's sitting in.
+**Merging two workout histories only works if every entry carries a global
+identity, not just a local one.** A date alone can't tell you whether two
+"Tuesday" journal entries describe the same event twice or two different
+events that happened to land on the same day; you need something else to
+tell them apart. That's exactly the problem Task B (merge import) solves for
+this app: two phones can each accumulate their own workout history, and
+merging them means answering "is this the same workout, or two different
+ones?" A `WorkoutId` (a GUID, stamped once per workout back in Phase 06)
+already answers that by construction. Unlike the database's own
+auto-incrementing integer `Id` (which means "the Nth row on this phone" and
+nothing more), a GUID means the same workout no matter which phone's database
+it's sitting in.
 
 **Why merge wasn't built in Phase 09, and why it's cheap now.** The simpler
-alternative — the one Phase 09 actually shipped — is: import always means
+alternative (the one Phase 09 actually shipped) is: import always means
 Replace, wipe the phone's existing history, restore from the file. That wasn't
 a shortcut that skipped real work; it was the correct call for a feature nobody
 had asked to use yet ("Only if Phases 00–14 are done **and the app is in daily
 use**," per the header above). What makes Merge affordable to add *now*,
 instead of a multi-day project, is that the one piece of infrastructure it
-actually needs — a way to tell "same workout" from "different workout" across
-two independent databases — was already paid for in Phase 06, for reasons that
+actually needs, a way to tell "same workout" from "different workout" across
+two independent databases, was already paid for in Phase 06, for reasons that
 had nothing to do with backups. Task B's entire merge logic is one SQL
 statement (`INSERT OR IGNORE INTO Workout (WorkoutId, ...) VALUES (...)`,
 relying on `WorkoutId`'s uniqueness) plus a 4-case test matrix. Contrast that
 with what it would have cost to retrofit global identity after the fact: if
 Phase 06 had used only the auto-increment integer, adding merge later would
 mean migrating every already-shipped phone's data onto some new globally
-unique key, on databases already holding real history — a far bigger, riskier
-job than the near-zero cost of choosing `Guid` as the primary identity column
-back when the table was still empty.
+unique key, on databases already holding real history. That's a far bigger,
+riskier job than the near-zero cost of choosing `Guid` as the primary identity
+column back when the table was still empty.
 
 **The pattern, named plainly.** This is a case of paying a near-zero cost
-today to keep a future option open — deliberately provisioning a seam (global
+today to keep a future option open: deliberately provisioning a seam (global
 identity via GUID) before there's a demonstrated need for the feature that
-seam enables (merge import). It's worth naming directly against Metz's rule
+seam enables (merge import). This maps directly onto Metz's rule
 elsewhere in this project's teaching notes: "only justify a pattern when a
 demonstrated, concrete problem calls for it, never 'in case it's needed
 later.'" The GUID doesn't violate that rule, because its cost was genuinely
-negligible — swapping `int` for `Guid` as a primary key type is a one-line
+negligible. Swapping `int` for `Guid` as a primary key type is a one-line
 schema decision with no extra machinery, no speculative interface, no code
 written against a guessed future requirement. Compare that to the alternative
 shape of "preparing for merge" that *would* have been speculative overhead:
 building a full merge UI and conflict-resolution flow back in Phase 06, before
-Phase 09's backup format even existed to merge — that would have been exactly
+Phase 09's backup format even existed to merge. That would have been exactly
 the kind of "in case it's needed later" complexity Metz warns against, because
 it's expensive machinery built against a guess. The test for whether a seam is
-worth placing early isn't "might this be useful someday" — it's "does placing
+worth placing early isn't "might this be useful someday," it's "does placing
 it now cost close to nothing, and does retrofitting it later cost a lot." A
 primary key type is the former; a UI and merge algorithm is the latter. Task C
 in this same phase makes the identical call in the opposite direction, worth
@@ -85,40 +81,40 @@ against.
 
 ## Learning goals
 
-- **Culture-invariant formatting** — why any number that gets written to a file (as
+- **Culture-invariant formatting**: why any number that gets written to a file (as
   opposed to shown on screen) must never depend on the phone's regional settings, and
   what `CultureInfo.InvariantCulture` actually changes about `ToString()`.
-- **Byte order marks (BOM)** — what the three bytes `EF BB BF` at the start of a UTF-8
+- **Byte order marks (BOM)**: what the three bytes `EF BB BF` at the start of a UTF-8
   file are for, why Excel specifically needs them to detect non-ASCII text correctly,
   and how `Encoding.UTF8` in .NET differs from `new UTF8Encoding()` on this exact
   point.
-- **SQL conflict resolution** — `INSERT OR IGNORE` as a way to merge two datasets that
+- **SQL conflict resolution**: `INSERT OR IGNORE` as a way to merge two datasets that
   might overlap without hand-writing "does this row already exist" checks yourself.
-- **Designing for a version that doesn't exist yet** — the backup format migration
+- **Designing for a version that doesn't exist yet**: the backup format migration
   mechanism ships now, with zero migrations registered, because retrofitting a
   migration *mechanism* after the first breaking format change is much harder than
   building the mechanism before you need it.
 
 ## Reference docs
 
-- **`CultureInfo.InvariantCulture`** — https://learn.microsoft.com/en-us/dotnet/api/system.globalization.cultureinfo.invariantculture —
-  read this before writing a single `ToString()` call in the CSV exporter. The
-  invariant culture is culture-*independent*, not culture-*neutral*-English — it's
+- **`CultureInfo.InvariantCulture`**: https://learn.microsoft.com/en-us/dotnet/api/system.globalization.cultureinfo.invariantculture.
+  Read this before writing a single `ToString()` call in the CSV exporter. The
+  invariant culture is culture-*independent*, not culture-*neutral*-English. It's
   what "just give me the bytes, no locale opinions" means in .NET.
-- **`Encoding.UTF8` property** — https://learn.microsoft.com/en-us/dotnet/api/system.text.encoding.utf8 —
-  the Remarks section spells out the exact trap: `Encoding.UTF8` **does** include a
+- **`Encoding.UTF8` property**: https://learn.microsoft.com/en-us/dotnet/api/system.text.encoding.utf8.
+  The Remarks section spells out the exact trap: `Encoding.UTF8` **does** include a
   BOM in its preamble; a `new UTF8Encoding()` constructed with the default (parameterless)
   constructor does not. `StreamWriter`'s own default encoding also omits the BOM. This
   is the one-line difference behind "why did the BOM not show up" bugs.
-- **SQLite `ON CONFLICT` clause** — https://sqlite.org/lang_conflict.html — the
+- **SQLite `ON CONFLICT` clause**: https://sqlite.org/lang_conflict.html, the
   official spec for `INSERT OR IGNORE` (and the other four conflict-resolution
   keywords). Read the IGNORE section specifically: it silently skips the *violating
   row only* and continues, which is exactly the semantics merge-by-`WorkoutId` wants.
-- **`Microsoft.Data.Sqlite` overview** and **data types** — already in
-  `../../docs/learning/03-Doc-Links.md` under "Data / SQLite" — reuse those links for
+- **`Microsoft.Data.Sqlite` overview** and **data types**: already in
+  `../../docs/learning/03-Doc-Links.md` under "Data / SQLite". Reuse those links for
   the parameterized-command mechanics; nothing new there for this phase beyond the
   `ON CONFLICT` syntax above.
-- **Dependency injection in .NET MAUI** — already in `03-Doc-Links.md` — if the CSV
+- **Dependency injection in .NET MAUI**: already in `03-Doc-Links.md`. If the CSV
   exporter or migration runner need registering as services, same pattern as every
   prior phase's DI registrations.
 
@@ -126,7 +122,7 @@ against.
 
 ## Task A — CSV export of workout summaries
 
-**Export-only, not round-trippable — say so in the UI** (task D below). Two
+**Export-only, not round-trippable: say so in the UI** (task D below). Two
 correctness requirements that are easy to miss and annoying to discover later:
 
 - Write a **UTF-8 BOM**, or Excel mangles non-ASCII.
@@ -135,15 +131,15 @@ correctness requirements that are easy to miss and annoying to discover later:
 
 ### Concrete steps
 
-1. Create `src/MyHi.Companion.Core/Backup/WorkoutCsvExporter.cs` — `Core` project, not
+1. Create `src/MyHi.Companion.Core/Backup/WorkoutCsvExporter.cs` (`Core` project, not
    the app project: this is pure data formatting with no MAUI dependency, same
-   reasoning as why `FtmsCommands`/the protocol parsers live in `Core` (see Phase 01b).
+   reasoning as why `FtmsCommands`/the protocol parsers live in `Core`, see Phase 01b).
 2. Decide the column set from the `Workout` table (`../../14-Database.md`). A
    reasonable summary row: `WorkoutId, StartedAtUtc, DurationSeconds, DistanceMeters,
    Calories, AvgSpeedKph, MaxSpeedKph, AvgHeartRate, MaxHeartRate, Notes`. **Never
-   export the integer `Id`** — same rule as the ZIP backup in Phase 09, it means a
+   export the integer `Id`**, same rule as the ZIP backup in Phase 09: it means a
    different workout on every phone.
-3. Implement against this shape — not the full thing, just enough that you're not
+3. Implement against this shape, not the full thing, just enough that you're not
    staring at a blank file:
 
    ```csharp
@@ -183,22 +179,22 @@ correctness requirements that are easy to miss and annoying to discover later:
    - Assert a workout with `DistanceMeters = 12.5` produces the literal text `12.5`
      in the output **even when the test temporarily sets
      `CultureInfo.CurrentCulture` to `de-DE`** (save the original culture, set it,
-     run the export, assert, then restore it — a test that leaves global culture
+     run the export, assert, then restore it; a test that leaves global culture
      state mutated will intermittently break unrelated tests that run after it).
    - Assert a `Notes` value containing a comma is quoted correctly and doesn't shift
      later columns when the output is split naively on `,`.
 5. Verify manually: run the export against real data, open the file in a plain text
    editor and confirm the header line looks correct (not prefixed with visible junk
-   characters — that would mean the BOM landed wrong), then, if you have access to a
+   characters, which would mean the BOM landed wrong), then, if you have access to a
    machine set to a comma-decimal locale (or can temporarily change Windows' regional
    format), open it in Excel and confirm decimal values land in one column, not two.
 
 ## Task B — Merge import mode
 
-Now cheap, because `WorkoutId` exists — `INSERT OR IGNORE` on the GUID.
+Now cheap, because `WorkoutId` exists: `INSERT OR IGNORE` on the GUID.
 
 Still needs a **4-case test matrix**: empty / disjoint / partial overlap / full
-overlap. And defined conflict semantics for same-GUID-different-data — decide and
+overlap. And defined conflict semantics for same-GUID-different-data: decide and
 document, do not leave it to whichever row SQLite happens to keep.
 
 **Never de-duplicate on the integer `Id`.** The same integer means different workouts
@@ -209,7 +205,7 @@ on two phones.
 1. Touches: wherever Phase 09's importer lives (e.g.
    `src/MyHi.Companion.Core/Backup/BackupImporter.cs`) plus a merge-specific SQL path
    alongside it.
-2. Add the mode as an explicit enum, not a bool — a `bool merge` parameter reads fine
+2. Add the mode as an explicit enum, not a bool. A `bool merge` parameter reads fine
    at the call site today and ambiguous in six months:
 
    ```csharp
@@ -233,7 +229,7 @@ on two phones.
        // on a mid-import crash is exactly as bad as a partial replace.
    }
    ```
-3. The merge SQL shape — one statement per imported `Workout` row, inside the same
+3. The merge SQL shape: one statement per imported `Workout` row, inside the same
    transaction as everything else:
 
    ```sql
@@ -258,19 +254,19 @@ on two phones.
    -- to this query, not just in your head. Whatever you pick, it needs a
    -- test in the matrix below.
    ```
-4. Write the 4-case test matrix as real xUnit tests against a temp SQLite file —
-   follow `src/MyHi.Companion.Tests/Data/MigrationRunnerTests.cs`'s pattern (a fresh
+4. Write the 4-case test matrix as real xUnit tests against a temp SQLite file.
+   Follow `src/MyHi.Companion.Tests/Data/MigrationRunnerTests.cs`'s pattern (a fresh
    temp-file database per test) rather than inventing a new fixture style:
-   - **Empty**: importing into a database with zero existing workouts — every
+   - **Empty**: importing into a database with zero existing workouts. Every
      imported row lands, count after equals count in the file.
-   - **Disjoint**: existing workouts and imported workouts share no `WorkoutId` —
-     both sets survive, count after equals the sum.
-   - **Partial overlap**: some `WorkoutId`s exist on both sides — only the new ones
+   - **Disjoint**: existing workouts and imported workouts share no `WorkoutId`.
+     Both sets survive, count after equals the sum.
+   - **Partial overlap**: some `WorkoutId`s exist on both sides. Only the new ones
      get inserted, count after equals existing-count plus new-only-count, and your
      documented same-GUID-different-data rule holds for the overlapping ones.
-   - **Full overlap**: every imported `WorkoutId` already exists — zero rows
+   - **Full overlap**: every imported `WorkoutId` already exists. Zero rows
      inserted, count after equals count before, nothing on the existing rows changes.
-5. Statistics and personal records are **derived, not imported** — after either
+5. Statistics and personal records are **derived, not imported**. After either
    Replace or Merge, recompute them from the `Workout`/`WorkoutSample` tables now on
    the phone. Never write imported statistics/PR values directly; that creates a
    second source of truth that can silently drift from the data it's supposed to
@@ -289,8 +285,8 @@ mechanism shipped in Phase 09 (the manifest already carries an integer
    `src/MyHi.Companion.Core/Backup/BackupManifest.cs`), plus a new
    `src/MyHi.Companion.Core/Backup/BackupMigrations.cs`.
 2. Shape it as a small ordered chain, mirroring how `MigrationRunner.cs` already
-   handles the *database* schema — same idea, applied to backup JSON instead of
-   SQLite DDL:
+   handles the *database* schema (same idea, applied to backup JSON instead of
+   SQLite DDL):
 
    ```csharp
    public interface IBackupMigration
@@ -325,14 +321,14 @@ mechanism shipped in Phase 09 (the manifest already carries an integer
    }
    ```
 3. No tests beyond a trivial "current version in, current version out, unchanged"
-   case belong here yet — writing tests against a migration for a format version that
+   case belong here yet. Writing tests against a migration for a format version that
    doesn't exist is testing a guess. Add real migration tests the day a real old
    version shows up.
 
 ## Task D — UI: Merge/Replace choice and CSV export button
 
 Full XAML, using only the monochrome theme's tokens and keyed styles from
-`../../docs/learning/04-Monochrome-Theme.md` — paste this into wherever Phase 09's
+`../../docs/learning/04-Monochrome-Theme.md`. Paste this into wherever Phase 09's
 backup screen lives (e.g. `Features/Backup/BackupPage.xaml`), next to the existing
 ZIP export button, and wire the bindings to your ViewModel's actual property/command
 names.
@@ -386,17 +382,17 @@ Notes on wiring this up:
 
 - `IsMergeSelected` / `IsReplaceSelected` are two boolean properties on your
   ViewModel (`[ObservableProperty]` from `CommunityToolkit.Mvvm` works here, same
-  pattern as every other bindable property in this project — see the MVVM source
+  pattern as every other bindable property in this project; see the MVVM source
   generators link in `03-Doc-Links.md`). `RadioButton`'s `GroupName` handles the
   mutual exclusivity in the UI; in the ViewModel, translate whichever one is `true`
   into Task B's `ImportMode` enum when `ImportCommand` runs.
-- Everything above resolves through the existing implicit styles in `Styles.xaml` —
+- Everything above resolves through the existing implicit styles in `Styles.xaml`.
   `Border` already gets `ColorSurface*`/`ColorBorder*`, `Button`/`RadioButton`/`Label`
   already get their themed colors, `SubHeadline` and `Caption` and `SecondaryButton`
   are the same keyed styles used elsewhere in the app. Nothing here is an inline
   color or a new resource key.
 - If a disabled/in-progress state is needed for these buttons while an export or
-  import is running (recommended — prevents double-tapping), bind `IsEnabled` to a
+  import is running (recommended: it prevents double-tapping), bind `IsEnabled` to a
   `!IsBusy`-shaped property; the `Button` style's built-in `Disabled` visual state
   already handles the dimmed appearance, no extra XAML needed for that part.
 

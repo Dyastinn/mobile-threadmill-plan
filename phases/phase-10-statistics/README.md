@@ -2,9 +2,9 @@
 
 **Hardware:** none · **Size:** M · **Blocked by:** Phase 09
 
-> See `../README.md` for the collaboration model. This phase leans UI-heavy — three
-> of its five tasks end in a chart — but the SQL underneath every chart is still yours
-> to write: the agent writes the LiveCharts2 wiring and XAML, you write the aggregate
+> See `../README.md` for the collaboration model. This phase leans UI-heavy: three
+> of its five tasks end in a chart. But the SQL underneath every chart is still yours
+> to write. The agent writes the LiveCharts2 wiring and XAML, you write the aggregate
 > queries, the PR queries, and the downsampling.
 
 ---
@@ -15,90 +15,81 @@ Aggregates and charts. LiveCharts2 (MIT).
 
 ### Understanding what you're building (read this before the tasks)
 
-**The everyday problem.** Say you keep a paper logbook of every treadmill
-session — one line per workout: date, distance, calories, duration. At the end of
-the month someone asks "how far did I go this month?" There are two ways to
-answer: photocopy every page, spread them across the table, and add up the
-distance column by hand — or hand the logbook to a bookkeeper whose entire job is
-running exactly this kind of column-total, who already has the book open and
-doesn't need you to move a single page. That's the choice task 10.1 is actually
-making: `Workout` rows live in a SQLite database that already has a purpose-built
-engine for "sum this column, grouped by that column" (`GROUP BY`/`SUM`/`COUNT`) —
-the query `14-Database.md` already gives for daily totals, which
-`SqliteStatisticsProvider.GetAggregatesAsync` extends to weekly/monthly/yearly.
-The naive alternative — `SELECT * FROM Workout`, pull every row into a C#
-`List<Workout>`, and `.Sum()`/`.GroupBy()` over it in memory — photocopies the
-whole logbook just to add one column.
+**Why aggregate in SQL, not a C# loop over a loaded table.** `Workout` rows live in
+a SQLite database that already has a purpose-built engine for "sum this column,
+grouped by that column" (`GROUP BY`/`SUM`/`COUNT`): the query `14-Database.md`
+already gives for daily totals, which `SqliteStatisticsProvider.GetAggregatesAsync`
+extends to weekly/monthly/yearly. The naive alternative pulls every row into a C#
+`List<Workout>` (`SELECT * FROM Workout`) and sums it with `.Sum()`/`.GroupBy()` in
+memory. That's more code to do the same job.
 
-**Why aggregate in SQL, not a C# loop over a loaded table.** For the
-`Workout`-level aggregates (10.1/10.2), be honest about the actual stakes: this
-table, even after years of daily use, tops out around a few thousand rows — a
-naive `.Sum()` over that wouldn't be slow enough to notice today. So this isn't
-"SQL because performance demands it," it's "SQL because it's already the
-simplest correct tool for the job": a `GROUP BY date(...)` query is fewer lines
-and less code to own than a hand-rolled dictionary-keyed accumulator loop in C#,
-not a more complex alternative earning its keep. Where the stakes get real and
-quantified is task 10.4's per-workout sample series: a two-hour workout is 7,200
-rows in `WorkoutSample` (one per second), and a 400px-wide chart needs on the
-order of 200 points to render meaningfully. Loading all 7,200 rows just to thin
-them to 200 in a C# loop means shipping 36× more data across the SQLite driver
-than the chart will ever draw — for every workout, every time its detail page
-opens. The `WHERE ElapsedSec % $n = 0` downsampling query in
-`GetWorkoutSeriesAsync` does that thinning inside the database instead, so
-roughly 200 rows cross into the app, not 7,200. That's the one place in this
-phase where "compute it in SQL" earns its complexity over the loop-in-C#
-alternative with a real, quantified number behind it — everywhere else in this
-phase it's simply the shorter, more idiomatic way to ask the question.
+For the `Workout`-level aggregates (10.1/10.2), be honest about the actual stakes.
+This table, even after years of daily use, tops out around a few thousand rows, and
+a naive `.Sum()` over that wouldn't be slow enough to notice today. So this isn't
+"SQL because performance demands it," it's "SQL because it's already the simplest
+correct tool for the job": a `GROUP BY date(...)` query is fewer lines and less code
+to own than a hand-rolled dictionary-keyed accumulator loop in C#. Not a more
+complex alternative earning its keep.
+
+Where the stakes get real and quantified is task 10.4's per-workout sample series.
+A two-hour workout is 7,200 rows in `WorkoutSample` (one per second), and a
+400px-wide chart needs on the order of 200 points to render meaningfully. Loading
+all 7,200 rows just to thin them to 200 in a C# loop means shipping 36× more data
+across the SQLite driver than the chart will ever draw, every time its detail page
+opens. The `WHERE ElapsedSec % $n = 0` downsampling query in `GetWorkoutSeriesAsync`
+does that thinning inside the database instead, so roughly 200 rows cross into the
+app, not 7,200. That's the one place in this phase where "compute it in SQL" earns
+its complexity over the loop-in-C# alternative, with a real, quantified number
+behind it. Everywhere else in this phase it's simply the shorter, more idiomatic
+way to ask the question.
 
 **The pattern, named plainly.** `14-Database.md`'s rule that a cache table is
 allowed "if a query becomes slow" but "do not start there" is an application of
-**YAGNI** (you aren't gonna need it — yet): resist adding a structure to solve a
+**YAGNI** (you aren't gonna need it yet): resist adding a structure to solve a
 problem you haven't actually measured. The cost of *not* pre-building a cache
-table: every chart re-runs its aggregate query from scratch, with no
-memoization. The payoff: zero synchronization bugs — a cache table that ever
+table is that every chart re-runs its aggregate query from scratch, with no
+memoization. The payoff is zero synchronization bugs. A cache table that ever
 drifts out of sync with `Workout`/`WorkoutSample` is worse than no cache at all,
 because it can silently lie, and there's one less thing to keep correct across
-every future phase that writes a workout. This tradeoff would flip — a
-rebuildable cache table becoming genuinely worth it — the moment this phase's
-own performance test (5,000 workouts, aggregate queries under 200ms) actually
-fails, not before that. That's the concrete, stated condition, not "in case it's
-slow later."
+every future phase that writes a workout. This tradeoff would flip, a rebuildable
+cache table becoming genuinely worth it, the moment this phase's own performance
+test (5,000 workouts, aggregate queries under 200ms) actually fails, not before.
+That's the concrete, stated condition, not "in case it's slow later."
 
-**One thing to hold loosely.** The charts in this phase render through
-LiveCharts2, and it's worth being honest that this specific choice isn't fully
-settled. Per `02-Technology-Stack.md`, LiveCharts2 has stayed in beta/RC for
-multiple years without reaching a stable 1.0, with real 2026 community reports
-of maintenance concern — a legitimate risk, not pedantry, for a project one
-person maintains indefinitely. That's not a reason to avoid it *now*: Phase 10 is
-late enough in this plan that the choice has already had months to prove itself,
-and the chart-building code here stays isolated to
-`StatisticsViewModel`/`WorkoutDetailViewModel`, so a future swap — to OxyPlot if
-the dual-axis speed/heart-rate overlay stays a requirement, or to Microcharts if
-the heart-rate curve gets cut per Phase 00's V3 finding — wouldn't ripple into
-any other phase. Treat it as a dependency held under a specific, stated
-condition for revisiting, not one to assume is beyond question the way
-`Microsoft.Data.Sqlite` or MAUI Shell are.
+**One thing to hold loosely.** The charts in this phase render through LiveCharts2,
+and this specific choice isn't fully settled. Per `02-Technology-Stack.md`,
+LiveCharts2 has stayed in beta/RC for multiple years without reaching a stable
+1.0, with real 2026 community reports of maintenance concern. That's a legitimate
+risk, not pedantry, for a project one person maintains indefinitely. It's not a
+reason to avoid it *now*: Phase 10 is late enough in this plan that the choice has
+already had months to prove itself, and the chart-building code here stays isolated
+to `StatisticsViewModel`/`WorkoutDetailViewModel`, so a future swap wouldn't ripple
+into any other phase: to OxyPlot if the dual-axis speed/heart-rate overlay stays a
+requirement, or to Microcharts if the heart-rate curve gets cut per Phase 00's V3
+finding. Treat it as a dependency held under a specific, stated condition for
+revisiting, not one to assume is beyond question the way `Microsoft.Data.Sqlite`
+or MAUI Shell are.
 
 ## Features
 
 - Daily / weekly / monthly / yearly aggregates
 - Personal records: longest distance, longest duration, fastest average
 - Cross-workout charts: distance, calories, duration, average speed over time
-- **Per-workout charts** — speed and heart rate curves from `WorkoutSample`. This is
+- **Per-workout charts**: speed and heart rate curves from `WorkoutSample`. This is
   the payoff for storing telemetry and the main thing FitShow does badly.
 
-If V3 said heart rate is marginal or unusable, HR curves are hidden here too — but the
+If V3 said heart rate is marginal or unusable, HR curves are hidden here too. The
 data keeps being recorded, so they can be switched on later without a gap in history.
 
 ## Implementation requirements
 
 - **Statistics and PRs are always computed from `Workout` / `WorkoutSample`, never
   stored.** Not columns, not tables, not exported. If a query becomes slow, add a cache
-  table that is *explicitly rebuildable* and rebuild it after any import — but do not
+  table that is *explicitly rebuildable* and rebuild it after any import, but do not
   start there.
 - **Aggregate in SQL**, not in C# over a full table read. Query patterns and the
   local-day-via-stored-offset expression are in `../../14-Database.md`.
-- Index `Workout(StartedAtUtc)` — every aggregate filters on it.
+- Index `Workout(StartedAtUtc)`. Every aggregate filters on it.
 - **Downsample sample series for display.** A 2-hour workout is 1,440 points; a 400 px
   chart needs perhaps 200. Downsample in SQL (`WHERE ElapsedSec % $n = 0`), not by
   loading everything and thinning it in C#.
@@ -109,40 +100,40 @@ data keeps being recorded, so they can be switched on later without a gap in his
 ## Learning goals
 
 - SQL aggregation (`GROUP BY`, `SUM`, `COUNT`) against a real schema, instead of
-  pulling rows into C# and looping — this is the pattern `14-Database.md` already
+  pulling rows into C# and looping. This is the pattern `14-Database.md` already
   documents for weekly totals; you'll extend it to daily/monthly/yearly and to
   personal records.
 - Downsampling a large ordered series in SQL rather than in memory.
 - LiveCharts2's `CartesianChart`: `ISeries`, `Axis`, `SolidColorPaint`, and how a
-  nullable value in a series creates a visual gap — the mechanism that renders the
-  connection-gap markers from Phase 06/07 as actual breaks in the line.
-- Reusing the seam/fake pattern one more time — `IStatisticsProvider` gets a fake for
+  nullable value in a series creates a visual gap. This is the mechanism that renders
+  the connection-gap markers from Phase 06/07 as actual breaks in the line.
+- Reusing the seam/fake pattern one more time: `IStatisticsProvider` gets a fake for
   chart-layout work before the real SQL is reviewed, same shape as
   `ITreadmillService`/`FakeTreadmillService` (01b) and `IWorkoutHistoryProvider` (03).
 
 ## Reference docs
 
-- `../../14-Database.md` — schema, the local-day query pattern, the downsampling
+- `../../14-Database.md`: schema, the local-day query pattern, the downsampling
   pattern, performance targets. Read this in full before task 10.1; almost everything
   below builds directly on it.
 - [LiveCharts2 documentation home](https://livecharts.dev/) and
-  [LiveCharts2 GitHub repository](https://github.com/beto-rodriguez/LiveCharts2) —
+  [LiveCharts2 GitHub repository](https://github.com/beto-rodriguez/LiveCharts2),
   already in `docs/learning/03-Doc-Links.md`.
-- [LiveCharts2 MAUI installation guide](https://livecharts.dev/docs/maui/2.0.4/overview.installation)
-  — NuGet package and the `MauiProgram.cs` registration. Verified against the current
-  docs while writing this phase; **not yet in `03-Doc-Links.md`** because it's
-  version-pinned in the URL (`2.0.4`) — check the version selector on the page against
+- [LiveCharts2 MAUI installation guide](https://livecharts.dev/docs/maui/2.0.4/overview.installation):
+  NuGet package and the `MauiProgram.cs` registration. Verified against the current
+  docs while writing this phase. **Not yet in `03-Doc-Links.md`** because it's
+  version-pinned in the URL (`2.0.4`); check the version selector on the page against
   whatever `LiveChartsCore.SkiaSharpView.Maui` version you actually install, and read
   the matching docs version if they've since moved on.
-- [LiveCharts2 Cartesian chart control](https://livecharts.dev/docs/maui/2.0.4/CartesianChart.Cartesian%20chart%20control)
-  — the `ISeries[]`/`Axis[]` shape used throughout this phase's chart code.
-- `docs/learning/04-Monochrome-Theme.md` — the gray ramp. The "Chart colors" section
+- [LiveCharts2 Cartesian chart control](https://livecharts.dev/docs/maui/2.0.4/CartesianChart.Cartesian%20chart%20control):
+  the `ISeries[]`/`Axis[]` shape used throughout this phase's chart code.
+- `docs/learning/04-Monochrome-Theme.md`: the gray ramp. The "Chart colors" section
   below is the LiveCharts2-specific extension of it, since LiveCharts2 has its own
   `SKColor`-based color system, separate from XAML `StaticResource`.
 
 ## Chart colors — the monochrome mapping for LiveCharts2
 
-LiveCharts2 doesn't read `Colors.xaml` — it's a SkiaSharp-backed renderer with its own
+LiveCharts2 doesn't read `Colors.xaml`. It's a SkiaSharp-backed renderer with its own
 `SolidColorPaint`/`SKColor` API. To stay consistent with the rest of the app without
 inventing a second palette, every chart in this phase uses `SKColor` values that are
 the *exact same hex* as the `GrayNNN` steps already defined in `Colors.xaml`:
@@ -153,18 +144,18 @@ the *exact same hex* as the `GrayNNN` steps already defined in `Colors.xaml`:
 | Secondary series (heart rate, a comparison line) | Gray500 (light) / Gray300 (dark) | `#7D7D82` / `#B8B8BC` | `new SKColor(0x7D, 0x7D, 0x82)` / `new SKColor(0xB8, 0xB8, 0xBC)` |
 | Axis labels / separator lines | Gray600 (light) / Gray400 (dark) | `#626266` / `#9A9AA0` | `new SKColor(0x62, 0x62, 0x66)` / `new SKColor(0x9A, 0x9A, 0xA0)` |
 
-**`SKColor` doesn't respond to `AppThemeBinding`** — that's an XAML-only mechanism.
+**`SKColor` doesn't respond to `AppThemeBinding`.** That's an XAML-only mechanism.
 The code below picks the light or dark pair explicitly from
 `Application.Current?.RequestedTheme` at the point the series is built. This is a
 real gap worth naming rather than hiding: if the user flips the OS theme while a
 chart is already on screen, the chart won't repaint until it's rebuilt. Flag it at
-review if you want a cleaner fix (e.g. rebuilding on `Application.RequestedThemeChanged`)
-— reasonable follow-up, not a blocker for this phase.
+review if you want a cleaner fix (e.g. rebuilding on `Application.RequestedThemeChanged`),
+a reasonable follow-up, not a blocker for this phase.
 
 **Second color instead of second hue**: the heart-rate line uses a dashed stroke
 (`DashEffect`) rather than a color, following the same "state without hue" rule as
 the rest of the app (`04-Monochrome-Theme.md`'s "Conveying state without color"
-table) — see task 10.4.
+table). See task 10.4.
 
 ---
 
@@ -172,7 +163,7 @@ table) — see task 10.4.
 
 ### Task 10.1 — `IStatisticsProvider`: daily/weekly/monthly/yearly aggregates
 
-**Logic — you write this.**
+**Logic: you write this.**
 
 Creates: `src/MyHi.Companion.Core/Statistics/IStatisticsProvider.cs`,
 `src/MyHi.Companion.Core/Statistics/AggregateBucket.cs`,
@@ -198,7 +189,7 @@ ORDER BY LocalDay;
 
 Weekly/monthly/yearly are the same query with a different SQLite `date()`/`strftime()`
 expression in the `GROUP BY`. Week bucketing is the one that's easy to get subtly
-wrong across a DST boundary — work a real transition date out on paper before trusting
+wrong across a DST boundary. Work a real transition date out on paper before trusting
 the SQL; that's why it's a named test below rather than an afterthought.
 
 Concrete steps:
@@ -217,7 +208,7 @@ Concrete steps:
    ```
    Decide for yourself whether a raw `string` label is the right shape, or whether a
    `DateOnly` plus the `AggregateGranularity` (next step) serves a chart-binding
-   ViewModel better — think about what task 10.3 actually needs to do with it before
+   ViewModel better. Think about what task 10.3 actually needs to do with it before
    committing to the shape.
 3. Define `AggregateGranularity` as an `enum`: `Daily`, `Weekly`, `Monthly`, `Yearly`.
 4. Define `IStatisticsProvider`:
@@ -240,12 +231,12 @@ Concrete steps:
            CancellationToken ct = default);
    }
    ```
-   (`PersonalRecords` and `WorkoutSamplePoint` are defined in tasks 10.2 and 10.4 —
+   (`PersonalRecords` and `WorkoutSamplePoint` are defined in tasks 10.2 and 10.4;
    the interface is written once, up front, so 10.2/10.4 aren't inventing a second
    provider abstraction.)
 5. Implement `SqliteStatisticsProvider` against `Microsoft.Data.Sqlite`, following the
    same connection-per-call pattern as `SqliteConnectionFactory`/`MigrationRunner`
-   (already in `src/MyHi.Companion.Core/Data/` from Phase 00) — open via the factory,
+   (already in `src/MyHi.Companion.Core/Data/` from Phase 00). Open via the factory,
    don't hold a connection open across calls:
    ```csharp
    namespace MyHi.Companion.Core.Statistics;
@@ -270,29 +261,29 @@ Concrete steps:
        // GetPersonalRecordsAsync (task 10.2), GetWorkoutSeriesAsync (task 10.4)
    }
    ```
-6. Register `SqliteStatisticsProvider` as `IStatisticsProvider` in `MauiProgram.cs` —
-   `AddTransient`, not `AddSingleton`: there's no cross-call state worth sharing, and
+6. Register `SqliteStatisticsProvider` as `IStatisticsProvider` in `MauiProgram.cs`.
+   Use `AddTransient`, not `AddSingleton`: there's no cross-call state worth sharing, and
    holding a long-lived instance around a short-lived SQLite connection buys nothing.
 7. Write the daily-aggregate xUnit test first: seed a handful of known workouts,
    hand-calculate the expected totals, assert. Get that green before writing
-   weekly/monthly/yearly — they're the same shape with a different bucket expression,
+   weekly/monthly/yearly. They're the same shape with a different bucket expression,
    and a working daily test gives you a template to copy for each timezone/DST case.
 
 ---
 
 ### Task 10.2 — Personal records
 
-**Logic — you write this.**
+**Logic: you write this.**
 
 Three independent "biggest single workout" queries: longest distance, longest
 duration, fastest average speed. Each is `SELECT ... ORDER BY <column> DESC LIMIT 1`
-against `Workout WHERE Status = 1` — no `GROUP BY`, these aren't aggregates over
+against `Workout WHERE Status = 1`, no `GROUP BY`. These aren't aggregates over
 multiple rows, they're a single row each.
 
 Concrete steps:
 
 1. Define `PersonalRecords` as a `record` holding, for each of the three records: the
-   value, the `WorkoutId` (the GUID, not the integer `Id` — see `14-Database.md`'s
+   value, the `WorkoutId` (the GUID, not the integer `Id`; see `14-Database.md`'s
    dual-key section for why) it came from, and the date it happened, so the UI can
    link back to the workout.
 2. Skeleton for the method:
@@ -316,14 +307,14 @@ Concrete steps:
 
 ### Task 10.3 — Cross-workout trend chart
 
-**UI — full code, written for you.** Wire the bindings to your actual property names;
+**UI: full code, written for you.** Wire the bindings to your actual property names;
 everything else (namespaces, series construction, monochrome colors) is ready to
 paste in.
 
 LiveCharts2's `CartesianChart` binds to a `Series` collection (`ISeries[]`) and,
 optionally, `XAxes`/`YAxes` (`Axis[]`) from its `BindingContext`. A series' *data*
 (the numbers) and its *appearance* (color, thickness) live on the same `LineSeries<T>`
-object — that's why this is built in the ViewModel rather than pure XAML: LiveCharts2
+object. That's why this is built in the ViewModel rather than pure XAML: LiveCharts2
 models "what does this line look like" as a C# object graph, not a XAML style.
 
 `StatisticsViewModel.cs`:
@@ -474,27 +465,27 @@ Concrete steps:
 
 ### Task 10.4 — Per-workout speed/heart-rate curves
 
-**Downsampling and gap-flag handling are logic — you write those. Chart wiring is
-UI — written for you below.**
+**Downsampling and gap-flag handling are logic: you write those. Chart wiring is
+UI, written for you below.**
 
 Downsampling: `14-Database.md` gives the pattern `WHERE ElapsedSec % $n = 0`. `$n`
 has to be derived from the workout's actual length and the target point count (e.g.
-`$n = ceil(totalPoints / maxPoints)`), not hardcoded — a 10-minute workout and a
+`$n = ceil(totalPoints / maxPoints)`), not hardcoded. A 10-minute workout and a
 2-hour workout need very different `$n` to both land near `maxPoints`.
 
 Gaps: `WorkoutSample.Flags` bit 0 marks a connection-gap sample (`14-Database.md`).
 LiveCharts2 renders a **break** in a line series wherever its value array contains
-`null` — but only if the series' element type is nullable (`LineSeries<double?>`, not
+`null`, but only if the series' element type is nullable (`LineSeries<double?>`, not
 `LineSeries<double>`). The conversion from "a row with `Flags & 1 == 1`" to "a `null`
 in the `double?[]` passed to the chart" is where this phase's gap-marking requirement
-actually gets enforced. Get it wrong — e.g. defaulting to `0` instead of `null` for a
-gap row — and the chart silently draws a fabricated flat segment through the dropout,
+actually gets enforced. Get it wrong, e.g. defaulting to `0` instead of `null` for a
+gap row, and the chart silently draws a fabricated flat segment through the dropout,
 exactly what the requirement says not to do.
 
 Concrete steps (logic):
 
 1. Define `WorkoutSamplePoint` as a `record` (`int ElapsedSec, double? SpeedKph,
-   int? HeartRate`) — nullable on the value fields specifically so a gap row carries
+   int? HeartRate`). Nullable on the value fields specifically so a gap row carries
    `null` all the way through to the chart layer without a separate "is this a gap"
    flag the ViewModel has to remember to check.
 2. Implement `GetWorkoutSeriesAsync` in `SqliteStatisticsProvider`:
@@ -514,10 +505,10 @@ Concrete steps (logic):
    }
    ```
 3. Test: a synthetic sample set with a deliberate gap in the middle (a few consecutive
-   `Flags = 1` rows) — assert the returned points have `null` at exactly those
+   `Flags = 1` rows). Assert the returned points have `null` at exactly those
    positions, not the raw stored values.
 
-UI — chart wiring (written for you):
+UI: chart wiring (written for you):
 
 ```csharp
 // WorkoutDetailViewModel.cs (excerpt — same structure as StatisticsViewModel)
@@ -586,7 +577,7 @@ private static string FormatElapsed(int elapsedSec) => TimeSpan.FromSeconds(elap
 
 If Phase 00's V3 finding said heart rate is unusable, leave the heart-rate
 `LineSeries` out of `SampleSeries` entirely (don't add it to the array with empty
-data) — same "hidden, not shown as `--`" rule Phase 03/04 already established for the
+data), same "hidden, not shown as `--`" rule Phase 03/04 already established for the
 live dashboard.
 
 Concrete steps:
@@ -595,7 +586,7 @@ Concrete steps:
    known gap.
 2. Add `BuildSampleCharts` to a new `WorkoutDetailViewModel` (same folder as
    `StatisticsViewModel`), called after `GetWorkoutSeriesAsync` returns.
-3. Add the XAML chart block to whichever page shows a single workout's detail — the
+3. Add the XAML chart block to whichever page shows a single workout's detail. The
    exact file name depends on what Phase 06 named it; adjust to match.
 4. Not hardware-gated, but worth doing before moving on: seed a workout with a
    deliberate gap via the fake provider (task 10.5) and confirm visually that the
@@ -605,7 +596,7 @@ Concrete steps:
 
 ### Task 10.5 — `FakeStatisticsProvider`
 
-**Logic — you write this, short.**
+**Logic: you write this, short.**
 
 Creates: `src/MyHi.Companion.Core/Statistics/FakeStatisticsProvider.cs`.
 
@@ -613,8 +604,8 @@ Same seam pattern as `FakeTreadmillService` (01b) and `FakeWorkoutHistoryProvide
 (03): implement `IStatisticsProvider` by generating plausible synthetic buckets,
 records, and sample points instead of querying SQLite. Register it in
 `MauiProgram.cs` first, build the charts in tasks 10.3/10.4 against it, then swap to
-`SqliteStatisticsProvider` once 10.1/10.2/10.4's queries are written and reviewed —
-one line changes in `MauiProgram.cs`, nothing in the ViewModels or XAML does.
+`SqliteStatisticsProvider` once 10.1/10.2/10.4's queries are written and reviewed.
+One line changes in `MauiProgram.cs`, nothing in the ViewModels or XAML does.
 
 ---
 
@@ -623,7 +614,7 @@ one line changes in `MauiProgram.cs`, nothing in the ViewModels or XAML does.
 - Hand-calculate weekly totals for a seeded dataset and compare
 - Timezone: a workout at 23:30 local buckets into the correct **local** day
 - DST boundary week aggregates correctly
-- Empty dataset renders without crashing — both the aggregate queries and the charts
+- Empty dataset renders without crashing: both the aggregate queries and the charts
   (`ISeries[]` with an empty `Values` array should render an empty chart, not throw)
 - 5,000-workout dataset: aggregate queries under 200 ms
 - `GetWorkoutSeriesAsync` on a fixture with a deliberate gap returns `null` at exactly

@@ -18,7 +18,7 @@ SQLite, accessed via `Microsoft.Data.Sqlite`. Migration-based, forward-only.
 only needed when data crosses devices.
 
 **Integer PKs must never be used for de-duplication across devices.** The same integer
-means different workouts on two phones — de-duplicating on it silently drops unrelated
+means different workouts on two phones. De-duplicating on it silently drops unrelated
 workouts. This is the single most likely cause of silent data loss in this project.
 
 ### Telemetry cadence: fixed 5 seconds
@@ -29,7 +29,7 @@ workouts. This is the single most likely cause of silent data loss in this proje
 | **5 s** | **720** | **~36 KB** | **~9 MB/yr** |
 | On-change | ~5–20 | ~1 KB | ~0.3 MB/yr |
 
-On-change is tempting because treadmill speed is a step function — but heart rate
+On-change is tempting because treadmill speed is a step function, but heart rate
 varies continuously, so on-change degenerates back to per-sample for HR while adding
 interpolation logic on the read side. Fixed cadence is simpler to write, simpler to
 chart, and 9 MB/year is irrelevant on a phone.
@@ -58,7 +58,7 @@ Statistics and personal records are computed from `Workout` and `WorkoutSample` 
 demand. They are not columns, not tables, and not exported in backups.
 
 If a query becomes slow at scale, add a cache table that is explicitly rebuildable and
-rebuild it after any import — but do not start there.
+rebuild it after any import, but do not start there.
 
 ---
 
@@ -118,11 +118,11 @@ CREATE TABLE WorkoutSample (
 removes the redundant rowid index.
 
 `Flags` bit 0 marks a **connection gap**. When the link drops mid-workout, write a gap
-marker rather than interpolating — charts must show a break, not a fabricated straight
+marker rather than interpolating. Charts must show a break, not a fabricated straight
 line.
 
 **`HeartRate` source (v2.1):** prefer `0x2A37` from the standard Heart Rate Service
-`180D` over the FTMS field — a dedicated characteristic is less likely to be mangled by
+`180D` over the FTMS field: a dedicated characteristic is less likely to be mangled by
 a vendor shim. Store `NULL` when the user is not gripping the sensors; do not carry the
 last value forward, or the average will be computed over fabricated data.
 
@@ -154,7 +154,7 @@ A restored device row will not auto-connect on a new phone: the MAC transfers bu
 bond does not. Tell the user they need to reconnect once.
 
 If the probe procedure (Part F2) finds the device uses a **random resolvable address**,
-the MAC is not stable and `UX_Device_MacAddress` is wrong — match on name instead.
+the MAC is not stable and `UX_Device_MacAddress` is wrong. Match on name instead.
 Resolve before implementing.
 
 ### `SchemaVersion`
@@ -234,7 +234,7 @@ GROUP BY LocalDay
 ORDER BY LocalDay;
 ```
 
-Every aggregate filters on `StartedAtUtc` — hence the index.
+Every aggregate filters on `StartedAtUtc`, hence the index.
 
 **Downsample sample series for display.** A 2-hour workout is 1,440 points; a 400 px
 chart needs perhaps 200. Downsample in SQL (`WHERE ElapsedSec % $n = 0`) rather than
@@ -262,6 +262,6 @@ Seed a synthetic 5,000-workout database in Phase 13 and measure. Do not assume.
 values are **not exported** and are reassigned on import.
 
 Exported: `Workout`, `WorkoutSample`, `Device`, plus settings from `Preferences`.
-Not exported: `SchemaVersion`, statistics, personal records — all derived or local.
+Not exported: `SchemaVersion`, statistics, personal records (all derived or local).
 
 See `15-Backup-Restore.md`.

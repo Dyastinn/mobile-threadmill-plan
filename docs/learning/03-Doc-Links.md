@@ -3,10 +3,10 @@
 > Verified URLs, checked before being added here (August 2026). Every phase README
 > that references an external doc pulls from this list rather than each phase
 > re-guessing a URL. If a phase needs a link that isn't here, verify it with a web
-> search before adding it — never guess a Microsoft Learn or GitHub path from
-> memory, the `?view=net-maui-N.0` version suffix changes and stale links 404.
+> search before adding it. Never guess a Microsoft Learn or GitHub path from
+> memory: the `?view=net-maui-N.0` version suffix changes and stale links 404.
 
-## .NET MAUI — fundamentals
+## .NET MAUI: fundamentals
 
 | Topic | URL |
 |---|---|
@@ -23,7 +23,7 @@
 | Shell pages | https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/shell/pages |
 | Shell flyout | https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/shell/flyout |
 
-## .NET MAUI — controls & UI
+## .NET MAUI: controls & UI
 
 | Topic | URL |
 |---|---|

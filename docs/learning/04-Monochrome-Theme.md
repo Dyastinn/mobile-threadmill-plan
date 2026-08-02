@@ -2,10 +2,10 @@
 
 > Implemented in [`src/MyHi.Companion/Resources/Styles/Colors.xaml`](../../src/MyHi.Companion/Resources/Styles/Colors.xaml)
 > and [`Styles.xaml`](../../src/MyHi.Companion/Resources/Styles/Styles.xaml). Already
-> built and building clean — you don't need to create this, only use it.
+> built and building clean. You don't need to create this, only use it.
 
 Every phase from here on that touches UI (XAML pages, styles, widgets) gets the
-**actual code** written for you — see `../phases/README.md`'s collaboration model. This
+**actual code** written for you, see `../phases/README.md`'s collaboration model. This
 doc is what that code is built on: one neutral gray ramp, no hue anywhere, used
 consistently through semantic tokens so no phase has to invent colors again.
 
@@ -15,13 +15,13 @@ Two decisions, both already made:
 
 1. **No hue.** No blue "primary" color, no red "error" color, no green "connected"
    dot. One gray ramp, walked from both ends depending on light/dark theme. This
-   isn't a placeholder — it's the actual theme. If a phase's UI seems to need a
+   isn't a placeholder. It's the actual theme. If a phase's UI seems to need a
    second color (e.g. "the Stop button should look dangerous"), it doesn't get one;
    it gets weight, an outline, an icon, or a size difference instead. See "Conveying
    state without color" below.
 2. **Soft, not stark.** The ramp never touches true black (`#000000`) or true white
    (`#FFFFFF`). The darkest token is `#212123`, the lightest is `#F2F2F3`. This was
-   a deliberate choice over a harsher near-black/near-white theme — easier on the
+   a deliberate choice over a harsher near-black/near-white theme, easier on the
    eyes for a screen you're glancing at mid-walk, less "OLED contrast" starkness.
 
 ## The gray ramp
@@ -42,11 +42,11 @@ uses the semantic names.
 
 ## Semantic tokens (what you actually bind to)
 
-Each of these is a *pair* — a `...Light` and `...Dark` color — combined via
+Each of these is a *pair*: a `...Light` and `...Dark` color, combined via
 `AppThemeBinding` inside `Styles.xaml`'s built-in styles for `Label`, `Button`,
 `Border`, `Page`, `Shell`, etc. Existing controls (`<Label>`, `<Button>`, `<Border>`,
 `<Entry>`, ...) already pick these up automatically with **no `Style=` attribute
-needed** — that's the point of putting them in `Styles.xaml` as implicit
+needed**. That's the point of putting them in `Styles.xaml` as implicit
 (un-keyed) styles.
 
 | Token pair | Used for | Light value | Dark value |
@@ -64,7 +64,7 @@ needed** — that's the point of putting them in `Styles.xaml` as implicit
 
 If a new phase needs a token that isn't here (e.g. a distinct "pressed" state), add
 it to `Colors.xaml` following the same `Color...Light` / `Color...Dark` naming and
-the same "one or two ramp steps off its neighbor" spacing — don't invent a one-off
+the same "one or two ramp steps off its neighbor" spacing. Don't invent a one-off
 hex value inline in a page.
 
 ## Reusable styles already defined (`Styles.xaml`)
@@ -73,16 +73,16 @@ Beyond the implicit per-control-type styles (every `Label`, `Button`, `Border`,
 etc. is already styled with no extra XAML), these **keyed** styles exist for
 recurring UI shapes across phases:
 
-- **`SecondaryButton`** (`Style="{StaticResource SecondaryButton}"`) — outline
+- **`SecondaryButton`** (`Style="{StaticResource SecondaryButton}"`): outline
   button for the non-default action next to a primary `Button` (e.g. "Cancel" next
   to "Confirm Stop").
-- **`Headline`** / **`SubHeadline`** — page-level titles.
-- **`Caption`** — small secondary text (timestamps, hints).
-- **`MetricValue`** — the large number on the dashboard (speed, distance, ...).
+- **`Headline`** / **`SubHeadline`**: page-level titles.
+- **`Caption`**: small secondary text (timestamps, hints).
+- **`MetricValue`**: the large number on the dashboard (speed, distance, ...).
   40pt bold, centered.
-- **`MetricLabel`** — the small unit caption under a `MetricValue` ("km/h", "kcal").
+- **`MetricLabel`**: the small unit caption under a `MetricValue` ("km/h", "kcal").
 
-Example — a single dashboard metric tile, using only existing styles and tokens,
+Example: a single dashboard metric tile, using only existing styles and tokens,
 no inline colors:
 
 ```xml
@@ -95,13 +95,13 @@ no inline colors:
 ```
 
 `Border`'s implicit style already gives it `ColorSurface*` background,
-`ColorBorder*` stroke, and rounded corners — nothing above is a color, they're all
+`ColorBorder*` stroke, and rounded corners. Nothing above is a color, they're all
 inherited.
 
 ## Conveying state without color
 
 The dashboard needs to show "connected" vs. "disconnected", "lit" vs. "unlit" on
-the contribution graph, "recording" vs. "idle" — all without a second hue. The
+the contribution graph, "recording" vs. "idle", all without a second hue. The
 pattern used throughout this project:
 
 | Instead of... | Use |
@@ -113,12 +113,12 @@ pattern used throughout this project:
 
 If a phase's design genuinely seems to need a color to be legible (contrast
 between two states is too subtle), the fix is to widen the ramp-step gap between
-the two tokens, or add an icon/weight difference — not to add a hue. Flag it at
+the two tokens, or add an icon/weight difference, not a hue. Flag it at
 the review checkpoint if this happens.
 
 ## Where this fits in a phase
 
 Every phase README from 02 onward has a "UI code" section for any task that
-produces XAML. That code is written using only the tokens and styles above —
+produces XAML. That code is written using only the tokens and styles above:
 you paste it in, adjust bindings to match your ViewModel's actual property names,
 and build. See `../phases/README.md` for the exact division of labour.

@@ -10,74 +10,64 @@ User preferences, persisted.
 
 ### Understanding what you're building (read this before the tasks)
 
-**The everyday problem.** Think about how you organize things at home: your house
-keys go on a hook by the door — cheap to reach, always exactly one set, you just
-overwrite "where they are" every time you come in. Your tax documents go in a
-labeled filing cabinet, because there are many of them, they accumulate over
-years, and sometimes you need to find one, replace one, or throw an old one out.
-You wouldn't build a filing cabinet to hold your house keys, and you wouldn't nail
-a single hook to the wall for eight years of receipts — the storage mechanism has
-to match what's actually being stored. This phase hits exactly that fork: six
-settings ("dark mode: on", "units: metric") are single values that only ever get
-overwritten in place — the hook by the door. Saved Devices, by contrast, is a
-growing list of Bluetooth devices, each with its own name, MAC address, last-seen
-time, and preferred flag, individually added, removed, and queried — the filing
-cabinet. That's why this phase stores the first group in MAUI `Preferences` (a
-flat, synchronous key/value store — Android `SharedPreferences` underneath) and
-leaves the second group exactly where Phase 06 already put it: the SQLite
-`Device` table.
+**Why two storage mechanisms.** Six settings ("dark mode: on", "units: metric") are
+single values that only ever get overwritten in place, not unlike a house key on a
+hook by the door. Saved Devices is a growing list of Bluetooth devices, each with its
+own name, MAC address, last-seen time, and preferred flag, individually added,
+removed, and queried; more of a filing cabinet than a hook. This phase stores the
+first group in MAUI `Preferences` (a flat, synchronous key/value store, Android
+`SharedPreferences` underneath) and leaves the second group exactly where Phase 06
+already put it: the SQLite `Device` table.
 
-**Why not put everything in one place.** The simplest-sounding rule would be
-"this app already has SQLite, so put every persisted thing there" — one
-mechanism, one thing to learn. Concretely, that means a `Settings` table, a
-schema migration every time a new toggle is added, and an async database round
-trip every time `SettingsViewModel` reads or writes a boolean the instant a
-`Switch` flips — real latency and real ceremony for data that's fundamentally
-just "hold six named values." The opposite naive rule — keep Saved Devices in
-`Preferences` too, as one JSON blob under a single key — is wrong in the other
-direction: adding one device means deserializing the whole blob, appending, and
-reserializing everything back; there's no way to update just one device's
-`LastSeenUtc` without touching every other device's data, and two writes racing
-(auto-reconnect updating `LastSeenUtc` while the settings page happens to be open)
-can silently clobber each other. SQLite exists specifically to make per-row
-updates and concurrent access safe; a hand-rolled JSON blob just reinvents a
-worse version of exactly that. Splitting the two isn't extra complexity for its
-own sake — each half is genuinely simpler than forcing the other mechanism onto
-it would be.
+**Why not put everything in one place.** The simplest-sounding rule would be "this
+app already has SQLite, so put every persisted thing there": one mechanism, one thing
+to learn. Concretely, that means a `Settings` table, a schema migration every time a
+new toggle is added, and an async database round trip every time `SettingsViewModel`
+reads or writes a boolean the instant a `Switch` flips. Real latency and real
+ceremony for data that's fundamentally just "hold six named values." The opposite
+naive rule, keeping Saved Devices in `Preferences` too as one JSON blob under a
+single key, is wrong in the other direction. Adding one device means deserializing
+the whole blob, appending, and reserializing everything back; there's no way to
+update just one device's `LastSeenUtc` without touching every other device's data,
+and two writes racing (auto-reconnect updating `LastSeenUtc` while the settings page
+happens to be open) can silently clobber each other. SQLite exists specifically to
+make per-row updates and concurrent access safe; a hand-rolled JSON blob just
+reinvents a worse version of exactly that. Splitting the two isn't extra complexity
+for its own sake. Each half is genuinely simpler than forcing the other mechanism
+onto it would be.
 
-**The pattern, named plainly.** `IPreferencesStore` (task 8.1) is the same
-**seam** you already built in Phase 01b for `ITreadmillService` — a small
-interface standing between logic (`AppSettingsService`) and a real platform API
-(`Preferences`) that `Core` isn't allowed to reference directly. The cost is the
-same kind, just smaller in this phase: one interface, one thin wrapper
-(`MauiPreferencesStore`), one fake (`FakePreferencesStore`) for tests — a handful
-of extra files for four method signatures. The payoff is the same shape too:
-`AppSettingsServiceTests` (task 8.4) can assert "an unrecognized theme string
-falls back to `System`, never throws" without an Android runtime anywhere in the
-loop. Worth noticing where this project *doesn't* draw the same line: it doesn't
-build a matching seam over SQLite for Saved Devices in this phase — the `Device`
-table already goes through a repository from Phase 06, its own seam, built when
-Phase 06 actually needed one. A seam earns its keep only where something on the
-other side of it genuinely needs to be swapped or faked for a test, not as a
-default habit applied to every dependency in the app.
+**The pattern, named plainly.** `IPreferencesStore` (task 8.1) is the same **seam**
+you already built in Phase 01b for `ITreadmillService`: a small interface standing
+between logic (`AppSettingsService`) and a real platform API (`Preferences`) that
+`Core` isn't allowed to reference directly. The cost is the same kind, just smaller
+in this phase: one interface, one thin wrapper (`MauiPreferencesStore`), one fake
+(`FakePreferencesStore`) for tests, a handful of extra files for four method
+signatures. The payoff is the same shape too: `AppSettingsServiceTests` (task 8.4)
+can assert "an unrecognized theme string falls back to `System`, never throws"
+without an Android runtime anywhere in the loop. Notice where this project *doesn't*
+draw the same line: it doesn't build a matching seam over SQLite for Saved Devices in
+this phase. The `Device` table already goes through a repository from Phase 06, its
+own seam, built when Phase 06 actually needed one. A seam earns its keep only where
+something on the other side of it genuinely needs to be swapped or faked for a test,
+not as a default habit applied to every dependency in the app.
 
 ## Learning goals
 
 - The **seam pattern again, one layer down**: `Preferences` (a MAUI/Android type) can't
-  be referenced from `MyHi.Companion.Core` — same rule you already hit with
+  be referenced from `MyHi.Companion.Core`, same rule you already hit with
   `MainThread.BeginInvokeOnMainThread` in Phase 01b. This phase draws the seam as a
   tiny `IPreferencesStore` interface, so the actual setting logic (defaults, enum
   parsing, "never throw on a corrupted value") lives in `Core` and gets a real xUnit
-  test against a fake store — the app project supplies the one class that's a thin
+  test against a fake store. The app project supplies the one class that's a thin
   wrapper over the real `Preferences` API.
-- Two-way data binding on `Switch.IsToggled` and `Picker.SelectedItem` — the same
+- Two-way data binding on `Switch.IsToggled` and `Picker.SelectedItem`: the same
   `{Binding X}` idea from `docs/learning/00-What-Is-Maui.md`, but now the value flows
   *back* from the control into the ViewModel, not just out to the screen.
-- `partial void On<Property>Changed(...)` — the `[ObservableProperty]`-generated hook
-  you already used once in `HomeViewModel.OnSelectedDestinationChanged`; here you'll
+- `partial void On<Property>Changed(...)`, the `[ObservableProperty]`-generated hook
+  you already used once in `HomeViewModel.OnSelectedDestinationChanged`. Here you'll
   use it on five properties in a row, each one writing straight through to storage the
-  instant the user flips a switch (no separate "Save" button — that's a deliberate
-  choice worth noticing, not an accident).
+  instant the user flips a switch (no separate "Save" button, a deliberate choice
+  worth noticing, not an accident).
 
 ## Storage decision
 
@@ -87,7 +77,7 @@ for six booleans.
 
 **Exception:** *Saved Devices* is a collection with a lifecycle and lives in SQLite
 (the `Device` table from `14-Database.md`, owned by the Phase 02/06 connection flow).
-It does **not** get a control on the Settings page built in this phase — there's
+It does **not** get a control on the Settings page built in this phase. There's
 nothing here to manage yet (no "forget this device" UI is in scope), so it's listed in
 the table below for completeness only.
 
@@ -104,39 +94,39 @@ the table below for completeness only.
 ## The one rule that matters
 
 **Store metric always; convert at display time only.** The `Units` setting built in
-this phase is only ever a *preference token* — Phase 08 has no dashboard or history
+this phase is only ever a *preference token*; Phase 08 has no dashboard or history
 screen to convert. Whichever future screen renders a distance reads
 `AppSettingsService.Units` and converts the number it displays; it never writes a
 converted value back to `Preferences` or to the database. An imperial toggle that
-writes converted values corrupts the dataset permanently and there is no way back —
-see `14-Database.md`'s "All measurements are metric" section.
+writes converted values corrupts the dataset permanently and there is no way back.
+See `14-Database.md`'s "All measurements are metric" section.
 
 ---
 
 ## Reference docs
 
-- **`Preferences`** — https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/storage/preferences —
-  read this before task 8.2; it's the API `MauiPreferencesStore` wraps. Note the
+- **`Preferences`**: https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/storage/preferences.
+  Read this before task 8.2; it's the API `MauiPreferencesStore` wraps. Note the
   platform mapping (Android `SharedPreferences`) and that values are typed per-call
   (`Get<T>`/`Set<T>` with a required default), which is exactly why `IPreferencesStore`
-  below only needs `bool`/`string` overloads — every setting in this phase reduces to
+  below only needs `bool`/`string` overloads: every setting in this phase reduces to
   one of those two.
-- **Dependency injection in .NET MAUI** — https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/dependency-injection —
-  same doc Phase 01b pointed at; task 8.5 registers three more things in
+- **Dependency injection in .NET MAUI**: https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/dependency-injection.
+  Same doc Phase 01b pointed at; task 8.5 registers three more things in
   `MauiProgram.cs` following the pattern already there.
-- **Data binding and MVVM** — https://learn.microsoft.com/en-us/dotnet/maui/xaml/fundamentals/mvvm —
-  read the two-way binding section before task 8.4; `Switch.IsToggled` and
+- **Data binding and MVVM**: https://learn.microsoft.com/en-us/dotnet/maui/xaml/fundamentals/mvvm.
+  Read the two-way binding section before task 8.4; `Switch.IsToggled` and
   `Picker.SelectedItem` both default to `TwoWay` on a bindable control, which is what
   makes flipping a switch on screen update the ViewModel property directly.
-- **MVVM source generators overview** (`[ObservableProperty]`) —
-  https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/generators/overview —
-  re-read the partial-method-hook section; task 8.3 uses `On<Property>Changed` five
+- **MVVM source generators overview** (`[ObservableProperty]`):
+  https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/generators/overview.
+  Re-read the partial-method-hook section; task 8.3 uses `On<Property>Changed` five
   times.
-- **Theming (`AppThemeBinding`, `Application.Current.UserAppTheme`)** —
-  https://learn.microsoft.com/en-us/dotnet/maui/user-interface/theming — only needed
+- **Theming (`AppThemeBinding`, `Application.Current.UserAppTheme`)**:
+  https://learn.microsoft.com/en-us/dotnet/maui/user-interface/theming. Only needed
   for the optional bonus in task 8.3 that actually flips the app's light/dark theme
   live; not required for this phase's acceptance criteria.
-- **`docs/learning/04-Monochrome-Theme.md`** — the token/style reference for task 8.4's
+- **`docs/learning/04-Monochrome-Theme.md`**: the token/style reference for task 8.4's
   XAML. Every color in that page comes from here; nothing is invented.
 
 ---
@@ -148,7 +138,7 @@ see `14-Database.md`'s "All measurements are metric" section.
 Creates: `src/MyHi.Companion.Core/Settings/IPreferencesStore.cs`.
 
 A tiny interface so the setting logic in 8.2 can be unit-tested without touching
-Android `SharedPreferences` — same reasoning as `ITreadmillService` in Phase 01b, just
+Android `SharedPreferences`, same reasoning as `ITreadmillService` in Phase 01b, just
 much smaller.
 
 ```csharp
@@ -163,7 +153,7 @@ public interface IPreferencesStore
 }
 ```
 
-This is small enough to type in directly rather than being handed a skeleton — there's
+This is small enough to type in directly rather than being handed a skeleton. There's
 no design decision left to make, it's four method signatures.
 
 ### 8.2 — `AppSettingsService` (the logic — you write this)
@@ -172,7 +162,7 @@ Creates: `src/MyHi.Companion.Core/Settings/AppSettingsService.cs` and
 `src/MyHi.Companion.Core/Settings/AppThemePreference.cs` +
 `MeasurementUnits.cs` (two small enums).
 
-**Naming note:** call the theme enum `AppThemePreference`, not `AppTheme` — MAUI
+**Naming note:** call the theme enum `AppThemePreference`, not `AppTheme`. MAUI
 already has `Microsoft.Maui.ApplicationModel.AppTheme` (`Unspecified`/`Light`/`Dark`),
 and a same-named type in `Core` would collide/confuse once both are `using`d in the
 same file (task 8.3 needs both).
@@ -189,7 +179,7 @@ namespace MyHi.Companion.Core.Settings;
 public enum MeasurementUnits { Metric, Imperial }
 ```
 
-The service itself — the shape, not the implementation:
+The service itself: the shape, not the implementation.
 
 ```csharp
 namespace MyHi.Companion.Core.Settings;
@@ -249,8 +239,8 @@ Concrete steps:
 Creates: `src/MyHi.Companion/Features/Settings/MauiPreferencesStore.cs`.
 
 This one *is* MAUI-flavoured, so it lives in the app project, not `Core`. It's mostly
-boilerplate — two of the four methods below to prove you've got the pattern, but no
-new decisions to make:
+boilerplate: two of the four methods below to prove you've got the pattern, but no
+new decisions to make.
 
 ```csharp
 using MyHi.Companion.Core.Settings;
@@ -269,7 +259,7 @@ public sealed class MauiPreferencesStore : IPreferencesStore
 }
 ```
 
-Also creates: `src/MyHi.Companion.Tests/Settings/FakePreferencesStore.cs` — an
+Also creates: `src/MyHi.Companion.Tests/Settings/FakePreferencesStore.cs`, an
 in-memory `IPreferencesStore` for the tests in 8.4, same idea as
 `FakeTreadmillService` from Phase 01b but much smaller:
 
@@ -293,25 +283,25 @@ public sealed class FakePreferencesStore : IPreferencesStore
 
 Creates: `src/MyHi.Companion.Tests/Settings/AppSettingsServiceTests.cs`.
 
-This is the phase's real automated coverage — the manual "change every setting,
+This is the phase's real automated coverage. The manual "change every setting,
 force-stop, relaunch" test below still matters, but it can't run in CI.
 
 Concrete steps:
-1. `[Fact]` — a fresh `AppSettingsService` over an empty `FakePreferencesStore` returns
+1. `[Fact]`: a fresh `AppSettingsService` over an empty `FakePreferencesStore` returns
    every documented default (`AutoReconnect == true`, `Theme == AppThemePreference.System`,
    `Units == MeasurementUnits.Metric`, etc.).
-2. `[Fact]` — setting `Units = MeasurementUnits.Imperial` then reading it back returns
-   `Imperial`; setting it back to `Metric` and reading again returns `Metric` — this is
+2. `[Fact]`: setting `Units = MeasurementUnits.Imperial` then reading it back returns
+   `Imperial`; setting it back to `Metric` and reading again returns `Metric`. This is
    the "round-trip through imperial and back" test from the table below, proved against
    the *setting itself* rather than against workout data (there isn't any in this
    phase).
-3. `[Fact]` — manually write an unrecognized string directly into the fake store under
+3. `[Fact]`: manually write an unrecognized string directly into the fake store under
    the theme key (`store.SetString("settings.theme", "Purple")`), then read
    `AppSettingsService.Theme` through a *new* instance and assert it comes back
    `AppThemePreference.System`, not an exception. This is what "fall back, never throw"
-   in task 8.2 is actually protecting against — a future version writing a value this
+   in task 8.2 is actually protecting against: a future version writing a value this
    one won't recognize.
-4. `dotnet test src/MyHi.Companion.Tests` — all green, including every prior phase's
+4. `dotnet test src/MyHi.Companion.Tests`: all green, including every prior phase's
    tests (regression).
 
 ### 8.5 — `SettingsViewModel` (the logic — you write this)
@@ -380,12 +370,12 @@ Concrete steps:
 1. Fill in the constructor's initialization `TODO`.
 2. Fill in the two remaining `[ObservableProperty]` groups.
 3. Fill in the four remaining `On<Property>Changed` partial methods.
-4. Decide whether to uncomment the live-theme bonus — either answer is fine, just make
+4. Decide whether to uncomment the live-theme bonus. Either answer is fine, just make
    it deliberate.
 
 ### 8.6 — UI: `SettingsPage.xaml` (agent-authored)
 
-Per the collaboration model in `../README.md`, this is UI — the full XAML is below,
+Per the collaboration model in `../README.md`, this is UI. The full XAML is below,
 ready to paste in. It uses only tokens/styles from
 `docs/learning/04-Monochrome-Theme.md`: implicit `Border`/`Label`/`Switch`/`Picker`
 styles from `Styles.xaml`, plus the keyed `SubHeadline` and `Caption` styles. No new
@@ -485,11 +475,11 @@ Creates: `src/MyHi.Companion/Features/Settings/SettingsPage.xaml` and
 </ContentPage>
 ```
 
-`NotNullConverter` is already registered in `App.xaml` (Phase 00) — no new converter
+`NotNullConverter` is already registered in `App.xaml` (Phase 00); no new converter
 needed.
 
-**`SettingsPage.xaml.cs`** — identical pattern to every other page in the project
-(`HomePage.xaml.cs`):
+**`SettingsPage.xaml.cs`**: identical pattern to every other page in the project
+(`HomePage.xaml.cs`).
 
 ```csharp
 namespace MyHi.Companion.Features.Settings;
@@ -517,7 +507,7 @@ Concrete steps:
    builder.Services.AddTransient<SettingsViewModel>();
    builder.Services.AddTransient<SettingsPage>();
    ```
-   `AppSettingsService` is a singleton — it holds no per-screen state, it's a thin
+   `AppSettingsService` is a singleton: it holds no per-screen state, it's a thin
    typed wrapper over `Preferences`, which is itself effectively global.
 2. Add the `using` directives (`MyHi.Companion.Core.Settings;`,
    `MyHi.Companion.Features.Settings;`) if they're not already present.
@@ -528,7 +518,7 @@ Concrete steps:
    ```csharp
    new NavDestination("Settings", "Preferences: connection, appearance, units, voice", "settings"),
    ```
-5. Build the app project and run it — `dotnet build src/MyHi.Companion/MyHi.Companion.csproj -f net10.0-android` —
+5. Build the app project and run it (`dotnet build src/MyHi.Companion/MyHi.Companion.csproj -f net10.0-android`),
    then launch on the emulator or device, open Settings, flip every toggle, and
    force-stop/relaunch to confirm persistence by eye before calling the phase done.
 
@@ -536,11 +526,11 @@ Concrete steps:
 
 ## Tests
 
-- `AppSettingsServiceTests` (task 8.4) — defaults, round-trip, corrupt-value fallback.
+- `AppSettingsServiceTests` (task 8.4): defaults, round-trip, corrupt-value fallback.
   Automated, runs in CI.
-- Change every setting, force-stop, relaunch — all persist. **`[HUMAN]`**, on-device.
+- Change every setting, force-stop, relaunch: all persist. **`[HUMAN]`**, on-device.
 - Units toggle round-trips through the setting (covered by 8.4's test 2) without
-  touching the database — there is no database write path from `SettingsViewModel`
+  touching the database. There is no database write path from `SettingsViewModel`
   at all in this phase, which is itself the proof.
 
 ## Acceptance

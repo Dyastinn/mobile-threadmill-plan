@@ -16,7 +16,7 @@ Produce an installable Android app that, on the operator's phone, can:
 2. Show every service and characteristic, and dump every readable one as raw hex.
 3. Subscribe to every notifying characteristic and log each packet as
    `timestamp | uuid | hex`.
-4. **Send arbitrary bytes to the control point `0x2AD9` and show the raw response** —
+4. **Send arbitrary bytes to the control point `0x2AD9` and show the raw response**,
    both via preset command buttons and via a free-text hex field.
 5. **Record what happened**: export the session as a file, and let the operator mark
    an observation as confirmed-correct with a note.
@@ -28,7 +28,7 @@ answered by experiment rather than by reading a spec and hoping the vendor follo
 
 The device is a **FitShow BLE module** presenting an FTMS shim over a transparent
 UART bridge (`../DEVICE.md`). Its own feature declaration `0x2ACC` is **provably
-false** — it claims incline target setting on a machine with no incline. A shim that
+false**: it claims incline target setting on a machine with no incline. A shim that
 lies about itself is not a thing to build three phases of product on top of.
 
 So the first deliverable is the instrument, and the instrument's output becomes the
@@ -40,11 +40,11 @@ specification.
 
 Read these. Do not read other phase folders.
 
-- `../../05-FTMS-Protocol.md` — §1 characteristics, §7 control point commands and
+- `../../05-FTMS-Protocol.md`: §1 characteristics, §7 control point commands and
   response format, §8 connection sequence. **§7 is the one this phase is built around.**
-- `../../05a-FTMS-Probe-Procedure.md` — the manual procedure. Screen 6 automates it.
-- `../../DEVICE.md` — what is already measured. Everything marked NEEDED is your target.
-- `../../00-Project-Plan.md` — stack table, permissions.
+- `../../05a-FTMS-Probe-Procedure.md`: the manual procedure. Screen 6 automates it.
+- `../../DEVICE.md`: what is already measured. Everything marked NEEDED is your target.
+- `../../00-Project-Plan.md`: stack table, permissions.
 
 ---
 
@@ -54,7 +54,7 @@ Read these. Do not read other phase folders.
 notification log, control-point console, capture export, guided probe checklist,
 SQLite factory + empty migration runner.
 
-**Out:** parsers (Phase 01 — this phase shows *hex*, it does not decode it),
+**Out:** parsers (Phase 01: this phase shows *hex*, it does not decode it),
 auto-reconnect (Phase 02), dashboard, workouts, persistence of workout data.
 
 > **The one decoding exception:** the control-point *response* is decoded, because an
@@ -93,14 +93,14 @@ Work `TASKS.md` in order. Summary:
    the `[HUMAN]` run.
 4. **`../../DEVICE.md` updated** with every field the run answered.
 5. **`../../ASSUMPTIONS.md` updated**: entries resolved, new ones added.
-6. **`PHASE-00-FINDINGS.md`** in this folder — the operator's filled-in results, and
+6. **`PHASE-00-FINDINGS.md`** in this folder: the operator's filled-in results, and
    the verdicts that decide later phases.
 
 ---
 
 ## Automated tests
 
-There is very little to unit-test here, and that is expected — this phase is I/O.
+There is very little to unit-test here, and that is expected. This phase is I/O.
 Test what is pure:
 
 - Hex string ↔ byte array round-trip, including odd-length and whitespace input.

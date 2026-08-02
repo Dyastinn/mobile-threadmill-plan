@@ -1,7 +1,7 @@
 # Device Facts
 
 > Measured facts only. Anything not measured belongs in `ASSUMPTIONS.md`, not here.
-> Fields marked **NEEDED** are still outstanding — see `05a-FTMS-Probe-Procedure.md`.
+> Fields marked **NEEDED** are still outstanding; see `05a-FTMS-Probe-Procedure.md`.
 
 Last updated: **2026-07-28** (first nRF Connect capture)
 
@@ -23,7 +23,7 @@ Last updated: **2026-07-28** (first nRF Connect capture)
   path is out of scope. Do not implement it.
 - **Xiaomi requires more than standard battery optimisation.** See the checklist below.
 
-### HyperOS background-execution checklist — `[HUMAN]`
+### HyperOS background-execution checklist (`[HUMAN]`)
 
 Standard Android battery optimisation is **not sufficient** on Xiaomi. These are
 separate controls and they are the ones that actually kill long-running services.
@@ -86,7 +86,7 @@ deviations; verify everything against hex.
 **Why the outstanding items matter:**
 
 - **Address type:** if random resolvable, the MAC is not stable between sessions and
-  `UX_Device_MacAddress` in the schema is wrong — match on name instead.
+  `UX_Device_MacAddress` in the schema is wrong. Match on name instead.
 - **`0x1826` advertised:** decides the Phase 1 scan filter. Fallback is the `FS-` name
   prefix, not unfiltered scanning.
 
@@ -103,7 +103,7 @@ deviations; verify everything against hex.
 | `FFF0` | Vendor (FitShow transparent serial) | No |
 | `1826` | **Fitness Machine** | **Yes — primary** |
 
-`FFE0`/`FFF0` are recorded for completeness. They are **not a fallback plan** — the
+`FFE0`/`FFF0` are recorded for completeness. They are **not a fallback plan.** The
 FitShow UART protocol is undocumented and prior public decoding attempts have not
 succeeded. If FTMS proves unusable, that is a project-level decision, not a workaround.
 
@@ -123,11 +123,11 @@ All six present.
 | `2ADA` | Machine Status | Notify |
 
 **Presence is not function.** `2AD9` exposing Write and Indicate says nothing about
-whether it honours commands. Unverified — see Probe Part D.
+whether it honours commands. Unverified; see Probe Part D.
 
 ---
 
-## Capabilities (`0x2ACC`) — ⚠️ UNRELIABLE
+## Capabilities (`0x2ACC`): ⚠️ UNRELIABLE
 
 ```
 Raw hex: NEEDED
@@ -159,7 +159,7 @@ flags; speed control derives from the live control point handshake. See plan Pha
 
 ---
 
-## Speed range (`0x2AD4`) — VERIFIED
+## Speed range (`0x2AD4`): VERIFIED
 
 ```
 Min: 1.0 km/h    Max: 16.0 km/h    Increment: 0.1 km/h
@@ -178,7 +178,7 @@ encouraging for shim quality. Whether it transitions during a session is unverif
 
 ---
 
-## Data stream (`0x2ACD`) — NOT YET CAPTURED
+## Data stream (`0x2ACD`): NOT YET CAPTURED
 
 ```
 Flags: NEEDED
@@ -189,7 +189,7 @@ Flags constant throughout a session? NEEDED
 Device ever splits records (More Data bit)? NEEDED
 ```
 
-### Matched console-vs-hex captures — NEEDED (minimum four)
+### Matched console-vs-hex captures: NEEDED (minimum four)
 
 | Console speed | Console distance | Console time | Raw hex |
 |---------------|------------------|--------------|---------|
@@ -203,7 +203,7 @@ decoder is correct.
 
 ---
 
-## Counter semantics — NEEDED — HIGHEST PRIORITY
+## Counter semantics: NEEDED, HIGHEST PRIORITY
 
 ```
 [ ] Per-session (counters reset between sessions)
@@ -221,7 +221,7 @@ belt. Do not guess.
 
 ---
 
-## Machine status events (`0x2ADA`) — NOT YET CAPTURED
+## Machine status events (`0x2ADA`): NOT YET CAPTURED
 
 | Console action | Op code emitted |
 |----------------|-----------------|
@@ -234,7 +234,7 @@ If nothing is emitted, machine state must be inferred from `0x2ACD` speed values
 
 ---
 
-## Control point (`0x2AD9`) — NOT YET TESTED — DECIDES WHETHER PHASE 6 EXISTS
+## Control point (`0x2AD9`): NOT YET TESTED (decides whether Phase 6 exists)
 
 | Test | Result |
 |------|--------|
@@ -248,12 +248,12 @@ If nothing is emitted, machine state must be inferred from `0x2ACD` speed values
 | Control after 5 min idle | NEEDED |
 | Control after reconnect, no re-request | NEEDED |
 
-The `Speed Target Setting` feature bit is set — but given the bitmask over-claims
+The `Speed Target Setting` feature bit is set, but given the bitmask over-claims
 elsewhere, that is weak evidence. Only the live handshake counts.
 
 ---
 
-## Heart rate — NOT YET TESTED
+## Heart rate: NOT YET TESTED
 
 Two sources available: `0x2A37` in `180D` (preferred) and the FTMS field in `0x2ACD`.
 
@@ -272,7 +272,7 @@ permanently pollute the average and maximum HR columns of every stored workout.
 
 ---
 
-## Resilience — NOT YET TESTED
+## Resilience: NOT YET TESTED
 
 | Test | Result |
 |------|--------|

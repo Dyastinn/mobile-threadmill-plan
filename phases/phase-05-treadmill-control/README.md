@@ -1,7 +1,7 @@
 # Phase 05 — Treadmill Control
 
 > **This phase may not exist.** Phase 00 verdict V2 decides. If the control point does
-> not honour commands, skip to Phase 06 — a read-only app is still worth shipping, and
+> not honour commands, skip to Phase 06. A read-only app is still worth shipping, and
 > "void" here is a finding, not a failure.
 
 **Hardware:** required · **Size:** M · **Blocked by:** Phase 04 · **Gated on:** V2
@@ -15,67 +15,63 @@ hand in the Phase 00 control console; this phase turns that into product UI.
 
 ### Understanding what you're building (read this before the tasks)
 
-**The everyday problem.** Imagine renting a car whose dashboard sticker says
-"cruise control included." Before relying on it at highway speed, you'd press the
-button once and *feel* it hold speed — a sticker on a rental car is evidence
-someone printed a sticker, not evidence the feature works. That's exactly the
-situation with `0x2ACC`'s "Speed Target Setting" bit: it's the treadmill's own
-self-description, and this device's self-description is already caught lying
-elsewhere (`ASSUMPTIONS.md` A3 — the same bitmask claims incline support on a
-machine with no incline). So this phase doesn't enable the speed controls because
-the label says so; it enables them only after actually performing the handshake —
-`Request Control` returning success, then a real `Set Target Speed` returning
-success — the equivalent of pressing the cruise control button once and feeling
-the car respond, not just reading the box. Separately, think about a shared
-kitchen with one "cut power to the stove" switch on the wall, distinct from the
-stove's own physical breaker. Pressing the wall switch is convenient and should be
-quick — but if it's the *only* thing standing between "the burner is on" and "the
-burner is off," you'd still want a half-second of "wait, yes, do it" before your
-hand hits it, not because the switch itself is dangerous to press, but because
-it's easy to bump and hard to instantly verify it worked. That's the Stop button
-here: task 5.3/5.4's confirmation dialog exists because a Bluetooth command over a
-radio link is a wall switch, not the breaker — the actual breaker is the
-treadmill's physical safety key, and the app is careful never to let its own UI
-imply otherwise (hence never labelling it "Emergency Stop").
+**The everyday problem.** `0x2ACC`'s "Speed Target Setting" bit is the treadmill's
+own self-description of what it supports, and this device's self-description is
+already caught lying elsewhere (`ASSUMPTIONS.md` A3: the same bitmask claims
+incline support on a machine with no incline). So this phase doesn't enable the
+speed controls because the bit says so. It enables them only after actually
+performing the handshake: `Request Control` returning success, then a real `Set
+Target Speed` returning success. Trust the behaviour, not the label.
+
+The Stop button follows the same instinct for a different reason. A Bluetooth
+command over a radio link is not the same thing as the physical safety key. Task
+5.3/5.4's confirmation dialog exists because that command is the only thing
+standing between "belt on" and "belt off" from the app's side, and a half-second
+"wait, yes, do it" before it fires is cheap insurance against a mis-tap. The
+actual breaker is the treadmill's physical safety key, and the app is careful
+never to let its own UI imply otherwise (hence never labelling it "Emergency
+Stop").
 
 **Why not simpler.** The naive, less-code version of gating is right there in the
 spec: read `0x2ACC` once after connecting, and if the Speed Target Setting bit is
-set, enable the controls — zero extra round trips, one field read. This project
-doesn't do that not out of general caution, but because Phase 00 already measured
-this exact bit lying about incline on this exact device — trusting it for speed
-control means trusting a source with a demonstrated failure on the very same
-message. The actual approach costs one real round trip (`Request Control`, then a
-live `Set Target Speed`) before any button is enabled, plus re-running that same
-check after every reconnect and after any `ControlPermissionLost` event —
-noticeably more code than "check a bit." What it buys: the alternative failure
-mode is a treadmill that shows working +/- buttons that silently do nothing when
-tapped, which is worse than not showing them at all. For the Stop confirmation,
-the naive alternative is equally obvious — no dialog, tap Stop, command goes out
-immediately, matching how the +/- buttons already work with no confirmation. The
-reason Stop specifically gets the extra step and increase/decrease don't: a wrong
-tap on "+1 speed" is trivially correctable with one tap on "-1 speed," but a stop
-command has no correctable undo — belt state, in a fitness-safety context, is
-exactly where `00-Project-Plan.md`'s safety section draws the line for a
-deliberate second step, and nowhere else in this phase.
+set, enable the controls. Zero extra round trips, one field read. This project
+doesn't do that out of general caution, but because Phase 00 already measured this
+exact bit lying about incline on this exact device. Trusting it for speed control
+means trusting a source with a demonstrated failure on the very same message. The
+actual approach costs one real round trip (`Request Control`, then a live `Set
+Target Speed`) before any button is enabled, plus re-running that same check after
+every reconnect and after any `ControlPermissionLost` event, noticeably more code
+than "check a bit." What it buys: the alternative failure mode is a treadmill that
+shows working +/- buttons that silently do nothing when tapped, which is worse
+than not showing them at all.
+
+For the Stop confirmation, the naive alternative is equally obvious: no dialog,
+tap Stop, command goes out immediately, matching how the +/- buttons already work
+with no confirmation. The reason Stop specifically gets the extra step and
+increase/decrease don't: a wrong tap on "+1 speed" is trivially correctable with
+one tap on "-1 speed," but a stop command has no correctable undo. Belt state, in
+a fitness-safety context, is exactly where `00-Project-Plan.md`'s safety section
+draws the line for a deliberate second step, and nowhere else in this phase.
 
 **The pattern, named plainly.** The gating decision is **testing behaviour
-instead of trusting a declared capability** — not a formal GoF pattern, but the
+instead of trusting a declared capability**: not a formal GoF pattern, but the
 same instinct behind "don't trust a client-declared capability, verify it,"
 applied to a BLE feature bitmask instead of, say, an HTTP header. Cost: an extra
 async round trip before any control appears usable, and it has to be re-run on
 every reconnect and permission loss, which is more state to track than a one-time
 flag read. Payoff, specific to this device: it directly prevents the failure Phase
-00 already proved exists — controls that look live but aren't. It would **not**
+00 already proved exists, controls that look live but aren't. It would **not**
 be worth it against a device whose self-reported capabilities had never been
 caught lying; re-verifying a capability bit you have no concrete reason to
-distrust is exactly the kind of defensive complexity Metz would cut. The Stop
-confirmation is a plain application of **friction as a deliberate safety cost**,
-not a named software design pattern — Uncle Bob's framing fits loosely ("confirm
-before an unrecoverable action" as a rule worth deliberately applying here, not
-followed blindly everywhere), but it's a UX/safety tradeoff more than a
+distrust is exactly the kind of defensive complexity Metz would cut.
+
+The Stop confirmation is a plain application of **friction as a deliberate safety
+cost**, not a named software design pattern. Uncle Bob's framing fits loosely
+("confirm before an unrecoverable action" as a rule worth deliberately applying
+here, not followed blindly everywhere), but it's a UX/safety tradeoff more than a
 structural one: it costs one extra tap and one extra round trip through
-`DisplayAlert` every single time, on purpose, because the payoff — never silently
-letting a mis-tap interrupt the belt — is worth that friction specifically for a
+`DisplayAlert` every single time, on purpose, because the payoff, never silently
+letting a mis-tap interrupt the belt, is worth that friction specifically for a
 command with no undo. The same reasoning does not extend to the +/- buttons, which
 stay frictionless because a wrong tap there costs nothing.
 
@@ -84,40 +80,40 @@ stay frictionless because a wrong tap there costs nothing.
 - **Debounce/coalesce as a reusable pattern.** Phase 04's grace timer was the first
   place this project used cancel-and-restart on a `CancellationTokenSource`; this
   phase's tap debounce (task 5.1) is the same shape applied to rapid button taps
-  instead of a connection drop — the point is to recognize it as one pattern, not
+  instead of a connection drop. The point is to recognize it as one pattern, not
   learn it twice.
 - **Gating UI on a live handshake, not a static feature bit.** `0x2ACC`'s Speed
-  Target Setting bit is set on this device and is still not trustworthy — see
+  Target Setting bit is set on this device and is still not trustworthy. See
   `../../ASSUMPTIONS.md` A3. This phase gates every control on the actual
   `Request Control` → `Set Target Speed` round trip instead.
-- **`BindableLayout`** for a small, non-virtualized, data-driven row of buttons —
+- **`BindableLayout`** for a small, non-virtualized, data-driven row of buttons,
   different from `CollectionView`, which Phase 03 used for a much larger,
   virtualized list. Knowing when each one is the right tool is the point.
 - **Confirmation-before-destructive-action UI**, and specifically why this project
-  uses friction instead of a color for it — there is no red in the monochrome theme,
+  uses friction instead of a color for it. There is no red in the monochrome theme,
   and even if there were, `00-Project-Plan.md`'s safety section treats "Stop" as
   needing a deliberate second step regardless of color.
-- **`IAsyncRelayCommand`** — what `[RelayCommand]` generates for an `async Task`
+- **`IAsyncRelayCommand`**: what `[RelayCommand]` generates for an `async Task`
   method, and why the Stop confirmation dialog calls `StopCommand.ExecuteAsync(null)`
   from code-behind instead of binding `Clicked` straight to the command.
 
 ## Reference docs
 
-- `../../05-FTMS-Protocol.md` §7 — commands, response format, result codes
-- `../phase-00-probe-app/PHASE-00-FINDINGS.md` V2 — the exact byte sequences that
+- `../../05-FTMS-Protocol.md` §7: commands, response format, result codes
+- `../phase-00-probe-app/PHASE-00-FINDINGS.md` V2: the exact byte sequences that
   worked, with the operator's notes on what physically happened
-- `docs/learning/04-Monochrome-Theme.md` — every token and style this phase's XAML
+- `docs/learning/04-Monochrome-Theme.md`: every token and style this phase's XAML
   uses; read "Conveying state without color" before task 5.4, it's the direct source
   of the Stop button's design
-- **`BindableLayout`** — [BindableLayout - .NET MAUI](https://learn.microsoft.com/en-us/dotnet/maui/user-interface/layouts/bindablelayout) —
-  read this before task 5.3; it's what drives the preset-speed button row
-- **Display pop-ups (`DisplayAlert`)** — [Display pop-ups - .NET MAUI](https://learn.microsoft.com/en-us/dotnet/maui/user-interface/pop-ups) —
+- **`BindableLayout`**: [BindableLayout - .NET MAUI](https://learn.microsoft.com/en-us/dotnet/maui/user-interface/layouts/bindablelayout).
+  Read this before task 5.3; it's what drives the preset-speed button row.
+- **Display pop-ups (`DisplayAlert`)**: [Display pop-ups - .NET MAUI](https://learn.microsoft.com/en-us/dotnet/maui/user-interface/pop-ups),
   the mechanism behind the Stop confirmation in task 5.4
-- **Commanding (`ICommand`)** — https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/data-binding/commanding
-- **MVVM source generators overview** (`[RelayCommand]`) — https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/generators/overview
-- **Compiled bindings (`x:DataType`)** — https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/data-binding/compiled-bindings
-- **`CancellationTokenSource`** — https://learn.microsoft.com/en-us/dotnet/api/system.threading.cancellationtokensource
-  — same class Phase 04's grace timer used; task 5.1's debounce reuses it
+- **Commanding (`ICommand`)**: https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/data-binding/commanding
+- **MVVM source generators overview** (`[RelayCommand]`): https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/generators/overview
+- **Compiled bindings (`x:DataType`)**: https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/data-binding/compiled-bindings
+- **`CancellationTokenSource`**: https://learn.microsoft.com/en-us/dotnet/api/system.threading.cancellationtokensource,
+  same class Phase 04's grace timer used; task 5.1's debounce reuses it
 
 ---
 
@@ -131,7 +127,7 @@ stay frictionless because a wrong tap there costs nothing.
 
 ## Availability is decided by behaviour, not by a feature bit
 
-The `Speed Target Setting` bit is set on this device — and the same bitmask claims
+The `Speed Target Setting` bit is set on this device, and the same bitmask claims
 incline support on a machine with no incline, so it carries little weight. Gate on the
 live handshake:
 
@@ -148,16 +144,16 @@ the user a plain explanation.
 
 Creates: `src/MyHi.Companion/Features/Treadmill/TreadmillControlViewModel.cs`.
 
-This is logic — the agent describes the shape below, you write the real method
+This is logic. The agent describes the shape below, you write the real method
 bodies, per the usual "you write it, the agent teaches" track from `../README.md`.
 
 Concrete steps:
 
 1. Create `src/MyHi.Companion/Features/Treadmill/`. This lives in the **app**
-   project, not `Core` — it's a ViewModel and depends on
+   project, not `Core`. It's a ViewModel and depends on
    `[ObservableProperty]`/`[RelayCommand]` MVVM plumbing, the same reasoning that put
    the real `TreadmillService` in the app project in Phase 01a rather than `Core`.
-2. Constructor takes `ITreadmillService` — same DI pattern as every other ViewModel
+2. Constructor takes `ITreadmillService`, same DI pattern as every other ViewModel
    in this project (see `ScanViewModel`, `ControlConsoleViewModel` from Phase 00 for
    examples already in the codebase).
 3. Write the class against the shape below. Keep the signatures as they are so the
@@ -272,9 +268,9 @@ Concrete steps:
 
 1. On `ConnectionState.Ready`: call `await _treadmill.RequestControlAsync()`.
 2. `CanControl = result.Success` (equivalently, `result.Code == FtmsResultCode.Success`).
-3. If it failed, set `StatusMessage` to a plain explanation — task 5.5 gives the full
+3. If it failed, set `StatusMessage` to a plain explanation. Task 5.5 gives the full
    result-code-to-message mapping; wire it in now or come back once that task is done.
-4. Re-run this same evaluation after a `ControlPermissionLost` `MachineEvent` — that's
+4. Re-run this same evaluation after a `ControlPermissionLost` `MachineEvent`. That's
    what `0x2ADA`'s `0xFF` op code means (`05-FTMS-Protocol.md` §5), and controls must
    stay disabled until `Request Control` succeeds again.
 
@@ -283,7 +279,7 @@ Concrete steps:
 ## Task 5.3 — Speed control XAML
 
 Creates: `src/MyHi.Companion/Features/Treadmill/TreadmillControlView.xaml` and
-`TreadmillControlView.xaml.cs`. This is UI — the full, working code, ready to paste
+`TreadmillControlView.xaml.cs`. This is UI: the full, working code, ready to paste
 in. Adjust bindings only if your ViewModel's property/command names in task 5.1
 ended up different.
 
@@ -381,11 +377,11 @@ Two things worth understanding, not just pasting:
   `CollectionView`. Six preset buttons don't need virtualization, and a `Button`
   nested inside a `CollectionView` `DataTemplate` is exactly the "gesture
   recognizers inside `CollectionView` items are unreliable on Android" trap noted in
-  `docs/learning/02-Glossary.md` — `BindableLayout` sidesteps it by not recycling
+  `docs/learning/02-Glossary.md`. `BindableLayout` sidesteps it by not recycling
   anything.
 - **`Source={x:Reference Root}, Path=BindingContext.SetPresetSpeedCommand`.** Inside
   the `DataTemplate`, the binding context is the `double` preset value itself (that's
-  what `CommandParameter="{Binding .}"` sends), not the ViewModel — so the command
+  what `CommandParameter="{Binding .}"` sends), not the ViewModel, so the command
   binding can't just say `{Binding SetPresetSpeedCommand}`. `x:Reference Root` reaches
   back up to the named root `ContentView`, whose own `BindingContext` is the
   ViewModel, to find the command.
@@ -401,7 +397,7 @@ Embed it in Phase 03's dashboard page: add
 `<treadmill:TreadmillControlView BindingContext="{Binding TreadmillControlViewModel}" />`
 to its layout if the dashboard ViewModel exposes one, or resolve
 `TreadmillControlViewModel` via DI in the dashboard page's own constructor and assign
-it directly — either is fine, pick whichever matches how Phase 03's page already
+it directly. Either is fine, pick whichever matches how Phase 03's page already
 takes its dependencies.
 
 Build the app project to confirm the XAML compiles:
@@ -414,7 +410,7 @@ dotnet build src/MyHi.Companion/MyHi.Companion.csproj -f net10.0-android
 
 ## Task 5.4 — Why the Stop confirmation, specifically
 
-This isn't decoration — `00-Project-Plan.md`'s safety section and
+This isn't decoration. `00-Project-Plan.md`'s safety section and
 `docs/learning/04-Monochrome-Theme.md`'s "Conveying state without color" table both
 call it out directly: **"Emergency Stop" was in an earlier draft and was rejected.** A
 Bluetooth command over an unreliable radio link is not an emergency stop; the physical
@@ -423,16 +419,16 @@ safety key on the treadmill is. Two consequences, both already in the code above
 - The button is labelled **"Stop"**, never "Emergency Stop" or anything implying it's
   the safety mechanism.
 - The confirmation dialog's message states the safety key exists and what it's for,
-  every time — not just once in a settings screen the user will forget.
+  every time, not just once in a settings screen the user will forget.
 
 The confirmation step itself is the answer to "how do you make Stop feel different
-from every other button without a red color to lean on" — this theme has no hue to
+from every other button without a red color to lean on." This theme has no hue to
 spend on danger, so the friction of a deliberate second tap carries that weight
 instead. That's the same reasoning that keeps `StartAsync` (Phase 05's counterpart,
 already gated in `ITreadmillService`'s doc comments) behind "a deliberate on-screen
 user action," never a notification action or restored state.
 
-Nothing further to implement here — task 5.3's `OnStopClicked` already is this
+Nothing further to implement here: task 5.3's `OnStopClicked` already is this
 requirement. This task exists so the reasoning isn't just implicit in code you pasted.
 
 ---
@@ -458,13 +454,13 @@ Concrete steps:
        _ => "Something went wrong."
    };
    ```
-   `Control Not Permitted` and `Invalid Parameter` genuinely need different messages
-   — one tells the user to wait, the other means a bug in your clamping logic sent a
+   `Control Not Permitted` and `Invalid Parameter` genuinely need different messages:
+   one tells the user to wait, the other means a bug in your clamping logic sent a
    value outside the device's range (log the actual value sent, per
    `05-FTMS-Protocol.md` §7's result table).
 2. On `ControlNotPermitted` specifically (result code `0x05`): re-issue
    `RequestControlAsync()` and retry the original command once before giving up and
-   showing the message — this is the "re-issue Request Control, then retry once"
+   showing the message. This is the "re-issue Request Control, then retry once"
    behaviour from the Implementation requirements below.
 
 ---
@@ -479,9 +475,9 @@ Concrete steps:
    before the control point confirms), compare each incoming `sample.SpeedKph`
    against what you expect a few seconds after a command was sent.
 2. If the machine's reported speed never approaches the target you set, revert
-   `TargetSpeedKph` to the last confirmed value and set `StatusMessage` accordingly
-   — don't leave the UI claiming a speed the belt never reached.
-3. This is a judgement call on exact timing/tolerance — discuss the approach at the
+   `TargetSpeedKph` to the last confirmed value and set `StatusMessage` accordingly.
+   Don't leave the UI claiming a speed the belt never reached.
+3. This is a judgement call on exact timing/tolerance. Discuss the approach at the
    review checkpoint rather than guessing a magic number alone.
 
 ---
@@ -489,21 +485,21 @@ Concrete steps:
 ## Implementation requirements
 
 - **Debounce and coalesce.** Rapid +/- taps produce **one** write of the final target,
-  not one per tap. ~300 ms debounce — task 5.1's `DebounceSend`.
-- Clamp to the `0x2AD4` range; round to the device increment — `SpeedRange.Clamp`
+  not one per tap. ~300 ms debounce, task 5.1's `DebounceSend`.
+- Clamp to the `0x2AD4` range; round to the device increment. `SpeedRange.Clamp`
   already exists in `ITreadmillService.cs` and has its own unit tests from Phase 01b.
 - **Serialise writes.** One outstanding command, wait for the indication (3 s timeout)
   before the next. This is `ITreadmillService`'s implementation's job (Phase 01a's
-  `TreadmillService`), not this ViewModel's — the ViewModel just calls
+  `TreadmillService`), not this ViewModel's. The ViewModel just calls
   `SetSpeedAsync`/`StopAsync` and trusts the service to serialise underneath.
-- Surface failures with the **actual result code meaning** — task 5.5.
-- `0x05 Control Not Permitted` → re-issue `Request Control`, then retry once — task 5.5.
-- `0xFF` on `0x2ADA` → disable controls, re-request control before re-enabling —
+- Surface failures with the **actual result code meaning**, task 5.5.
+- `0x05 Control Not Permitted` → re-issue `Request Control`, then retry once, task 5.5.
+- `0xFF` on `0x2ADA` → disable controls, re-request control before re-enabling,
   task 5.2.
-- **Re-issue `Request Control` after every reconnect** before enabling controls —
+- **Re-issue `Request Control` after every reconnect** before enabling controls,
   task 5.2's `OnConnectionStateChanged`.
 - Optimistic UI is fine, but **reconcile against the next `0x2ACD` notification** and
-  revert if the machine did not comply — task 5.6.
+  revert if the machine did not comply, task 5.6.
 - If V2 found control permission expires after idle, refresh it before a command
   rather than letting the first tap after a pause fail.
 
@@ -543,12 +539,12 @@ Automated tests, creates `src/MyHi.Companion.Tests/Treadmill/TreadmillControlVie
    succession, assert only one `SetSpeedAsync` call reached the fake (add a call
    counter to `FakeTreadmillService` if it doesn't already track this) and that the
    final `TargetSpeedKph` is correct.
-2. `SetPresetSpeedCommand` with a value outside the fake's `SpeedRange` — assert it
+2. `SetPresetSpeedCommand` with a value outside the fake's `SpeedRange`: assert it
    gets clamped, not sent as-is.
 3. `GeneratePresets` as a `[Theory]` against a couple of different `SpeedRange`
-   values (not just 1.0–16.0) — assert every generated preset is inside range and on
+   values (not just 1.0–16.0): assert every generated preset is inside range and on
    a valid increment.
-4. `DescribeResult` — one assertion per `FtmsResultCode` value, so a future added
+4. `DescribeResult`: one assertion per `FtmsResultCode` value, so a future added
    enum value fails the test instead of silently falling through to the default
    message.
 5. Run:
