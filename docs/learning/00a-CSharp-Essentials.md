@@ -6,8 +6,8 @@
 > constantly, explained once, so Phase 01b doesn't stop you cold on syntax instead
 > of the actual BLE/state-machine concepts it's trying to teach.
 >
-> Every example below is real code from this repo: `ITreadmillService.cs` (repo
-> root) and `TreadmillConnection.cs`
+> Every example below is real code from this repo: `ITreadmillService.cs`
+> (`phases/phase-01-protocol-decode/`) and `TreadmillConnection.cs`
 > (`src/MyHi.Companion/Features/Bluetooth/`). Open them side by side.
 >
 > Read this before [`00-What-Is-Maui.md`](00-What-Is-Maui.md), which assumes
@@ -221,9 +221,9 @@ at least one thing is listening."
 plain events instead of a fancier reactive-streams library
 (`IObservable<T>`/System.Reactive): three event streams doesn't justify the extra
 dependency and learning curve. Worth reading as a small example of the "does this
-complexity earn its keep" judgment this project tries to apply everywhere. See
-[`02-Technology-Stack.md`](../../02-Technology-Stack.md) for more of that same
-reasoning applied to bigger decisions.
+complexity earn its keep" judgment this project tries to apply everywhere. See the "Technology decisions" section in
+[`phases/phase-00-probe-app/README.md`](../../phases/phase-00-probe-app/README.md#technology-decisions)
+for more of that same reasoning applied to bigger decisions.
 
 ---
 

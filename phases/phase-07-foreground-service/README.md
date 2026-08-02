@@ -465,7 +465,7 @@ they are the ones that actually kill long-running services.
 
 **Verify all four before Phase 14.** If skipped, endurance tests fail for reasons
 unrelated to the code and the resulting debugging is wasted. Record their state in
-`../../DEVICE.md`.
+`../phase-00-probe-app/PHASE-00-FINDINGS.md`.
 
 The app should still **prompt and explain** rather than require them, but on this
 device they are effectively mandatory.
@@ -486,4 +486,4 @@ device they are effectively mandatory.
 ## Acceptance
 
 - [ ] One-hour locked workout, no disconnect, no sample gap over 5 s
-- [ ] All four HyperOS boxes ticked and recorded in `../../DEVICE.md`
+- [ ] All four HyperOS boxes ticked and recorded in `../phase-00-probe-app/PHASE-00-FINDINGS.md`

@@ -51,8 +51,8 @@ Connect, let discovery finish, **Dump All** on the Read Dump screen.
 - [ ] `0x2ACC` hex recorded
 - [ ] `0x2AD4` hex recorded
 - [ ] `0x2AD3` hex recorded (expect Training Status `Idle` = `0x01`)
-- [ ] `180A` strings recorded — firmware/model, for `DEVICE.md`
-- [ ] Full service + characteristic list matches what is already in `DEVICE.md`
+- [ ] `180A` strings recorded — firmware/model, for `PHASE-00-FINDINGS.md`
+- [ ] Full service + characteristic list matches what is already in `PHASE-00-FINDINGS.md`
 
 Tap **Confirm** on each row you have cross-checked against nRF Connect.
 
@@ -247,18 +247,19 @@ perfectly good outcome.**
 
 ## After the session
 
-1. Export the Probe Checklist → paste into `PHASE-00-FINDINGS.md`.
+1. Export the Probe Checklist → paste into `PHASE-00-FINDINGS.md`, **measured facts
+   only.** Anything still uncertain stays blank there, tagged with the phase it
+   blocks, rather than guessed.
 2. Share the capture JSONL files → commit them under `../../captures/`.
 3. Share the app log file.
-4. Fill in `../../DEVICE.md` with **measured facts only.** Anything still uncertain goes
-   in `../../ASSUMPTIONS.md` instead, with the phase it blocks.
-5. Hand back to the agent with: *"Update `05-FTMS-Protocol.md` with these measured
-   values, build parser fixtures from the captured hex, and list what is still
-   unresolved."*
+4. Hand back to the agent with: *"Update `../phase-01-protocol-decode/README.md`'s
+   FTMS protocol reference with these measured values, build parser fixtures from
+   the captured hex, and list what is still unresolved in
+   `PHASE-00-FINDINGS.md`."*
 
 ## Done when
 
-- [ ] Every question in `../../05-FTMS-Protocol.md` §10 has an answer
+- [ ] Every question below has an answer in `PHASE-00-FINDINGS.md`
 - [ ] Raw hex captured for `0x2ACC` and `0x2AD4`
 - [ ] Four or more matched console-vs-hex pairs at different speeds
 - [ ] **C7 counter semantics answered unambiguously**

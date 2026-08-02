@@ -108,7 +108,7 @@ pattern used throughout this project:
 |---|---|
 | Green dot = connected, red = disconnected | Filled circle (`Ellipse Fill="{StaticResource ColorTextPrimary...}"`) = connected; outline-only circle (`Fill="Transparent" Stroke="{StaticResource ColorBorder...}"`) = disconnected |
 | Colored badge for FTMS-supported fields | `FontAttributes="Bold"` + full opacity for present fields, the field simply absent (not shown) otherwise — see Phase 03/04's "hidden not `--`" rule |
-| Red "Stop" button | Same `Button` style as everything else, plus a **confirmation step** (per `00-Project-Plan.md`'s safety section) — the friction communicates weight, not the color |
+| Red "Stop" button | Same `Button` style as everything else, plus a **confirmation step** (see Phase 05's safety section, task 5.4) — the friction communicates weight, not the color |
 | Colored lit/unlit contribution cells | `ColorContributionLit*` (a darker/lighter gray step) vs. `ColorContributionUnlit*` — already distinct enough in a monochrome palette because it's 5 ramp steps apart |
 
 If a phase's design genuinely seems to need a color to be legible (contrast

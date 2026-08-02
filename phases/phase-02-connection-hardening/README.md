@@ -95,8 +95,9 @@ one-line utility method with no meaningful "known-working path" to protect.
 
 ## Reference docs
 
-- `../../05-FTMS-Protocol.md` §8 connection sequence
-- `../../00-Project-Plan.md`: GATT 133 mitigations
+- The connection sequence and app error code reference below
+- `../phase-00-probe-app/README.md`'s Traps section: GATT 133 mitigations, already
+  implemented in `TreadmillConnection`
 - `../phase-00-probe-app/PHASE-00-FINDINGS.md`: Part E resilience results, MAC and
   address type
 - **Preferences**: https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/storage/preferences.
@@ -113,17 +114,75 @@ one-line utility method with no meaningful "known-working path" to protect.
 
 ---
 
+## Connection sequence reference
+
+```mermaid
+flowchart TD
+    A[Scan for 0x1826] --> B[Device found]
+    B --> C[Connect GATT, autoConnect=false]
+    C --> D[Delay ~200ms]
+    D --> E[Discover services]
+    E --> F{0x1826 present?}
+    F -->|no| X[Fail: service missing]
+    F -->|yes| G[Read 0x2ACC features]
+    G --> H[Read 0x2AD4 speed range]
+    H --> I[Subscribe 0x2ACD notify]
+    I --> J[Subscribe 0x2ADA notify]
+    J --> K[Subscribe 0x2AD3 notify if present]
+    K --> L{0x2AD9 present?}
+    L -->|no| N[Ready, read-only]
+    L -->|yes| M[Subscribe 0x2AD9 indicate]
+    M --> O[Write Request Control 0x00]
+    O --> P{Result 0x01?}
+    P -->|yes| Q[Ready, control enabled]
+    P -->|no| N
+```
+
+**Order matters.** Read the feature and range characteristics *before* subscribing,
+so the UI is configured correctly by the time data starts arriving. Subscribe to the
+control point *before* writing to it.
+
+**MTU.** Default ATT MTU is 23 bytes, giving 20 bytes of payload. A fully-populated
+Treadmill Data record can exceed that, in which case the machine splits it across
+notifications using the More Data bit. Requesting a larger MTU (`requestMtu(517)`)
+after connecting usually avoids this and is worth doing, but the parser (Phase 01)
+**must still handle the split case correctly** rather than assuming it won't happen.
+Negotiated MTU and whether the device ever splits records is recorded in
+`../phase-00-probe-app/PHASE-00-FINDINGS.md`.
+
+## Application error codes
+
+App-level only. Distinct from the FTMS control point result codes in
+`../phase-05-treadmill-control/README.md`.
+
+| Code | Meaning | User-facing action |
+|------|---------|--------------------|
+| 1001 | Bluetooth disabled | Prompt to enable |
+| 1002 | Permission denied | Link to app settings |
+| 1003 | Device not found | Retry scan |
+| 1004 | Connection timeout | Retry |
+| 1005 | GATT error (incl. 133) | Retry with backoff |
+| 1006 | FTMS service missing | Device unsupported |
+| 1007 | Required characteristic missing | Device unsupported |
+| 1008 | Notification subscribe failed | Reconnect |
+| 1009 | Control point write failed | Retry once |
+| 1010 | Control not granted | Re-request control |
+| 1011 | Control response timeout | Retry once |
+| 1012 | Malformed packet | Log and drop; not user-facing |
+
+---
+
 ## Features
 
 - Connect / disconnect
 - **Remember last device** in `Preferences`, by MAC, **unless** Phase 00 found a
   random resolvable address, in which case match by name and fix
-  `UX_Device_MacAddress` in `../../14-Database.md`
+  `UX_Device_MacAddress` in `../phase-06-recording-schema/README.md`
 - Auto-reconnect with exponential backoff: 1 s, 2 s, 4 s, 8 s, 16 s, then 30 s steady.
   **Cancellable and capped**: do not retry forever with the screen off
 - Connection state surfaced to the UI
 - Production scan filter fixed to whichever of `0x1826` / `FS-` prefix Phase 00 proved
-  works. **Ship one, not both**, and document why in `../../DEVICE.md`
+  works. **Ship one, not both**, and document why in `../phase-00-probe-app/PHASE-00-FINDINGS.md`
 
 ## Step-by-step
 
@@ -133,10 +192,10 @@ full per the collaboration model.
 
 ### 2.1 — Remember the last device
 
-1. Open `../../DEVICE.md`'s "BLE identity" table and check the **Address type** row.
+1. Open `../phase-00-probe-app/PHASE-00-FINDINGS.md`'s "BLE identity" table and check the **Address type** row.
    If it says `public`, MAC is a stable key; use it as primary. If it says `random
    resolvable` (or is still `NEEDED` when you reach this task), match by advertised
-   name instead (`FS-9F4235`-style), per the note already in `../../14-Database.md`
+   name instead (`FS-9F4235`-style), per the note already in `../phase-06-recording-schema/README.md`
    next to `UX_Device_MacAddress`. Store both fields regardless, so you're not
    blocked either way.
 2. Create `src/MyHi.Companion/Features/Bluetooth/LastDevicePreferences.cs`, a small
@@ -314,7 +373,7 @@ mitigations still hold.
    `IDevice.Dispose()` is what actually closes the underlying `BluetoothGatt` on
    Android.
 2. If GATT 133 shows up during the resilience tests below despite all three, treat it
-   as empirical (per the Traps section). Record what changed it in `../../DEVICE.md`;
+   as empirical (per the Traps section). Record what changed it in `../phase-00-probe-app/PHASE-00-FINDINGS.md`;
    don't assume the first mitigation you try is *the* fix.
 
 ### 2.5 — Re-issue Request Control after reconnect
@@ -347,7 +406,7 @@ yet outside the Phase 00 diagnostics console. Write the mechanism now, prove it 
    Don't leave it at the diagnostics `Picker`'s default, and never use `Off` on this
    path. `ScanPage` keeps all three modes for debugging; this is the one place the
    choice is hardcoded for real use.
-3. Record the decision and its evidence in `../../DEVICE.md`'s "BLE identity" table
+3. Record the decision and its evidence in `../phase-00-probe-app/PHASE-00-FINDINGS.md`'s "BLE identity" table
    (the `0x1826 in advertisement?` row). A sentence is enough, e.g. "Confirmed
    present in the Phase 00 capture; production scan filters on 0x1826."
 
@@ -460,4 +519,4 @@ which is the most likely real failure.
 - [ ] Connects on 10 of 10 attempts
 - [ ] Recovers from all four disruption tests
 - [ ] Backoff is capped and cancellable
-- [ ] Scan filter choice documented in `../../DEVICE.md` with the evidence
+- [ ] Scan filter choice documented in `../phase-00-probe-app/PHASE-00-FINDINGS.md` with the evidence

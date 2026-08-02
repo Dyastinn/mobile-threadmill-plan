@@ -76,7 +76,7 @@ SQLite: synchronous access, no async ceremony in ViewModels, no database hit at 
 for six booleans.
 
 **Exception:** *Saved Devices* is a collection with a lifecycle and lives in SQLite
-(the `Device` table from `14-Database.md`, owned by the Phase 02/06 connection flow).
+(the `Device` table from `../phase-06-recording-schema/README.md`, owned by the Phase 02/06 connection flow).
 It does **not** get a control on the Settings page built in this phase. There's
 nothing here to manage yet (no "forget this device" UI is in scope), so it's listed in
 the table below for completeness only.
@@ -99,7 +99,7 @@ screen to convert. Whichever future screen renders a distance reads
 `AppSettingsService.Units` and converts the number it displays; it never writes a
 converted value back to `Preferences` or to the database. An imperial toggle that
 writes converted values corrupts the dataset permanently and there is no way back.
-See `14-Database.md`'s "All measurements are metric" section.
+See `../phase-06-recording-schema/README.md`'s "All measurements are metric" section.
 
 ---
 

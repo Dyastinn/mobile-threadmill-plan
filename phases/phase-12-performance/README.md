@@ -195,7 +195,7 @@ Concrete steps:
    fine, this dataset exists to stress *row counts*, not decoding correctness.
 3. Run it once, confirm `SELECT COUNT(*) FROM Workout` returns 5000 and
    `WorkoutSample` row counts look plausible (roughly cadence × duration per
-   workout, per the 5-second cadence from `14-Database.md`).
+   workout, per the 5-second cadence from `../phase-06-recording-schema/README.md`).
 4. Keep the generated `.db` file out of git (it's large and reproducible). Add it
    to `.gitignore` if it isn't covered already.
 

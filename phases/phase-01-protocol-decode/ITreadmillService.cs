@@ -202,7 +202,8 @@ public enum FtmsResultCode : byte
     NotSupported       = 0xF2
 }
 
-/// <summary>Application-level errors. See 05-FTMS-Protocol.md §9.</summary>
+/// <summary>Application-level errors. See phase-02-connection-hardening/README.md's
+/// "Application error codes" reference.</summary>
 public enum AppErrorCode
 {
     BluetoothDisabled       = 1001,

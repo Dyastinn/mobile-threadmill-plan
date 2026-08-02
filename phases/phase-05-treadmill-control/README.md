@@ -17,8 +17,9 @@ hand in the Phase 00 control console; this phase turns that into product UI.
 
 **The everyday problem.** `0x2ACC`'s "Speed Target Setting" bit is the treadmill's
 own self-description of what it supports, and this device's self-description is
-already caught lying elsewhere (`ASSUMPTIONS.md` A3: the same bitmask claims
-incline support on a machine with no incline). So this phase doesn't enable the
+already caught lying elsewhere (see `../phase-01-protocol-decode/README.md`'s
+"Capabilities" finding: the same bitmask claims incline support on a machine with
+no incline). So this phase doesn't enable the
 speed controls because the bit says so. It enables them only after actually
 performing the handshake: `Request Control` returning success, then a real `Set
 Target Speed` returning success. Trust the behaviour, not the label.
@@ -50,8 +51,9 @@ tap Stop, command goes out immediately, matching how the +/- buttons already wor
 with no confirmation. The reason Stop specifically gets the extra step and
 increase/decrease don't: a wrong tap on "+1 speed" is trivially correctable with
 one tap on "-1 speed," but a stop command has no correctable undo. Belt state, in
-a fitness-safety context, is exactly where `00-Project-Plan.md`'s safety section
-draws the line for a deliberate second step, and nowhere else in this phase.
+a fitness-safety context, is exactly where this project's safety principle (task
+5.4, below) draws the line for a deliberate second step, and nowhere else in this
+phase.
 
 **The pattern, named plainly.** The gating decision is **testing behaviour
 instead of trusting a declared capability**: not a formal GoF pattern, but the
@@ -84,22 +86,23 @@ stay frictionless because a wrong tap there costs nothing.
   learn it twice.
 - **Gating UI on a live handshake, not a static feature bit.** `0x2ACC`'s Speed
   Target Setting bit is set on this device and is still not trustworthy. See
-  `../../ASSUMPTIONS.md` A3. This phase gates every control on the actual
-  `Request Control` → `Set Target Speed` round trip instead.
+  `../phase-01-protocol-decode/README.md`'s "Capabilities" finding. This phase
+  gates every control on the actual `Request Control` → `Set Target Speed` round
+  trip instead.
 - **`BindableLayout`** for a small, non-virtualized, data-driven row of buttons,
   different from `CollectionView`, which Phase 03 used for a much larger,
   virtualized list. Knowing when each one is the right tool is the point.
 - **Confirmation-before-destructive-action UI**, and specifically why this project
   uses friction instead of a color for it. There is no red in the monochrome theme,
-  and even if there were, `00-Project-Plan.md`'s safety section treats "Stop" as
-  needing a deliberate second step regardless of color.
+  and even if there were, this project's safety principle (task 5.4) treats "Stop"
+  as needing a deliberate second step regardless of color.
 - **`IAsyncRelayCommand`**: what `[RelayCommand]` generates for an `async Task`
   method, and why the Stop confirmation dialog calls `StopCommand.ExecuteAsync(null)`
   from code-behind instead of binding `Clicked` straight to the command.
 
 ## Reference docs
 
-- `../../05-FTMS-Protocol.md` §7: commands, response format, result codes
+- The control point protocol reference below: commands, response format, result codes
 - `../phase-00-probe-app/PHASE-00-FINDINGS.md` V2: the exact byte sequences that
   worked, with the operator's notes on what physically happened
 - `docs/learning/04-Monochrome-Theme.md`: every token and style this phase's XAML
@@ -114,6 +117,73 @@ stay frictionless because a wrong tap there costs nothing.
 - **Compiled bindings (`x:DataType`)**: https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/data-binding/compiled-bindings
 - **`CancellationTokenSource`**: https://learn.microsoft.com/en-us/dotnet/api/system.threading.cancellationtokensource,
   same class Phase 04's grace timer used; task 5.1's debounce reuses it
+
+---
+
+## Control point protocol reference: `0x2AD9`
+
+The only writable FTMS characteristic. Governs speed control, start, and stop.
+*Confidence: high. Opcodes `0x00`, `0x01`, `0x02`, `0x07`, `0x08` and the `0x80`
+response format are well-established across FTMS implementations.*
+
+### Mandatory sequence: omitting any step is the usual cause of silent failure
+
+1. **Enable indications** on `0x2AD9` by writing `0x0002` to its CCCD descriptor
+   (`0x2902`). Some machines reject writes if indications aren't enabled.
+2. **Write `Request Control` (`0x00`)** and wait for a successful indication.
+3. Only then send any other command.
+4. **Re-issue `Request Control` after every reconnect** and after any `0xFF`
+   (control permission lost) status event from `0x2ADA`.
+
+### Write requirements
+
+- Use **Write With Response**, not write-without-response.
+- **Serialise commands.** One outstanding command at a time. Wait for the indication
+  (3-second timeout) before sending the next. Concurrent writes get dropped or error.
+- Debounce user input upstream so rapid +/- taps produce one write of the final
+  target, not one per tap.
+
+### Commands
+
+| Command | Bytes | Notes |
+|---------|-------|-------|
+| Request Control | `00` | Must succeed first |
+| Reset | `01` | |
+| Set Target Speed | `02 LL HH` | uint16 LE, 0.01 km/h |
+| Set Target Inclination | `03 LL HH` | sint16, 0.1 % — not applicable, this machine has no incline |
+| Start or Resume | `07` | |
+| Stop or Pause | `08 01` (stop) / `08 02` (pause) | **The parameter byte is mandatory** — `08` alone is malformed |
+
+Set Target Speed example: 6.5 km/h → 650 → `0x028A` → bytes `02 8A 02`.
+
+Other opcodes exist (`0x04` resistance, `0x05` power, `0x06` target heart rate,
+`0x09`–`0x0D` targeted energy/steps/strides/distance/time). None apply to this app.
+
+### Response format (arrives as an indication)
+
+```
+[0]     0x80  (Response Code — always)
+[1]     Request Op Code (the command being answered)
+[2]     Result Code
+[3..]   Response parameters (rare)
+```
+
+| Result | Meaning | App behaviour |
+|--------|---------|---------------|
+| `0x01` | Success | Proceed |
+| `0x02` | Op Code not supported | Disable that control permanently, log it |
+| `0x03` | Invalid Parameter | Bug in clamping — log with the sent value |
+| `0x04` | Operation Failed | Retry once, then surface to user |
+| `0x05` | Control Not Permitted | Re-issue Request Control, then retry once |
+
+These result codes are **machine-level and unrelated to the app-level
+`AppErrorCode` values** used elsewhere in this project (see
+`../phase-02-connection-hardening/README.md`). Do not merge the two numbering
+schemes.
+
+**Safety:** if `Start` works remotely, the app must not start the belt without an
+explicit, deliberate user action on screen. Never send `Start` (`07`) from a
+notification action, a restored state, or an auto-reconnect.
 
 ---
 
@@ -271,8 +341,9 @@ Concrete steps:
 3. If it failed, set `StatusMessage` to a plain explanation. Task 5.5 gives the full
    result-code-to-message mapping; wire it in now or come back once that task is done.
 4. Re-run this same evaluation after a `ControlPermissionLost` `MachineEvent`. That's
-   what `0x2ADA`'s `0xFF` op code means (`05-FTMS-Protocol.md` §5), and controls must
-   stay disabled until `Request Control` succeeds again.
+   what `0x2ADA`'s `0xFF` op code means (see the "Fitness Machine Status" section of
+   `../phase-01-protocol-decode/README.md`'s FTMS protocol reference), and controls
+   must stay disabled until `Request Control` succeeds again.
 
 ---
 
@@ -410,9 +481,9 @@ dotnet build src/MyHi.Companion/MyHi.Companion.csproj -f net10.0-android
 
 ## Task 5.4 — Why the Stop confirmation, specifically
 
-This isn't decoration. `00-Project-Plan.md`'s safety section and
-`docs/learning/04-Monochrome-Theme.md`'s "Conveying state without color" table both
-call it out directly: **"Emergency Stop" was in an earlier draft and was rejected.** A
+This isn't decoration. This is this project's standing safety principle, also
+called out in `docs/learning/04-Monochrome-Theme.md`'s "Conveying state without
+color" table: **"Emergency Stop" was in an earlier draft and was rejected.** A
 Bluetooth command over an unreliable radio link is not an emergency stop; the physical
 safety key on the treadmill is. Two consequences, both already in the code above:
 
@@ -456,8 +527,8 @@ Concrete steps:
    ```
    `Control Not Permitted` and `Invalid Parameter` genuinely need different messages:
    one tells the user to wait, the other means a bug in your clamping logic sent a
-   value outside the device's range (log the actual value sent, per
-   `05-FTMS-Protocol.md` §7's result table).
+   value outside the device's range (log the actual value sent, per the "Response
+   format" table in the control point reference above).
 2. On `ControlNotPermitted` specifically (result code `0x05`): re-issue
    `RequestControlAsync()` and retry the original command once before giving up and
    showing the message. This is the "re-issue Request Control, then retry once"

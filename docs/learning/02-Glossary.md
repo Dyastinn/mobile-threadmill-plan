@@ -77,7 +77,8 @@
 
 - **GATT** — Generic Attribute Profile, the data model BLE devices expose:
   services, each containing characteristics, each optionally having descriptors.
-- **Service / Characteristic / Descriptor**: see `05-FTMS-Protocol.md` §0 for the
+- **Service / Characteristic / Descriptor**: see "Reading this reference" in
+  `phases/phase-01-protocol-decode/README.md`'s FTMS protocol reference for the
   read/write/notify/indicate operations available on each.
 - **`IDevice` / `IService` / `ICharacteristic`**: Plugin.BLE's abstractions over a
   platform's native BLE APIs. `IDevice.NativeDevice` gets you the underlying

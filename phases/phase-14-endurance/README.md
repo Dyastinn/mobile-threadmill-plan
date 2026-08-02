@@ -14,7 +14,7 @@
 
 ## Before starting
 
-**All four HyperOS boxes below, checked and recorded in `../../DEVICE.md`.** These are
+**All four HyperOS boxes below, checked and recorded in `../phase-00-probe-app/PHASE-00-FINDINGS.md`.** These are
 Xiaomi-specific controls beyond stock Android battery optimization. Skipping any one
 of them means tests 1, 2, and 4–7 can fail for reasons that have nothing to do with
 your code, and the resulting debugging session is wasted time chasing a phantom bug.

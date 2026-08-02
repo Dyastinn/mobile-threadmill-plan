@@ -17,8 +17,9 @@ Aggregates and charts. LiveCharts2 (MIT).
 
 **Why aggregate in SQL, not a C# loop over a loaded table.** `Workout` rows live in
 a SQLite database that already has a purpose-built engine for "sum this column,
-grouped by that column" (`GROUP BY`/`SUM`/`COUNT`): the query `14-Database.md`
-already gives for daily totals, which `SqliteStatisticsProvider.GetAggregatesAsync`
+grouped by that column" (`GROUP BY`/`SUM`/`COUNT`): the query
+`../phase-06-recording-schema/README.md`'s "Query patterns" section already gives
+for daily totals, which `SqliteStatisticsProvider.GetAggregatesAsync`
 extends to weekly/monthly/yearly. The naive alternative pulls every row into a C#
 `List<Workout>` (`SELECT * FROM Workout`) and sums it with `.Sum()`/`.GroupBy()` in
 memory. That's more code to do the same job.
@@ -43,8 +44,9 @@ its complexity over the loop-in-C# alternative, with a real, quantified number
 behind it. Everywhere else in this phase it's simply the shorter, more idiomatic
 way to ask the question.
 
-**The pattern, named plainly.** `14-Database.md`'s rule that a cache table is
-allowed "if a query becomes slow" but "do not start there" is an application of
+**The pattern, named plainly.** `../phase-06-recording-schema/README.md`'s rule
+that a cache table is allowed "if a query becomes slow" but "do not start there"
+is an application of
 **YAGNI** (you aren't gonna need it yet): resist adding a structure to solve a
 problem you haven't actually measured. The cost of *not* pre-building a cache
 table is that every chart re-runs its aggregate query from scratch, with no
@@ -57,18 +59,7 @@ test (5,000 workouts, aggregate queries under 200ms) actually fails, not before.
 That's the concrete, stated condition, not "in case it's slow later."
 
 **One thing to hold loosely.** The charts in this phase render through LiveCharts2,
-and this specific choice isn't fully settled. Per `02-Technology-Stack.md`,
-LiveCharts2 has stayed in beta/RC for multiple years without reaching a stable
-1.0, with real 2026 community reports of maintenance concern. That's a legitimate
-risk, not pedantry, for a project one person maintains indefinitely. It's not a
-reason to avoid it *now*: Phase 10 is late enough in this plan that the choice has
-already had months to prove itself, and the chart-building code here stays isolated
-to `StatisticsViewModel`/`WorkoutDetailViewModel`, so a future swap wouldn't ripple
-into any other phase: to OxyPlot if the dual-axis speed/heart-rate overlay stays a
-requirement, or to Microcharts if the heart-rate curve gets cut per Phase 00's V3
-finding. Treat it as a dependency held under a specific, stated condition for
-revisiting, not one to assume is beyond question the way `Microsoft.Data.Sqlite`
-or MAUI Shell are.
+and this specific choice isn't fully settled — see the technology decision below.
 
 ## Features
 
@@ -88,7 +79,7 @@ data keeps being recorded, so they can be switched on later without a gap in his
   table that is *explicitly rebuildable* and rebuild it after any import, but do not
   start there.
 - **Aggregate in SQL**, not in C# over a full table read. Query patterns and the
-  local-day-via-stored-offset expression are in `../../14-Database.md`.
+  local-day-via-stored-offset expression are in `../phase-06-recording-schema/README.md`.
 - Index `Workout(StartedAtUtc)`. Every aggregate filters on it.
 - **Downsample sample series for display.** A 2-hour workout is 1,440 points; a 400 px
   chart needs perhaps 200. Downsample in SQL (`WHERE ElapsedSec % $n = 0`), not by
@@ -100,8 +91,9 @@ data keeps being recorded, so they can be switched on later without a gap in his
 ## Learning goals
 
 - SQL aggregation (`GROUP BY`, `SUM`, `COUNT`) against a real schema, instead of
-  pulling rows into C# and looping. This is the pattern `14-Database.md` already
-  documents for weekly totals; you'll extend it to daily/monthly/yearly and to
+  pulling rows into C# and looping. This is the pattern
+  `../phase-06-recording-schema/README.md` already documents for weekly totals;
+  you'll extend it to daily/monthly/yearly and to
   personal records.
 - Downsampling a large ordered series in SQL rather than in memory.
 - LiveCharts2's `CartesianChart`: `ISeries`, `Axis`, `SolidColorPaint`, and how a
@@ -111,9 +103,75 @@ data keeps being recorded, so they can be switched on later without a gap in his
   chart-layout work before the real SQL is reviewed, same shape as
   `ITreadmillService`/`FakeTreadmillService` (01b) and `IWorkoutHistoryProvider` (03).
 
+## Technology decision: LiveCharts2 — the one worth re-checking
+
+**What problem does it solve?** This phase needs two chart shapes: cross-workout
+trend lines (distance/duration/speed over time) and a per-workout speed+heart-rate
+curve over a single workout's samples, with visible gaps where the connection
+dropped (a `null` sample, not an interpolated line).
+
+**Why are we using it?** MIT-licensed, SkiaSharp-rendered, targets MAUI directly
+with native-feeling controls, and supports the dual-axis + gap-as-null rendering
+this phase's speed/heart-rate overlay needs, out of the box.
+
+**⚠ The open risk.** LiveCharts2 has been in beta/RC status for multiple years
+without reaching a stable 1.0 release, and 2026 community discussions show real
+maintenance-concern reports, including users who've moved to other libraries. For
+a project maintained by one person over years, "the library might never reach
+1.0, or might ship a breaking change with no real deprecation runway" is a
+legitimate risk, not pedantry.
+
+**Alternatives considered:**
+
+1. **Microcharts** (+ `Microcharts.Maui`) — SkiaSharp-based like LiveCharts2,
+   genuinely simple, easiest to learn of the three, but no built-in dual-Y-axis
+   support. The speed/heart-rate overlay would need a workaround (normalize both
+   to 0-1 and lose real axis labels, or split into two stacked charts). Worth
+   revisiting once Phase 00's V3 heart-rate finding is confirmed — if HR gets cut
+   from the dashboard entirely, Microcharts' single-axis simplicity stops being a
+   limitation and becomes the obviously simpler choice.
+2. **OxyPlot** (+ `oxyplot-maui`) — broadest .NET platform coverage of any free
+   chart library, MIT, **longer track record than LiveCharts2** (predates it by
+   years, without the "still not 1.0" issue), supports dual axes and gap
+   rendering. But its MAUI bindings are a thinner, less MAUI-native integration
+   than LiveCharts2's purpose-built MAUI controls — expect more manual styling to
+   match the monochrome theme. The safer swap if the dual-axis requirement stays.
+3. **Hand-rolled SkiaSharp canvas** — total control, no charting-library
+   dependency. The actual requirement here (a scrollable line, a few dozen to a
+   couple thousand downsampled points, no zoom/pan/legend interactivity needed)
+   is simple enough that this isn't as extreme as it sounds — `SkiaSharp` itself
+   is what all three library options render through anyway. Real code to write
+   and own (axis ticks, label layout, downsampling this phase already needs
+   regardless): realistically 200-400 lines. The fallback if maintenance risk
+   turns out to matter more than development speed.
+
+**Why not the alternatives (tentative — this is the one real open decision)**
+Microcharts is the strongest alternative *if* the heart-rate overlay gets cut.
+OxyPlot is the safer swap if dual-axis stays a requirement, at the cost of more
+manual styling work. Hand-rolled SkiaSharp wasn't the starting recommendation
+only because it's more total first-pass code — it's the fallback, not the
+default.
+
+**Long-term considerations.** Not a standard/stable technology by its own
+project's admission. Pre-1.0 for years is a real signal. **The one genuine
+mitigating factor:** chart configuration is isolated to this phase's
+`StatisticsViewModel`/`WorkoutDetailViewModel`, not spread through the app. A
+future swap wouldn't ripple into any other phase, which de-risks starting with
+LiveCharts2 now and revisiting later if it doesn't pan out. Recommendation: don't
+block on this today — this phase is late in the plan, which already bought
+months to watch LiveCharts2's trajectory — but re-run this comparison
+(specifically: has LiveCharts2 reached 1.0? have the 2026 maintenance concerns
+resolved or worsened?) before committing to it here, rather than assuming this
+record's original conclusion still holds by the time this phase actually starts.
+
+**Practical example:** This phase's cross-workout trend chart and per-workout
+speed/HR curve.
+
+---
+
 ## Reference docs
 
-- `../../14-Database.md`: schema, the local-day query pattern, the downsampling
+- `../phase-06-recording-schema/README.md`: schema, the local-day query pattern, the downsampling
   pattern, performance targets. Read this in full before task 10.1; almost everything
   below builds directly on it.
 - [LiveCharts2 documentation home](https://livecharts.dev/) and
@@ -169,7 +227,7 @@ Creates: `src/MyHi.Companion.Core/Statistics/IStatisticsProvider.cs`,
 `src/MyHi.Companion.Core/Statistics/AggregateBucket.cs`,
 `src/MyHi.Companion.Core/Statistics/SqliteStatisticsProvider.cs`.
 
-`14-Database.md`'s query pattern section already gives you the *daily* version of
+`../phase-06-recording-schema/README.md`'s query pattern section already gives you the *daily* version of
 this query, local-day-correct via the stored UTC offset:
 
 ```sql
@@ -283,7 +341,7 @@ multiple rows, they're a single row each.
 Concrete steps:
 
 1. Define `PersonalRecords` as a `record` holding, for each of the three records: the
-   value, the `WorkoutId` (the GUID, not the integer `Id`; see `14-Database.md`'s
+   value, the `WorkoutId` (the GUID, not the integer `Id`; see `../phase-06-recording-schema/README.md`'s
    dual-key section for why) it came from, and the date it happened, so the UI can
    link back to the workout.
 2. Skeleton for the method:
@@ -468,12 +526,12 @@ Concrete steps:
 **Downsampling and gap-flag handling are logic: you write those. Chart wiring is
 UI, written for you below.**
 
-Downsampling: `14-Database.md` gives the pattern `WHERE ElapsedSec % $n = 0`. `$n`
+Downsampling: `../phase-06-recording-schema/README.md` gives the pattern `WHERE ElapsedSec % $n = 0`. `$n`
 has to be derived from the workout's actual length and the target point count (e.g.
 `$n = ceil(totalPoints / maxPoints)`), not hardcoded. A 10-minute workout and a
 2-hour workout need very different `$n` to both land near `maxPoints`.
 
-Gaps: `WorkoutSample.Flags` bit 0 marks a connection-gap sample (`14-Database.md`).
+Gaps: `WorkoutSample.Flags` bit 0 marks a connection-gap sample (`../phase-06-recording-schema/README.md`).
 LiveCharts2 renders a **break** in a line series wherever its value array contains
 `null`, but only if the series' element type is nullable (`LineSeries<double?>`, not
 `LineSeries<double>`). The conversion from "a row with `Flags & 1 == 1`" to "a `null`

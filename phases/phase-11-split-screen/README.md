@@ -336,7 +336,7 @@ Concrete steps:
    connection indicator from task 11.2 (it should never flicker to disconnected), or
    log `StateChanged` events. Then check the recorded workout afterward for sample
    gaps that line up with a resize event (`WorkoutSample.Flags` bit 0, per
-   `14-Database.md`). None should be present if task 11.1's `configChanges` is doing
+   `../phase-06-recording-schema/README.md`). None should be present if task 11.1's `configChanges` is doing
    its job.
 4. If a disconnect or gap **does** show up correlated with a resize, the fix belongs
    in task 11.1 (a missing `configChanges` flag) or in Phase 07's foreground-service

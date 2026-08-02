@@ -134,7 +134,7 @@ correctness requirements that are easy to miss and annoying to discover later:
 1. Create `src/MyHi.Companion.Core/Backup/WorkoutCsvExporter.cs` (`Core` project, not
    the app project: this is pure data formatting with no MAUI dependency, same
    reasoning as why `FtmsCommands`/the protocol parsers live in `Core`, see Phase 01b).
-2. Decide the column set from the `Workout` table (`../../14-Database.md`). A
+2. Decide the column set from the `Workout` table (`../phase-06-recording-schema/README.md`). A
    reasonable summary row: `WorkoutId, StartedAtUtc, DurationSeconds, DistanceMeters,
    Calories, AvgSpeedKph, MaxSpeedKph, AvgHeartRate, MaxHeartRate, Notes`. **Never
    export the integer `Id`**, same rule as the ZIP backup in Phase 09: it means a

@@ -44,7 +44,8 @@ there, not blocking for this phase.
 ## Reference docs
 
 - `src/MyHi.Companion.Core/Treadmill/ITreadmillService.cs` (moved here in Phase 01b)
-- `../../05-FTMS-Protocol.md` §4 (fields), §4a (heart rate)
+- `../phase-01-protocol-decode/README.md`'s FTMS protocol reference: "Treadmill Data"
+  (fields) and "Heart Rate Service" sections
 - `../phase-00-probe-app/PHASE-00-FINDINGS.md`: notification rate, flags observed,
   V3 heart rate verdict
 - `docs/learning/02-Glossary.md`: add `GridItemsLayout` and anything else new here
@@ -57,6 +58,56 @@ there, not blocking for this phase.
 - **How to use `DateOnly`**: https://learn.microsoft.com/en-us/dotnet/standard/datetime/how-to-use-dateonly-timeonly.
   Task 3.5's `IWorkoutHistoryProvider` shape uses `DateOnly`, not `DateTimeOffset`,
   because a contribution-graph cell is a calendar day, not an instant
+
+---
+
+## Technology decision: `CommunityToolkit.Mvvm`
+
+**What problem does it solve?** MVVM requires two flavors of pure-boilerplate
+code repeated across every ViewModel: `INotifyPropertyChanged` wiring for every
+bindable property, and `ICommand` wrapper classes for every button/action. Both
+are mechanical and both have a real, silent bug mode (forget to raise
+`PropertyChanged` and the UI just... doesn't update, no exception, no warning).
+
+**Why are we using it?** It's Microsoft's own official MVVM library, generates
+the boilerplate at **compile time** via source generators (inspectable:
+go-to-definition on an `[ObservableProperty]` field takes you to real generated
+C#, not a black box), has zero runtime reflection cost, and is already the shape
+every Phase 00 screen uses (`ScanViewModel.cs` is a working example).
+
+**Alternatives considered:**
+
+1. **Hand-write `INotifyPropertyChanged` yourself** — zero dependency, full
+   transparency, but across a dozen-plus ViewModels over 15 phases, this is a lot
+   of repeated `SetProperty`/backing-field ceremony with a real copy-paste bug
+   surface. Worth it only for a tiny app with 1-2 ViewModels where the ceremony
+   never repeats enough to matter.
+2. **Fody.PropertyChanged** (IL-weaving) — even less visible code, but IL weaving
+   happens at build time with no generated source file to inspect, harder to
+   debug when something's wrong than a source generator's "go look at the
+   generated file."
+3. **ReactiveUI** — far more powerful, composable observables, `WhenAnyValue`,
+   but an entirely different mental model (Rx) on top of MVVM. This app's actual
+   complexity (a handful of properties reacting to BLE events on a timer)
+   doesn't need composable reactive chains.
+
+**Why not the alternatives?** Hand-writing rejected purely on
+repetition-across-a-dozen-ViewModels grounds — exactly the kind of mechanical,
+low-judgement code a source generator should own, so review effort goes to the
+logic that actually matters (BLE parsing, state machines), not
+`PropertyChanged` plumbing. Fody rejected because a project meant to be
+understood by one person over years benefits more from inspectable generated
+code than marginally less attribute noise. ReactiveUI rejected as solving a
+problem this app doesn't have, at a learning-curve cost it can't justify.
+
+**Long-term considerations.** Officially Microsoft-owned, ships alongside .NET's
+release cadence, about as "standard" as this ecosystem gets. Zero runtime cost
+(compile-time generation). Replacing it later means regenerating every
+ViewModel's boilerplate by hand or via Fody — moderate cost, low probability of
+ever needing to.
+
+**Practical example:** This phase's `DashboardViewModel`, and every Phase 00
+ViewModel already in the codebase.
 
 ---
 
@@ -465,7 +516,7 @@ wait, define the shape you need and fake it:
   synthetic daily counts (some days with 0, some with 1+) so the widget has something
   real to render and look right immediately.
 - **Real implementation** arrives in Phase 06, reading `Workout.StartedAtUtc` grouped
-  by local day (there's a query pattern for exactly this in `14-Database.md`). The
+  by local day (there's a query pattern for exactly this in `../phase-06-recording-schema/README.md`). The
   dashboard's UI code does not change when this swap happens, only a `MauiProgram.cs`
   registration does.
 
@@ -505,7 +556,7 @@ wait, define the shape you need and fake it:
    ```
    `DateOnly` rather than `DateTimeOffset` because a contribution-graph cell is a
    calendar day, not an instant — it matches the `LocalDay` computed column in
-   `14-Database.md`'s query pattern, which Phase 06's real implementation will read
+   `../phase-06-recording-schema/README.md`'s query pattern, which Phase 06's real implementation will read
    from. `record struct` mirrors `TreadmillSample`'s own choice (small, copied by
    value) — the hint the task list above already points at.
 3. `FakeWorkoutHistoryProvider.cs` — implements the interface, but "make it look

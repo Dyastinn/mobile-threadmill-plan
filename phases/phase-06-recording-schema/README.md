@@ -1,15 +1,15 @@
 # Phase 06 — Workout Recording & Schema
 
 **Hardware:** none for development · **Size:** M · **Blocked by:** Phase 04
-**Hard dependency:** V1 counter semantics (`../../ASSUMPTIONS.md` A1). **Do not start
-without it.**
+**Hard dependency:** V1 counter semantics
+(`../phase-00-probe-app/PHASE-00-FINDINGS.md`). **Do not start without it.**
 
 ---
 
 ## Goal
 
-Persist workouts and telemetry durably. Full schema in `../../14-Database.md`. Read it
-before writing a migration.
+Persist workouts and telemetry durably. Full schema in the "Schema reference"
+section below. Read it before writing a migration.
 
 **Phase 00 already built the plumbing this phase writes real data through.** Open all
 three of these now, before writing anything new:
@@ -123,6 +123,58 @@ instead of nothing at all.
 | SQLite Write-Ahead Logging (WAL) | https://www.sqlite.org/wal.html | Why the connection factory sets `journal_mode = WAL` — the UI reads for charts while the buffered writer flushes, and WAL is what keeps those from blocking each other |
 | `System.Threading.Timer` | https://learn.microsoft.com/en-us/dotnet/api/system.threading.timer | Task 6.5 — the periodic flush timer |
 
+## Technology decision: `Microsoft.Data.Sqlite`
+
+**What problem does it solve?** Workout history and per-workout telemetry need
+durable local storage. The telemetry table specifically writes in bursts
+(buffered ~30-60s, then one transaction, per this phase's schema) rather than one
+row at a time. That write pattern is the crux of this decision, not "which SQLite
+wrapper is nicest."
+
+**Why are we using it?** Explicit control over `SqliteTransaction`/`SqliteCommand`
+reuse matters for the buffered-flush pattern (720 samples/hour, batched), the
+developer is already ADO.NET-fluent, and it's maintained by the same Microsoft
+team that ships EF Core's SQLite provider, so its lifecycle tracks .NET's own,
+not a solo maintainer's spare time.
+
+**Alternatives considered:**
+
+1. **`sqlite-net-pcl`**, the one Microsoft's *own MAUI documentation* actually
+   recommends for MAUI apps. Attribute-mapped POCOs, minimal code for simple
+   CRUD, lowest boilerplate of any option here. But it's a thin reflection-based
+   ORM: bulk-insert/transaction control is less explicit than raw ADO.NET.
+   Looping `Insert()` through the ORM for a buffered batch of dozens of samples
+   is exactly the pattern that favors raw `SqliteCommand` reuse inside one
+   transaction instead. This is the closest real alternative and a genuine
+   judgement call, not an obvious win — everywhere in this app *except* the
+   sample-table writes, `sqlite-net-pcl` would arguably be simpler.
+2. **Raw `System.Data.SQLite`** (the older, non-Microsoft ADO.NET provider) — no
+   advantage over `Microsoft.Data.Sqlite` for a new project, not
+   Microsoft-maintained, documented mobile/MAUI packaging friction.
+3. **LiteDB** (embedded document/NoSQL store) — zero-schema, native C# object
+   serialization, no SQL to write. But this app's data is genuinely relational:
+   one workout has many samples, and this phase's indexed
+   `Workout(StartedAtUtc)` aggregate queries (Phase 10's daily/weekly/monthly
+   sums) are exactly where SQL's `GROUP BY` beats a document store.
+
+**Why not the alternatives?** `sqlite-net-pcl` loses specifically because of this
+phase's buffered-transaction write pattern (task 6.3), which is the one place raw
+transaction/command control earns its extra verbosity. Raw `System.Data.SQLite`
+rejected for having no upside and a live mobile-packaging issue. LiteDB rejected
+because the domain is relational and Phase 10's aggregates need SQL, not a
+document query language.
+
+**Long-term considerations.** Microsoft-maintained, tracks .NET's release
+cadence, lowest abandonment risk of the four. Swapping to `sqlite-net-pcl` later
+is moderate cost (repository classes rewritten, but the schema below stays valid
+either way, since it's plain SQLite under both). Lowest per-row overhead of the
+options, which matters at 720 rows/hour compounding over years. The cost paid is
+more typing per query (raw SQL vs. ORM), but that SQL is also directly runnable
+in any SQLite browser to inspect the `.db` file by hand, which this project needs
+anyway for debugging and the endurance-testing phase.
+
+---
+
 ## The two decisions that matter
 
 - **`Workout.Id`**: `INTEGER PRIMARY KEY AUTOINCREMENT`. Local, physical, used for all
@@ -139,6 +191,255 @@ instead of nothing at all.
 
 ---
 
+## Schema reference
+
+SQLite, accessed via `Microsoft.Data.Sqlite`. Migration-based, forward-only.
+
+### Design decisions
+
+**Dual keys on `Workout`.** `Id` (`INTEGER PRIMARY KEY AUTOINCREMENT`) is the
+local physical key, used for all foreign keys and joins. `WorkoutId` (`TEXT
+UNIQUE`, a GUID) is the portable business key, used only at backup/restore
+boundaries. `WorkoutSample` joins on the workout thousands of rows at a time;
+joining on a 36-character TEXT GUID instead of a rowid is measurably slower and
+larger. The GUID is only needed when data crosses devices. **Integer PKs must
+never be used for de-duplication across devices.** The same integer means
+different workouts on two phones. De-duplicating on it silently drops unrelated
+workouts — the single most likely cause of silent data loss in this project.
+
+**Telemetry cadence: fixed 5 seconds.**
+
+| Cadence | Rows / 1 h | Storage / workout | 250 workouts/yr |
+|---------|-----------|-------------------|-----------------|
+| 1 Hz | 3,600 | ~180 KB | ~45 MB/yr |
+| **5 s** | **720** | **~36 KB** | **~9 MB/yr** |
+| On-change | ~5–20 | ~1 KB | ~0.3 MB/yr |
+
+On-change is tempting because treadmill speed is a step function, but heart rate
+varies continuously, so on-change degenerates back to per-sample for HR while
+adding interpolation logic on the read side. Fixed cadence is simpler to write,
+simpler to chart, and 9 MB/year is irrelevant on a phone.
+
+Samples are the part you'll regret losing. A summary you could approximately
+reconstruct from memory; a speed curve you cannot.
+
+*This is a judgement call, not a settled fact — revisit if Phase 10's per-workout
+speed curves look too coarse in practice.*
+
+**All times are UTC.** `StartedAtUtc` and `EndedAtUtc` are UTC.
+`StartOffsetMinutes` stores the local UTC offset at the time of the workout.
+Local-time-without-offset shifts every daily and weekly bucket when a backup is
+restored in another timezone, or across a DST boundary. Store UTC + offset;
+compute the local day from both.
+
+**All measurements are metric.** Distance in metres, speed in km/h, energy in
+kcal. **Unit conversion happens at display time only and never touches the
+database.** An imperial toggle that writes converted values corrupts the dataset
+permanently.
+
+**Derived data is never stored.** Statistics and personal records (Phase 10) are
+computed from `Workout` and `WorkoutSample` on demand. They are not columns, not
+tables, and not exported in backups. If a query becomes slow at scale, add a
+cache table that is explicitly rebuildable and rebuild it after any import, but
+do not start there.
+
+### Schema
+
+**`Workout`**
+
+```sql
+CREATE TABLE Workout (
+    Id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    WorkoutId           TEXT    NOT NULL,           -- GUID, portable identity
+    StartedAtUtc        TEXT    NOT NULL,           -- ISO 8601, UTC
+    EndedAtUtc          TEXT    NULL,               -- NULL while in progress
+    StartOffsetMinutes  INTEGER NOT NULL,           -- local UTC offset at start
+    DurationSeconds     INTEGER NOT NULL DEFAULT 0, -- active time, excludes pauses
+    DistanceMeters      REAL    NOT NULL DEFAULT 0,
+    Calories            INTEGER NOT NULL DEFAULT 0,
+    AvgSpeedKph         REAL    NOT NULL DEFAULT 0,
+    MaxSpeedKph         REAL    NOT NULL DEFAULT 0,
+    AvgHeartRate        INTEGER NULL,
+    MaxHeartRate        INTEGER NULL,
+    Status              INTEGER NOT NULL,           -- 0=InProgress 1=Completed 2=Abandoned
+    DeviceId            INTEGER NULL REFERENCES Device(Id),
+    Notes               TEXT    NULL,
+    CreatedAtUtc        TEXT    NOT NULL,
+    UpdatedAtUtc        TEXT    NOT NULL
+);
+
+CREATE UNIQUE INDEX UX_Workout_WorkoutId ON Workout(WorkoutId);
+CREATE INDEX IX_Workout_StartedAtUtc     ON Workout(StartedAtUtc);
+CREATE INDEX IX_Workout_Status           ON Workout(Status) WHERE Status = 0;
+```
+
+`Status = 0` (in progress) is written at workout **start**, not at the end. A crash
+therefore leaves a recoverable partial workout rather than nothing. The partial index
+on `Status = 0` makes the startup recovery query trivial.
+
+`DurationSeconds` is **active** time. If the treadmill's elapsed-time counter includes
+paused time, the app must track active time itself.
+
+**`WorkoutSample`**
+
+```sql
+CREATE TABLE WorkoutSample (
+    WorkoutRowId  INTEGER NOT NULL REFERENCES Workout(Id) ON DELETE CASCADE,
+    ElapsedSec    INTEGER NOT NULL,
+    SpeedKph      REAL    NULL,
+    DistanceM     REAL    NULL,
+    Calories      INTEGER NULL,
+    HeartRate     INTEGER NULL,
+    Flags         INTEGER NOT NULL DEFAULT 0,  -- bit 0 = connection gap marker
+    PRIMARY KEY (WorkoutRowId, ElapsedSec)
+) WITHOUT ROWID;
+```
+
+`WITHOUT ROWID` suits this table: the composite PK is the natural access path and it
+removes the redundant rowid index.
+
+`Flags` bit 0 marks a **connection gap**. When the link drops mid-workout, write a gap
+marker rather than interpolating. Charts must show a break, not a fabricated straight
+line.
+
+**`HeartRate` source:** prefer `0x2A37` from the standard Heart Rate Service
+`180D` over the FTMS field: a dedicated characteristic is less likely to be
+mangled by a vendor shim (see `../phase-01-protocol-decode/README.md`'s FTMS
+protocol reference). Store `NULL` when the user is not gripping the sensors; do
+not carry the last value forward, or the average will be computed over
+fabricated data.
+
+If the probe finds handgrip readings unusable, keep writing the column but hide the
+metric in the UI. Recording a column you don't display is cheap and reversible;
+back-filling one you never recorded is not.
+
+`ON DELETE CASCADE` requires `PRAGMA foreign_keys = ON` on every connection.
+`Microsoft.Data.Sqlite` does not enable it by default.
+
+**`Device`**
+
+```sql
+CREATE TABLE Device (
+    Id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    DeviceUid     TEXT    NOT NULL,   -- GUID, portable identity for backup
+    MacAddress    TEXT    NOT NULL,
+    Name          TEXT    NOT NULL,
+    LastSeenUtc   TEXT    NULL,
+    IsPreferred   INTEGER NOT NULL DEFAULT 0,
+    CreatedAtUtc  TEXT    NOT NULL
+);
+
+CREATE UNIQUE INDEX UX_Device_DeviceUid  ON Device(DeviceUid);
+CREATE UNIQUE INDEX UX_Device_MacAddress ON Device(MacAddress);
+```
+
+A restored device row will not auto-connect on a new phone: the MAC transfers but the
+bond does not. Tell the user they need to reconnect once.
+
+If `../phase-00-probe-app/PHASE-00-FINDINGS.md` found the device uses a **random
+resolvable address**, the MAC is not stable and `UX_Device_MacAddress` is wrong.
+Match on name instead. Resolve before implementing.
+
+**`SchemaVersion`**
+
+```sql
+CREATE TABLE SchemaVersion (
+    Version    INTEGER NOT NULL PRIMARY KEY,
+    AppliedUtc TEXT    NOT NULL
+);
+```
+
+Forward-only migrations applied at startup inside a transaction. Never edit a shipped
+migration; add a new one.
+
+### Connection configuration
+
+```sql
+PRAGMA journal_mode = WAL;      -- concurrent read during sample writes
+PRAGMA foreign_keys = ON;       -- required for CASCADE
+PRAGMA synchronous = NORMAL;    -- safe with WAL, much faster writes
+PRAGMA busy_timeout = 5000;
+```
+
+WAL matters here: the foreground service (Phase 07) writes samples while the UI reads
+for charts (Phase 10).
+
+### Sample write strategy
+
+**Buffer in memory, flush every 30–60 seconds in a single transaction.**
+
+Do not insert per sample. 720 individual transactions per workout is needless battery
+and flash wear for no benefit. Worst-case crash loses under a minute of telemetry.
+
+Flush on: the timer, workout pause, workout finish, and `OnSleep`.
+
+```csharp
+using var tx = connection.BeginTransaction();
+using var cmd = connection.CreateCommand();
+cmd.CommandText = """
+    INSERT OR REPLACE INTO WorkoutSample
+        (WorkoutRowId, ElapsedSec, SpeedKph, DistanceM, Calories, HeartRate, Flags)
+    VALUES ($w, $e, $s, $d, $c, $h, $f)
+    """;
+// add parameters once, reassign values per row, ExecuteNonQuery per row
+tx.Commit();
+```
+
+Reusing one prepared command with reassigned parameters is significantly faster than
+building a command per row. `INSERT OR REPLACE` makes the flush idempotent, so a
+retried flush after a partial failure is safe.
+
+**Target: one hour of samples (720 rows) inserts in under 1 second.** If it doesn't,
+the parameter reuse is probably wrong.
+
+### Query patterns
+
+Aggregate in SQL, not in C# over a full table read.
+
+```sql
+-- Weekly totals, local-day correct via stored offset
+SELECT
+    date(datetime(StartedAtUtc, '+' || StartOffsetMinutes || ' minutes')) AS LocalDay,
+    COUNT(*)             AS Workouts,
+    SUM(DistanceMeters)  AS TotalMeters,
+    SUM(Calories)        AS TotalCalories,
+    SUM(DurationSeconds) AS TotalSeconds
+FROM Workout
+WHERE Status = 1
+  AND StartedAtUtc >= $fromUtc
+  AND StartedAtUtc <  $toUtc
+GROUP BY LocalDay
+ORDER BY LocalDay;
+```
+
+Every aggregate filters on `StartedAtUtc`, hence the index.
+
+**Downsample sample series for display.** A 2-hour workout is 1,440 points; a 400 px
+chart needs perhaps 200. Downsample in SQL (`WHERE ElapsedSec % $n = 0`) rather than
+loading everything and thinning it in C#. Phase 10 uses this pattern directly.
+
+### Performance targets
+
+| Operation | Target | Dataset |
+|-----------|--------|---------|
+| Sample flush (60 rows) | < 50 ms | any |
+| Full workout sample insert (720 rows) | < 1 s | any |
+| Workout list page (50 rows) | < 100 ms | 5,000 workouts |
+| Weekly aggregate | < 200 ms | 5,000 workouts |
+| Single workout chart load | < 200 ms | 2-hour workout |
+
+Seed a synthetic 5,000-workout database in Phase 12 and measure. Do not assume.
+
+### Backup mapping
+
+`WorkoutId` and `DeviceUid` are the identities used in backup files (Phase 09).
+Integer `Id` values are **not exported** and are reassigned on import.
+
+Exported: `Workout`, `WorkoutSample`, `Device`, plus settings from `Preferences`.
+Not exported: `SchemaVersion`, statistics, personal records (all derived or local).
+
+---
+
 ## Your tasks
 
 ### 6.1 — Write the real schema as migration 1
@@ -152,11 +453,11 @@ migration list instead of an empty one.
 Concrete steps:
 1. Create `src/MyHi.Companion.Core/Data/Migrations.cs`.
 2. Copy the `Workout`, `WorkoutSample`, and `Device` `CREATE TABLE` statements, and
-   their indexes, **verbatim** from `../../14-Database.md`'s "Schema" section into
-   one SQL string. That document is the source of truth for the schema; this
-   migration is only the mechanism that applies it. Do **not** include the
-   `SchemaVersion` table itself. `MigrationRunner` already creates that
-   unconditionally, before it even looks at which migrations are pending.
+   their indexes, **verbatim** from the "Schema" section above into one SQL
+   string. That section is the source of truth for the schema; this migration is
+   only the mechanism that applies it. Do **not** include the `SchemaVersion`
+   table itself. `MigrationRunner` already creates that unconditionally, before
+   it even looks at which migrations are pending.
 3. Wrap it as:
    ```csharp
    namespace MyHi.Companion.Core.Data;
@@ -220,8 +521,8 @@ public sealed class WorkoutRepository(SqliteConnectionFactory connectionFactory)
 {
     /// <summary>
     /// Writes the header row with Status = 0 (in progress) and returns the new
-    /// physical Id. Called at workout START, not at the end — see 14-Database.md's
-    /// note on why: a crash then leaves a recoverable partial workout, not nothing.
+    /// physical Id. Called at workout START, not at the end — see the "Schema" section
+    /// above's note on why: a crash then leaves a recoverable partial workout, not nothing.
     /// </summary>
     public long StartWorkout(DateTimeOffset startedAtUtc, int startOffsetMinutes, long? deviceId)
     {
@@ -266,7 +567,7 @@ Concrete steps:
 
 Creates: `src/MyHi.Companion.Core/Data/WorkoutSampleBuffer.cs`.
 
-`14-Database.md`'s "Sample write strategy" section already shows the SQL shape. Your
+The "Sample write strategy" section above already shows the SQL shape. Your
 job is to wrap it in a class a caller can `Add()` to constantly and `Flush()`
 occasionally, without the caller needing to know a transaction is involved.
 
@@ -308,8 +609,9 @@ public sealed class WorkoutSampleBuffer
         // TODO: add all seven parameters ONCE here (cmd.Parameters.Add("$w", ...),
         // etc.) with placeholder values, then inside the loop below only reassign
         // .Value on each — do not rebuild CommandText or call CreateCommand() per
-        // row, that's the mistake 14-Database.md warns is "significantly slower,"
-        // and almost always why the 720-row throughput target gets missed.
+        // row, that's the mistake the "Sample write strategy" section above warns is
+        // "significantly slower," and almost always why the 720-row throughput target
+        // gets missed.
 
         foreach (var sample in _pending)
         {
@@ -340,9 +642,9 @@ Concrete steps:
      and assert the row count is unchanged, not doubled. This is what
      `INSERT OR REPLACE` buys you, worth proving rather than trusting.
    - **Throughput test**: build 720 samples, flush, assert it completes in under
-     1 second, the acceptance bar from `14-Database.md` and the bottom of this file.
-     If it's slow, the most likely cause is rebuilding the command per row instead of
-     reusing it (see the TODO above).
+     1 second, the acceptance bar from the "Performance targets" section above and
+     the bottom of this file. If it's slow, the most likely cause is rebuilding the
+     command per row instead of reusing it (see the TODO above).
 
 ### 6.4 — Startup recovery
 
@@ -397,10 +699,11 @@ Concrete steps:
 
 ### 6.6 — Counter semantics: agree on the shape, not the logic (blocked)
 
-Per `../../ASSUMPTIONS.md` A1, this is still **open**. Do not write the real
-re-baselining logic until it resolves. Guessing wrong here makes every stored
-workout wrong, silently, forever. What you can do now is agree on the shape so that
-the moment A1 resolves, filling it in is mechanical rather than a redesign:
+Per `../phase-00-probe-app/PHASE-00-FINDINGS.md` V1, this is still **open**. Do not
+write the real re-baselining logic until it resolves. Guessing wrong here makes
+every stored workout wrong, silently, forever. What you can do now is agree on the
+shape so that the moment V1 resolves, filling it in is mechanical rather than a
+redesign:
 
 | V1 verdict | What the engine does |
 |------------|----------------------|
@@ -412,7 +715,7 @@ namespace MyHi.Companion.Core.Data;
 
 /// <summary>
 /// Placeholder shape only — do not fill in reset-detection logic until
-/// ASSUMPTIONS.md A1 (counter reset semantics) is resolved. If V1 turns out
+/// PHASE-00-FINDINGS.md V1 (counter reset semantics) is resolved. If V1 turns out
 /// per-session, most of this class disappears; if cumulative, the TODO becomes real.
 /// </summary>
 public sealed class CounterBaseline
@@ -422,12 +725,12 @@ public sealed class CounterBaseline
 
     public double? ToWorkoutDistance(double reportedDistanceMeters)
     {
-        // TODO once A1 resolves:
+        // TODO once V1 resolves:
         // - per-session: return reportedDistanceMeters unchanged, this class is unused
         // - cumulative: baseline = first reading; return reported - baseline;
         //   detect reportedDistanceMeters < lastReportedDistanceMeters (a reset) and
         //   re-baseline from that point
-        throw new NotImplementedException("Blocked on ASSUMPTIONS.md A1 — counter reset semantics.");
+        throw new NotImplementedException("Blocked on PHASE-00-FINDINGS.md V1 — counter reset semantics.");
     }
 }
 ```
@@ -439,7 +742,7 @@ the phase is blocked on V1 rather than merely informed by it.
 ### Review checkpoint
 
 Before this phase is marked done: the agent reviews `WorkoutRepository.cs` and
-`WorkoutSampleBuffer.cs` against `14-Database.md` line by line, every PRAGMA, every
+`WorkoutSampleBuffer.cs` against the "Schema reference" section above line by line, every PRAGMA, every
 index, every nullable-vs-`DBNull` edge case. Then run the throughput test together and
 actually look at the number, not just the pass/fail.
 
@@ -477,8 +780,9 @@ actually look at the number, not just the pass/fail.
 ## Counter semantics
 
 See task 6.6 above for the shape to build without guessing the logic. Once
-`../../ASSUMPTIONS.md` A1 resolves: per-session → record directly; cumulative → delta
-against a workout-start baseline, with mid-workout reset detection.
+`../phase-00-probe-app/PHASE-00-FINDINGS.md` V1 resolves: per-session → record
+directly; cumulative → delta against a workout-start baseline, with mid-workout
+reset detection.
 
 ---
 

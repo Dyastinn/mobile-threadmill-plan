@@ -57,16 +57,16 @@ produce a distinct, useful screen.
 **Creates:** `Features/Bluetooth/ScanPage.xaml(.cs)`, `ScanViewModel.cs`,
 `Features/Bluetooth/IBleScanner.cs` + implementation
 
-- `Plugin.BLE` (MIT). Rationale in `../../00-Project-Plan.md`; revisit only if a
-  reconnect or threading bug can't be reached through it.
+- `Plugin.BLE` (MIT). Rationale in `README.md`'s Technology decisions section;
+  revisit only if a reconnect or threading bug can't be reached through it.
 - Start/stop scan with a **30 s timeout** and a **debounced button**.
 - Device rows: name, MAC, RSSI, live-updating, **de-duplicated by MAC**.
 - Filter toggle with three positions: `0x1826` service UUID · `FS-` name prefix · off.
   Three positions rather than one, because **whether `0x1826` is advertised is itself
-  an open question** (`../../ASSUMPTIONS.md` A5) and this screen is what answers it.
+  an open question** (`PHASE-00-FINDINGS.md` V4) and this screen is what answers it.
   Ship the diagnostic with all three; the product later picks one.
-- Show the **raw advertisement bytes** for the selected device. This answers A5 and the
-  address-type question in one place.
+- Show the **raw advertisement bytes** for the selected device. This answers V4 and
+  the address-type question in one place.
 - Long-press a device → "record to capture" with its full advertisement.
 
 **Trap:** Android throttles to ~5 scan starts per 30 s window and then returns nothing
@@ -78,7 +78,7 @@ with **no error**. Debounce; never auto-restart in a tight loop.
 
 **Creates:** `Features/Bluetooth/TreadmillConnection.cs`, `Features/Diagnostics/GattTreePage.xaml(.cs)`
 
-Sequence (order matters, see `../../05-FTMS-Protocol.md` §8):
+Sequence (order matters, see `README.md`'s "Connection sequence" reference):
 
 1. Connect with `autoConnect: false`.
 2. Wait ~200 ms.
@@ -93,7 +93,7 @@ GATT tree screen shows every service → characteristic → properties
 - Marshal all callbacks to the UI thread once, at this boundary.
 - **No auto-reconnect in this phase.** Manual connect/disconnect only. Reconnect logic
   is Phase 02 and mixing them here makes failures unreadable.
-- **No bond handling.** Bonding is confirmed not required (`../../DEVICE.md`).
+- **No bond handling.** Bonding is confirmed not required (`PHASE-00-FINDINGS.md`).
 
 **Trap, GATT 133:** always `close()` the gatt object before reconnecting, not just
 `disconnect()`. Expect to see 133 regardless; log every GATT status code numerically.
@@ -113,7 +113,7 @@ GATT tree screen shows every service → characteristic → properties
 - Auto-write every dump into the capture file (task 0.8).
 
 Priority targets, because they are needed as Phase 01 test fixtures:
-`0x2ACC`, `0x2AD4`, `0x2AD3`, plus `180A` firmware/model strings for `DEVICE.md`.
+`0x2ACC`, `0x2AD4`, `0x2AD3`, plus `180A` firmware/model strings for `PHASE-00-FINDINGS.md`.
 
 **Do not decode any of it.** Hex only.
 
@@ -260,8 +260,8 @@ file. JSONL rather than JSON for exactly this reason.
 
 **Creates:** `Features/Diagnostics/ProbeChecklistPage.xaml(.cs)`, `ProbeChecklist.json`
 
-Turn `../../05a-FTMS-Probe-Procedure.md` Parts A–G into an in-app form so the operator
-is not holding a phone, a treadmill handrail, and a markdown file at the same time.
+Turn `HUMAN-RUNBOOK.md` Parts A–G into an in-app form so the operator is not holding
+a phone, a treadmill handrail, and a markdown file at the same time.
 
 - One step per screen, ordered, with the procedure's own text.
 - Each step's answer fields typed appropriately: yes/no, number, hex, free text.
@@ -269,7 +269,7 @@ is not holding a phone, a treadmill handrail, and a markdown file at the same ti
   such: negotiated MTU, notification rate, flags seen, raw hex for `0x2ACC` / `0x2AD4`,
   advertisement contents. The operator confirms rather than transcribes.
 - Progress persists across app restarts. The session will not be completed in one sitting.
-- **Export** → markdown matching the shape of `../../DEVICE.md`, ready to paste, plus
+- **Export** → markdown matching the shape of `PHASE-00-FINDINGS.md`, ready to paste, plus
   the raw answers as JSON into the capture folder.
 
 Highest-priority steps, flagged in the UI as blocking:
@@ -301,7 +301,8 @@ Highest-priority steps, flagged in the UI as blocking:
 
 Small and cheap now so Phase 06 only writes migrations, not plumbing.
 
-- `Microsoft.Data.Sqlite`. Rationale in `../../00-Project-Plan.md`.
+- `Microsoft.Data.Sqlite`. Rationale in
+  `../phase-06-recording-schema/README.md`'s Technology decision section.
 - Apply these PRAGMAs on **every** connection. `foreign_keys` in particular is off by
   default in `Microsoft.Data.Sqlite` and `ON DELETE CASCADE` silently does nothing
   without it:
@@ -311,8 +312,9 @@ Small and cheap now so Phase 06 only writes migrations, not plumbing.
   PRAGMA synchronous = NORMAL;
   PRAGMA busy_timeout = 5000;
   ```
-- `SchemaVersion` table per `../../14-Database.md`. Forward-only, applied at startup
-  inside a transaction. Empty migration set is correct for this phase.
+- `SchemaVersion` table per `../phase-06-recording-schema/README.md`. Forward-only,
+  applied at startup inside a transaction. Empty migration set is correct for this
+  phase.
 
 **Done when:** the database file exists after first launch and `SchemaVersion` is
 queryable.

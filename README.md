@@ -17,10 +17,9 @@ exactly how that works.
 **Starting fresh: no code in the repo yet.** An earlier build of Phase 00 (the
 probe/diagnostic app) ran on the real treadmill and its measurements are still
 good; see [`phases/phase-00-probe-app/PHASE-00-FINDINGS.md`](phases/phase-00-probe-app/PHASE-00-FINDINGS.md)
-and [`DEVICE.md`](DEVICE.md) for what's already known. The `src/` project
-itself is being rebuilt from scratch, following
-[`phases/phase-00-probe-app/`](phases/phase-00-probe-app/) (start with
-`TASKS.md`).
+for what's already known. The `src/` project itself is being rebuilt from
+scratch, following [`phases/phase-00-probe-app/`](phases/phase-00-probe-app/)
+(start with `TASKS.md`).
 
 ---
 
@@ -31,8 +30,9 @@ board presenting an FTMS shim (`0x1826`) over the top. The shim's own feature
 declaration is provably unreliable (it claims incline support on a machine with
 no incline), so this project verifies everything against captured hex rather
 than trusting the spec or the device's self-description. See
-[`05-FTMS-Protocol.md`](05-FTMS-Protocol.md) for the byte-level detail and
-[`ASSUMPTIONS.md`](ASSUMPTIONS.md) for what's still an open question.
+[`phases/phase-01-protocol-decode/README.md`](phases/phase-01-protocol-decode/README.md)
+for the byte-level detail and each phase's own README for what's still an open
+question in that phase's scope.
 
 ---
 
@@ -50,9 +50,14 @@ New to C#? Start at
 [`docs/learning/00a-CSharp-Essentials.md`](docs/learning/00a-CSharp-Essentials.md).
 Know C#, new to MAUI? Start at
 [`docs/learning/00-What-Is-Maui.md`](docs/learning/00-What-Is-Maui.md).
-Curious *why* each piece of this stack, specifically? See
-[`02-Technology-Stack.md`](02-Technology-Stack.md) — every dependency here has a
-full decision record (problem it solves, alternatives considered, why they lost).
+Curious *why* each piece of this stack, specifically? Every dependency has a full
+decision record (problem it solves, alternatives considered, why they lost) in the
+phase that introduced it: framework/BLE/navigation in
+[`phases/phase-00-probe-app/README.md`](phases/phase-00-probe-app/README.md#technology-decisions),
+MVVM in [`phases/phase-03-live-dashboard/README.md`](phases/phase-03-live-dashboard/README.md),
+SQLite in [`phases/phase-06-recording-schema/README.md`](phases/phase-06-recording-schema/README.md),
+file-saving in [`phases/phase-09-backup-minimal/README.md`](phases/phase-09-backup-minimal/README.md),
+charts in [`phases/phase-10-statistics/README.md`](phases/phase-10-statistics/README.md).
 
 ## Repository layout
 
@@ -66,16 +71,12 @@ src/
 └── MyHi.Companion.Tests/      xUnit tests against Core
 
 phases/                        one folder per phase — the work order for what
-                                gets built next, and why
+                                gets built next, and why, plus the byte-level
+                                protocol reference, database schema, and every
+                                technology decision record
 docs/learning/                 MAUI/.NET primer, emulator setup, glossary
 captures/                      raw BLE session logs (JSONL) from the probe app —
                                 the source of every parser test fixture
-
-00-Project-Plan.md             vision, stack decisions, non-goals, risk register
-05-FTMS-Protocol.md            byte-level FTMS spec for this specific device
-ASSUMPTIONS.md                 every open question, with the phase it blocks
-DEVICE.md                      measured facts only — never a guess
-ITreadmillService.cs           the seam most of the app builds against, not BLE directly
 ```
 
 ## Building and running
@@ -117,5 +118,11 @@ step and says so.
 
 ## Non-goals
 
-See [`00-Project-Plan.md`](00-Project-Plan.md) for the full list and the
-reasoning behind the stack and scope.
+Writing these down so they don't creep in: cloud sync, social features,
+multi-user, iOS, Strava/Garmin export, training plans, coaching. This is a
+personal, offline, single-device, single-treadmill app.
+
+## Risk register
+
+See [`phases/README.md`](phases/README.md#risk-register) for the standing list
+of what's most likely to go wrong and the mitigation in place for each.

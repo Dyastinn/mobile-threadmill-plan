@@ -106,9 +106,10 @@ complexity Metz would push back on.
 - `src/MyHi.Companion.Core/Treadmill/ITreadmillService.cs`: the events and types
   this phase consumes (`SampleReceived`, `MachineEventReceived`,
   `ConnectionStateChanged`, `MachineEventKind`, `TreadmillSample`)
-- `../../05-FTMS-Protocol.md` §5: `0x2ADA` op codes, which `MachineEventKind`
-  decodes them into
-- `../../14-Database.md`: the `WorkoutSample` table, specifically the `Flags` bit-0
+- `../phase-01-protocol-decode/README.md`'s FTMS protocol reference, "Fitness
+  Machine Status" section: `0x2ADA` op codes, which `MachineEventKind` decodes
+  them into
+- `../phase-06-recording-schema/README.md`: the `WorkoutSample` table, specifically the `Flags` bit-0
   gap marker this phase's output feeds (Phase 06 does the actual SQLite write) and
   the `DurationSeconds` "active time excludes pauses" rule
 - `../phase-00-probe-app/PHASE-00-FINDINGS.md` V1: counter semantics. **Read this
@@ -345,8 +346,8 @@ Fill in the counter-handling part of `OnSampleReceived`.
 Concrete steps:
 
 1. Open `../phase-00-probe-app/PHASE-00-FINDINGS.md` and read the V1 verdict. If it's
-   still blank, **stop here**. This phase has a hard dependency on it, same rule
-   `05-FTMS-Protocol.md` states everywhere: never invent a value for a `TBD`.
+   still blank, **stop here**. This phase has a hard dependency on it: never invent
+   a value for an unmeasured field.
 2. If **per-session**: `WorkoutSampleRecord.DistanceMeters` / `Calories` are just
    `sample.DistanceMeters` / `sample.Calories`, passed through unchanged.
 3. If **cumulative**: in `TryStart`, capture the current sample's raw distance and
@@ -377,7 +378,8 @@ Drive from `0x2ADA` events where Phase 00 proved the device emits them:
 | `ControlPermissionLost` | Disable controls, re-request control |
 
 If Phase 00 found the device emits nothing on `0x2ADA`, infer state from `0x2ACD`
-speed values instead. Workable but less precise. Record that in `../../ASSUMPTIONS.md`.
+speed values instead. Workable but less precise. Record that in
+`../phase-00-probe-app/PHASE-00-FINDINGS.md`'s "Still unresolved after this run" table.
 
 **Do not drive workout state from `0x2AD3` Training Status.** Many budget machines
 report a single value permanently.
@@ -398,8 +400,9 @@ Concrete steps:
    `// handled in Phase 05` comment at this exact spot so it reads as a deliberate
    boundary, not a gap.
 4. If Phase 00's findings show this device emits **nothing** on `0x2ADA` during a
-   session, add an entry to `../../ASSUMPTIONS.md` (with this phase's number, the
-   effort to resolve, and the fallback: infer `Active`/`Paused` from whether
+   session, add a row to `../phase-00-probe-app/PHASE-00-FINDINGS.md`'s "Still
+   unresolved after this run" table (with this phase's number, the effort to
+   resolve, and the fallback: infer `Active`/`Paused` from whether
    `sample.SpeedKph` is zero for several consecutive samples) rather than silently
    doing nothing.
 
@@ -416,7 +419,7 @@ Fold this into `OnSampleReceived` alongside task 4.3:
    concrete to set `WorkoutSample.Flags` bit 0 on.
 3. This is the whole of what this phase owes Phase 06: a stream of
    `WorkoutSampleRecord`s. Phase 06 owns buffering and the actual SQLite write
-   (`14-Database.md`'s "buffer, flush every 30–60 s" strategy). Don't build that
+   (`../phase-06-recording-schema/README.md`'s "buffer, flush every 30–60 s" strategy). Don't build that
    here.
 
 ---

@@ -114,7 +114,7 @@ responsibility drift apart.
 bumping the app version must not invalidate backups.
 
 Identities in the file are `WorkoutId` and `DeviceUid`. **Integer `Id` values are not
-exported** and are reassigned on import. See `14-Database.md`'s "Backup mapping"
+exported** and are reassigned on import. See `../phase-06-recording-schema/README.md`'s "Backup mapping"
 section, which this phase implements field-for-field (task 9.1 below mirrors its
 `Workout`/`WorkoutSample`/`Device` columns exactly).
 
@@ -134,6 +134,52 @@ section, which this phase implements field-for-field (task 9.1 below mirrors its
   Accept broadly and validate by reading the archive header, not the extension.
 - **Do not** hardcode `Documents/MyHi Companion/Backup/`. Since Android 10 scoped
   storage an app cannot freely create and write that path.
+
+---
+
+## Technology decision: `CommunityToolkit.Maui` (used narrowly, for `FileSaver`)
+
+**What problem does it solve?** MAUI's built-in APIs cover sharing a file to
+another app (`Share.RequestAsync`) but not "let the user pick a folder and save a
+file there directly." This phase's export wants the second option as an
+optional, secondary path alongside the share sheet.
+
+**Why are we using it?** It's the community-standard companion package for
+exactly this kind of MAUI gap, actively maintained, and this project's actual
+usage is narrow: just `FileSaver`, not the whole toolkit's grab-bag of
+behaviors/converters/popups.
+
+**Alternatives considered:**
+
+1. **`Share.Default.RequestAsync` only** (built into MAUI Essentials, no extra
+   package) — zero dependency, already this phase's primary export path, but
+   hands the file off to another app rather than a direct "save to a folder I
+   pick" flow. This is already the plan as the *primary* mechanism; the question
+   is only whether a secondary path is worth a dependency.
+2. **`CommunityToolkit.Maui`'s `FileSaver`** (the actual choice, as a secondary
+   button) — genuine "Save As" for users who want an on-device file, but has a
+   documented history of permission failures on API 33+ and unresolvable
+   `content://` paths from some cloud-picked destinations. A real,
+   already-acknowledged weakness, which is exactly why it's demoted to
+   secondary/optional above rather than the primary path.
+3. **Hand-rolled Android SAF intent** (`ACTION_CREATE_DOCUMENT` directly) — no
+   dependency, but doesn't remove the underlying Android storage-permission
+   mess. `FileSaver`'s bugs *are* Android SAF's quirks, not something the
+   package introduced; writing it yourself means owning that workaround code
+   personally for a secondary feature.
+
+**Why not the alternatives?** `Share`-only rejected as the *sole* mechanism
+because "save a file to a folder I choose" is a real, if secondary, backup use
+case. Hand-rolled SAF rejected because it wouldn't actually dodge the underlying
+platform mess — it would just mean maintaining that workaround personally, for a
+feature that's explicitly optional.
+
+**Long-term considerations.** Narrow usage (one call site) means low blast
+radius if the package were ever abandoned, cheap to replace later, unlike a
+project leaning on the toolkit's behaviors/converters/popups throughout.
+
+**Practical example:** This phase's backup page, "Save to device" secondary
+button next to the primary share-sheet export.
 
 ---
 
@@ -215,7 +261,7 @@ Creates: `src/MyHi.Companion.Core/Backup/BackupDtos.cs`.
 
 These are plain data records, not logic, same category as `NavDestination` or
 `TreadmillSample`, safe to write in full rather than from a skeleton. Every field maps
-1:1 to a column in `14-Database.md`, with the portable GUID identities swapped in for
+1:1 to a column in `../phase-06-recording-schema/README.md`, with the portable GUID identities swapped in for
 the integer `Id`/`WorkoutRowId`/`DeviceId` columns that never leave the phone:
 
 ```csharp
@@ -420,8 +466,9 @@ public sealed class BackupImporter(
         //        <WorkoutExportDto>(entryStream, cancellationToken: ct))
         //    — NOT DeserializeAsync<List<WorkoutExportDto>>, which buffers the whole
         //    array. INSERT each row with a prepared SqliteCommand (reassigning
-        //    parameters and calling ExecuteNonQuery per row — see 14-Database.md's
-        //    "Sample write strategy" for why one prepared command beats one command
+        //    parameters and calling ExecuteNonQuery per row — see
+        //    phase-06-recording-schema/README.md's "Sample write strategy" for why
+        //    one prepared command beats one command
         //    per row). Capture the new integer Id SQLite assigns via
         //    `cmd.ExecuteScalar()` on a trailing `SELECT last_insert_rowid();`, and
         //    build a Dictionary<string, long> from WorkoutId -> new Id for step 7.

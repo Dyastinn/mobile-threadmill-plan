@@ -91,8 +91,9 @@ No phase begins until the previous phase's acceptance criteria are met, with two
 exceptions:
 
 - **Phase 01b** (`ITreadmillService` skeleton + `FakeTreadmillService`) needs no
-  probe data at all: the interface already exists at `../ITreadmillService.cs`. It
-  is available to start immediately.
+  probe data at all: the interface already exists at
+  `phase-01-protocol-decode/ITreadmillService.cs`. It is available to start
+  immediately.
 - **Phase 01a** (the actual parsers) is still blocked: Probe Part C (four-plus
   matched console-vs-hex pairs) and C7 (counter reset semantics) haven't been done
   yet. See `phase-00-probe-app/HUMAN-RUNBOOK.md`.
@@ -140,21 +141,41 @@ Everything after that is unchanged in substance, only renumbered.
 
 ## Root reference docs
 
+Most technical reference content lives inside the phase that owns it, not at the
+repo root: the FTMS protocol spec splits across Phase 01 (parsing), Phase 02
+(connection sequence and error codes), and Phase 05 (control point); the database
+schema lives in Phase 06; each technology's decision record lives in the phase
+that introduced it (see the Stack table in `../README.md`); measured device facts
+and open assumptions live in `phase-00-probe-app/PHASE-00-FINDINGS.md`. What
+remains genuinely project-wide:
+
 | Doc | What it is |
 |-----|-----------|
-| `../00-Project-Plan.md` | Vision, stack, non-goals, risk register |
-| `../02-Technology-Stack.md` | Full decision record for every dependency — problem/why/alternatives/long-term. Flags `LiveCharts2`'s pre-1.0 status as an open risk before Phase 10 |
-| `../05-FTMS-Protocol.md` | Byte-level spec. Source of truth for every parser |
-| `../05a-FTMS-Probe-Procedure.md` | `[HUMAN]` procedure the Phase 00 app automates |
-| `../14-Database.md` | Schema, PRAGMAs, write strategy, query patterns |
-| `../ITreadmillService.cs` | The seam. Phases 03–11 build against this, not against BLE. Lives at the repo root until Phase 01b moves it into `src/MyHi.Companion.Core/Treadmill/` |
-| `../DEVICE.md` | Measured facts only. Never write a guess here |
-| `../ASSUMPTIONS.md` | Every guess, with the phase it blocks |
+| `phase-01-protocol-decode/ITreadmillService.cs` | The seam. Phases 03–11 build against this, not against BLE. Lives here until Phase 01b moves it into `src/MyHi.Companion.Core/Treadmill/` |
 | `../captures/` | Raw capture files produced by the Phase 00 app |
 | `../docs/learning/` | MAUI/.NET primer, emulator setup, glossary, doc links, monochrome theme guide — read these, not just this phase list |
 | `../docs/learning/00a-CSharp-Essentials.md` | Start here if C# itself (not just MAUI) is new — records, nullable types, async/await, events, LINQ, explained against real code from this repo |
 | `../docs/learning/03-Doc-Links.md` | Verified external documentation URLs, grouped by topic — every phase's "Reference docs" links come from here |
 | `../docs/learning/04-Monochrome-Theme.md` | The shared theme every phase's UI code is built on — already implemented in `src/MyHi.Companion/Resources/Styles/` |
+
+---
+
+## Risk register
+
+Two risks were re-rated upward after the first Phase 00 capture; carried forward
+from the original project plan, updated to current phase numbers and findings.
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| **FTMS shim is incomplete or deviates from spec** | **Medium-High** ↑ | Parsers and control need rework | Confirmed FitShow module, not a native implementation. Phase 00's hex capture reveals it before code depends on it. |
+| Control point doesn't actually honour commands | **Medium** ↑ | Phase 05 is void | Feature bit is untrustworthy; gate on live handshake (see Phase 05). Preliminary Phase 00 finding: it does honour commands, but `Start` may not preserve a pre-set target speed — see `phase-00-probe-app/PHASE-00-FINDINGS.md` V2. Read-only app is still worth shipping if it turns out void. |
+| Counters are cumulative, not per-session | Medium | Phase 06 logic changes | Probe Part C7 — **still unanswered, highest-priority unknown**. See `phase-00-probe-app/PHASE-00-FINDINGS.md` V1. |
+| **HyperOS kills the foreground service** | **Medium-High** ↑ | Long workouts unreliable | Xiaomi-specific checklist in Phase 07; verify all four boxes before Phase 14 |
+| GATT 133 on reconnect | High | Flaky connections | Phase 00/02 mitigations; empirical. RSSI −49 dBm means any disconnect is software, not radio. |
+| Handgrip heart rate is unusable in practice | Medium | HR features cut | Decided via Probe Part G — see `phase-00-probe-app/PHASE-00-FINDINGS.md` V3; cutting it is an acceptable outcome |
+| Notification rate much higher than 1 Hz | Low | UI jank | Phase 03 throttling already specified |
+| MAUI Android BLE background reliability | Medium | Core use case | Phase 07 early, Phase 14 validates |
+| Device uses a random resolvable BLE address | Low | Device persistence by MAC breaks | Probe Part F2; match on name if so |
 
 ---
 
@@ -165,6 +186,6 @@ Everything after that is unchanged in substance, only renumbered.
 - Metric in the database, always. Convert at display time only.
 - All timestamps UTC plus a stored local offset.
 - Never gate a feature on `0x2ACC`: it is proven to over-claim. Gate on observed
-  behaviour. See `../05-FTMS-Protocol.md` §2.
+  behaviour. See `phase-01-protocol-decode/README.md`'s `0x2ACC` section.
 - Never call a Bluetooth stop command an emergency stop. The safety key is the
   emergency stop.
