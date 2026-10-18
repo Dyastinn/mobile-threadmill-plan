@@ -1,16 +1,22 @@
 # Phase 00 — `[HUMAN]` runbook
 
-> For the operator, with the app installed. **Budget 60–75 minutes.**
-> Do it properly once rather than three times badly.
+> For the operator, with the app installed. **Budget 60–75 minutes for Parts A–G**,
+> plus a second session of about 90 minutes for Part H (the screen-off test, which
+> includes a one-hour walk). Do it properly once rather than three times badly.
 >
 > The implementing agent has no Bluetooth radio and no treadmill. Everything below is
-> unknowable to it until you run this and paste the results back.
+> unknowable to it until you run this and paste the results back. With the phone on
+> wireless adb it *can* watch `adb logcat` and pull capture files while you walk.
 
 ---
 
 ## Before you start
 
-- [ ] App sideloaded and launching
+- [ ] Development build installed and launching (`npx expo run:android --device`),
+      **or** the release APK, for Part H
+- [ ] For Parts A–G with the dev build: `npx expo start` running on the PC, and the
+      phone on the same Wi-Fi so the app can load its JavaScript. (The release APK
+      carries its JavaScript inside and needs no PC.)
 - [ ] Treadmill powered on, safety key clipped on
 - [ ] **nRF Connect** installed (Nordic Semiconductor, free) as an independent
       cross-check. If the app disagrees with nRF Connect, **nRF Connect is right.**
@@ -34,7 +40,7 @@ the full session has to wait, do at least these.
 |---|------|--------|---------|
 | 1 | Raw hex of `0x2ACC` | Read Dump | Parser fixture + verifies the feature decode |
 | 2 | Raw hex of `0x2AD4` | Read Dump | Predicted `64 00 40 06 0A 00` — confirm or disprove |
-| 3 | MAC address and address type | Scan (adv. detail) | If **random**, the schema's unique index on MAC is wrong |
+| 3 | MAC address and address type | Scan (MAC) + **nRF Connect** (address type: the library doesn't expose it) | If **random**, the schema's unique index on MAC is wrong |
 | 4 | Is `0x1826` in the advertisement? | Scan (adv. detail) | Decides the production scan filter |
 | 5 | Negotiated MTU | GATT Tree | Whether records can arrive split |
 
@@ -188,11 +194,12 @@ result.** That annotation is what turns a hex log into a specification.
 | E2 | Walk back | Reconnect works? Time: ______ s · Counters continue or reset? |
 | E3 | Toggle phone Bluetooth off and on | Recovers? Time: ______ s · GATT codes in log: ______ |
 | E4 | Power the treadmill off and on | Reconnects? Counters reset or retained? |
-| E5 | Screen off 5 min during a session | Survives? Max notification gap: ______ s |
+| E5 | Screen off 5 min during a session, **keep-alive OFF** | Survives? Max notify gap: ______ s · Max heartbeat gap: ______ s |
 
 Reconnect is manual in this phase, by design. Phase 02 automates it. And **if
-E5 fails, that is expected here.** It is the reason the foreground service exists as
-its own phase. Note it and move on.
+E5 shows a large heartbeat gap, that is expected here.** It's the baseline Part H
+compares against: proof the problem is real before testing the fix. Note it and
+move on.
 
 ---
 
@@ -200,7 +207,8 @@ its own phase. Note it and move on.
 
 - [ ] Did Android ever show a pairing prompt? (Expected: no)
 - [ ] Is `0x1826` in the advertised service UUIDs? yes / no
-- [ ] Advertised name: ______   MAC: ______   Address type: public / random
+- [ ] Advertised name: ______   MAC: ______   Address type (from nRF Connect's
+      device details): public / random
 
 If `0x1826` is not advertised, the production scan filter must fall back to the `FS-`
 name prefix, **not** to unfiltered scanning, which is slower and drains more battery.
@@ -245,6 +253,76 @@ perfectly good outcome.**
 
 ---
 
+## Part H: Screen off · ~90 min · **decides where BLE lives**
+
+A separate session from A–G. This is the test of the one risk the Expo stack adds:
+whether JavaScript keeps receiving BLE data *and* keeps running its timers with the
+screen locked, on HyperOS, for a full workout. See task 0.12 for what the keep-alive
+is and why it's needed.
+
+**Setup, all of it before starting:**
+
+- [ ] **Release APK** installed (`npx expo run:android --variant release --device`),
+      not the dev build. The release build carries its own JavaScript, so nothing
+      depends on the PC's bundler staying reachable.
+- [ ] **Phone unplugged.** Android doesn't enter Doze while charging, so a test run on
+      a cable can pass and then fail in a real workout. If you want the agent watching
+      `adb logcat` live, pair wireless debugging first.
+- [ ] All four HyperOS controls set (see `PHASE-00-FINDINGS.md`): Autostart on,
+      Battery saver "No restrictions", locked in Recents, battery optimisation off.
+      Without them a failure here says nothing about the code.
+- [ ] Connected, `0x2ACD` subscribed on the Notification Log screen, gap meter reset.
+
+**H1. Baseline, keep-alive OFF.** (Skip if E5 already recorded it.) Lock the screen
+for 5 minutes, belt stopped is fine.
+
+```
+Max notify gap: ______ s     Max heartbeat gap: ______ s
+```
+
+Expect the heartbeat gap to be roughly the whole locked period. That's the problem
+the keep-alive exists to fix.
+
+**H2. Keep-alive ON, screen locked, 15 minutes walking.** Turn the Keep-alive toggle
+on (a "Keep-alive spike" notification appears), start walking, lock the screen,
+don't look at it for 15 minutes.
+
+```
+Notification visible the whole time? yes / no
+Max notify gap: ______ s     Max heartbeat gap: ______ s     Disconnects: ______
+```
+
+**H3. Keep-alive ON, split screen with YouTube, 15 minutes.** Unlock, put the app in
+split screen with YouTube playing a video in the other half, keep walking. YouTube's
+memory use is the realistic pressure that makes HyperOS reclaim background apps.
+
+```
+Max notify gap: ______ s     Max heartbeat gap: ______ s     Disconnects: ______
+App still alive afterwards (not restarted)? yes / no
+```
+
+**H4. Keep-alive ON, screen locked, 60 minutes walking.** Your normal session length.
+
+```
+Max notify gap: ______ s     Max heartbeat gap: ______ s     Disconnects: ______
+Battery %, start: ______   end: ______
+```
+
+**H5: the decision.**
+
+```
+[ ] Holds        — every run: notify gap ≤ 5 s, heartbeat gap ≤ 10 s, no disconnect
+                   → BLE and recording stay in TypeScript; Phase 07 finishes the spike
+[ ] Partly holds — notifies keep arriving but heartbeats stall (or the reverse)
+                   → write down exactly which; Phase 07 starts with the agent reviewing it
+[ ] Fails        — gaps over a minute, disconnects, or the app gets killed
+                   → BLE and recording move into the Kotlin module (Phase 07's fallback)
+```
+
+Copy the capture file off the phone right after H4, before anything else.
+
+---
+
 ## After the session
 
 1. Export the Probe Checklist → paste into `PHASE-00-FINDINGS.md`, **measured facts
@@ -265,3 +343,4 @@ perfectly good outcome.**
 - [ ] **C7 counter semantics answered unambiguously**
 - [ ] **Part D control point verdict unambiguous** — Phase 05 either exists or does not
 - [ ] **G5 heart rate decision made**, including "cut it" as a valid answer
+- [ ] **H5 background decision made**, from runs done unplugged on the release APK

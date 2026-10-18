@@ -24,67 +24,70 @@ export for spreadsheets, an older backup reading correctly in a newer app versio
 is explicitly Phase 15's problem, not this one's.
 
 **Why "minimal" isn't corner-cutting.** The tempting alternative, once you're deep
-in `BackupExporter`/`BackupImporter` with the ZIP format and database queries fresh
-in your head, is to build the complete version now: add merge mode, add CSV, add
-version migration while you're already in the file. Each of the three is deferred
-for a specific, demonstrable reason, not laziness. **Merge mode** needs
-conflict-resolution rules for what happens when the same `WorkoutId` appears on
-both phones with a different `Notes` field or a different `EndedAtUtc`. Nobody can
-write those rules correctly today, because there's no real case yet to write them
-against; guessing now means designing against an imagined scenario instead of an
-observed one. **CSV** is a second output format with its own schema-mapping
-problem: `samples.json`'s nested, per-workout structure doesn't flatten into
-spreadsheet rows the same way `workouts.json` does, and nothing in this phase's
+in the exporter and importer with the ZIP format and database queries fresh in your
+head, is to build the complete version now: add merge mode, add CSV, add version
+migration while you're already in the file. Each of the three is deferred for a
+specific, demonstrable reason, not laziness. **Merge mode** needs conflict-resolution
+rules for what happens when the same `WorkoutId` appears on both phones with a
+different `Notes` field or a different `EndedAtUtc`. Nobody can write those rules
+correctly today, because there's no real case yet to write them against; guessing now
+means designing against an imagined scenario instead of an observed one. **CSV** is a
+second output format with its own schema-mapping problem, and nothing in this phase's
 scope actually needs it. The single ZIP already satisfies "get the data off the
 phone." **Version migration** is, almost by definition, something you cannot build
 correctly before a second format version exists to migrate *from*.
-`backupFormatVersion` is in the manifest today specifically so a real migration can
-be written later against a real old format, not an invented one now. So the "Out"
-column in the Scope section isn't three shortcuts. It's three things that are
-genuinely impossible to build well yet, deferred to the point where they become
-buildable. What's left in scope (full export, replace-only import, automatic local
-backup, pre-import safety backup) is the complete list of what's needed to make
-"you can always get your data back" true today, and no smaller.
+`backupFormatVersion` is in the manifest today specifically so a real migration can be
+written later against a real old format, not an invented one now. So the "Out" column
+in the Scope section isn't three shortcuts. It's three things that are genuinely
+impossible to build well yet, deferred to the point where they become buildable.
+What's left in scope (full export, replace-only import, automatic local backup,
+pre-import safety backup) is the complete list of what's needed to make "you can
+always get your data back" true today, and no smaller.
 
-**The pattern, named plainly.** The zip-slip guard, decompression cap, and
-format-version check in `BackupImporter` (task 9.3, steps 1–3) are the same
+**The pattern, named plainly.** The entry allowlist, the decompression cap, and the
+format-version check in the importer (task 9.3's validation pass) are the same
 **fail-fast-at-the-trust-boundary** idea Phase 01a applied to BLE packets: check
-everything *before* trusting any of it, reject loudly and immediately, never
-partway through real work. The boundary just moved. There, the untrusted input was
-bytes off a Bluetooth radio; here, it's a ZIP file that might be corrupted,
-hand-edited, or actively hostile (a `../` entry trying to write outside the target
-directory is the same category of problem as a truncated BLE packet: data from
-outside the program's control, shaped to look valid). The cost is the same shape
-too: a handful of checks (an entry-name allowlist, a summed-length check, one
-manifest field read) before any real import work starts. The payoff is what makes
-it worth it here specifically. Without the allowlist check, a crafted ZIP entry
-could write a file anywhere the app has permission to write. Without the pre-import
-safety backup and the single SQLite transaction (task 9.3, steps 4–5), an import
-that fails at row 40,000 of `samples.json` leaves the user with neither their old
-data nor their new data. For a feature whose entire purpose is "never lose the
-user's workout history," a validation gap here would defeat the phase's own point.
-This codebase doesn't apply fail-fast reflexively everywhere; it applies it
-precisely at the boundary where control passes from something you don't trust (a
-file the user picked off their filesystem) to something you do (your own
-database).
+everything *before* trusting any of it, reject loudly and immediately, never partway
+through real work. The boundary just moved. There, the untrusted input was bytes off a
+Bluetooth radio; here, it's a ZIP file that might be corrupted, hand-edited, or
+actively hostile. The cost is the same shape too: a handful of checks before any real
+import work starts. The payoff is what makes it worth it here specifically. Without the
+pre-import safety backup and the single SQLite transaction (task 9.3), an import that
+fails at row 40,000 of the samples leaves the user with neither their old data nor
+their new data. For a feature whose entire purpose is "never lose the user's workout
+history," a validation gap here would defeat the phase's own point. This codebase
+doesn't apply fail-fast reflexively everywhere; it applies it precisely at the
+boundary where control passes from something you don't trust (a file the user picked
+off their filesystem) to something you do (your own database).
+
+One honest note on **zip-slip**, the classic ZIP attack where an entry named
+`../../something` writes a file outside the target folder. It only bites code that
+*extracts entries to disk* using their names. This importer never does: it streams
+each entry's bytes straight into SQLite. So that bug class can't happen here by
+construction. The allowlist check still earns its three lines: it rejects an archive
+that isn't one of ours (or has been tampered with) before any work starts, and it
+keeps the importer from silently ignoring content it doesn't understand.
 
 ## Learning goals
 
-- **Splitting a feature across the `Core`/app seam a third time.** The ZIP-building,
-  the SQL, the JSON streaming, and every safety check (zip-slip, decompression cap,
-  atomic export, single-transaction replace) are pure logic with zero MAUI
-  dependency. They belong in `Core`, get real xUnit tests, and are built the same
-  "spec, not code" way as `FakeTreadmillService` (Phase 01b) and `AppSettingsService`
-  (Phase 08). Only the *transfer* (the share sheet, the file picker, the confirmation
-  dialog) touches a MAUI API and lives in the app project.
-- **Streaming JSON**, not `JsonSerializer.Deserialize<List<T>>`. The difference
-  is between reading a whole multi-megabyte array into memory and reading it one
-  element at a time. This is the actual mechanism behind "streaming import" in the
-  scope below, not just a phrase.
+- **Splitting a feature across the `core/`/`features/` seam a third time.** The ZIP
+  building, the SQL, the JSON streaming, and every safety check (allowlist,
+  decompression cap, version check, single-transaction replace) are pure logic with
+  zero React Native dependency. They belong in `core/`, get real Jest tests against
+  `nodeSqliteDb`, and are built the same "spec, not code" way as
+  `FakeTreadmillService` (Phase 01b) and `AppSettings` (Phase 08). Only the
+  *transfer* (files, the share sheet, the file picker, the confirmation dialog)
+  touches an Expo API and lives in `features/`.
+- **Streaming**, concretely: reading a 30 MB file 64 KB at a time, decompressing as
+  you go, splitting the result into lines, and inserting each line, so memory use
+  stays flat no matter how big the backup is. And why the samples go in a JSON *Lines*
+  file (one JSON object per line), which can be read line by line, rather than one big
+  JSON array, which can't be parsed until the whole thing is in memory.
+- **Small interfaces for I/O** (`ByteSink`, `ByteSource`): the same seam idea, used so
+  `core/` can produce and consume file contents without importing a file-system API.
 - **Why settings are applied *after* the database transaction commits, never
-  during it.** `Preferences` has no transaction of its own. See "Safety
-  requirements" below for the exact reasoning, ported straight from the project plan
-  because it is not optional.
+  during it.** The kv-store has no transaction of its own. See "Safety requirements"
+  below for the exact reasoning; it is not optional.
 
 ## Scope
 
@@ -101,11 +104,15 @@ data creates two sources of truth.
 ```
 MyHiBackup_2026-07-28_1930.zip
 ├── manifest.json     (backupFormatVersion, app version, export date, counts)
-├── workouts.json     (headers, keyed by WorkoutId GUID)
-├── samples.json      (telemetry, keyed by WorkoutId GUID)
-├── devices.json
-└── settings.json
+├── devices.json      (array)
+├── workouts.json     (array: headers, keyed by WorkoutId GUID)
+├── samples.jsonl     (JSON Lines: one telemetry row per line, keyed by WorkoutId GUID)
+└── settings.json     (object)
 ```
+
+Entries are written in exactly that order. The importer relies on it: devices before
+workouts (a workout references a device), workouts before samples (a sample needs its
+workout's new row id).
 
 One manifest, not a `metadata.json` + `version.json` pair. Two files with overlapping
 responsibility drift apart.
@@ -114,72 +121,76 @@ responsibility drift apart.
 bumping the app version must not invalidate backups.
 
 Identities in the file are `WorkoutId` and `DeviceUid`. **Integer `Id` values are not
-exported** and are reassigned on import. See `../phase-06-recording-schema/README.md`'s "Backup mapping"
-section, which this phase implements field-for-field (task 9.1 below mirrors its
-`Workout`/`WorkoutSample`/`Device` columns exactly).
+exported** and are reassigned on import. See `../phase-06-recording-schema/README.md`'s
+"Backup mapping" section, which this phase implements field-for-field (task 9.1 below
+mirrors its `Workout`/`WorkoutSample`/`Device` columns exactly).
 
 ---
 
 ## Transfer mechanism
 
-- **Export: share sheet.** Build the ZIP in `FileSystem.CacheDirectory`, then
-  `Share.Default.RequestAsync(new ShareFileRequest(...))`. Zero storage permissions,
-  one tap to Drive/Gmail/Nearby Share, sidesteps scoped storage entirely.
-- **Optional secondary:** "Save to device" via `CommunityToolkit.Maui` `FileSaver`. It
-  has a history of permission failures on API 33+ and of returning unresolvable
-  `content://` paths when the user picks a cloud provider. Secondary button, not the
-  primary path.
-- **Import:** `FilePicker.Default.PickAsync`. **MIME filtering for ZIP is inconsistent**
-  across Android file providers (`application/zip`, `application/octet-stream`, `*/*`).
-  Accept broadly and validate by reading the archive header, not the extension.
-- **Do not** hardcode `Documents/MyHi Companion/Backup/`. Since Android 10 scoped
-  storage an app cannot freely create and write that path.
+- **Export: share sheet.** Build the ZIP in the app's cache directory, then
+  `Sharing.shareAsync(file.uri, { mimeType: 'application/zip' })` (`expo-sharing`).
+  Zero storage permissions, one tap to Drive/Gmail/Nearby Share, sidesteps scoped
+  storage entirely.
+- **Secondary: "Save a copy to device"** via `Directory.pickDirectoryAsync()`
+  (`expo-file-system`), which opens Android's own folder picker (the Storage Access
+  Framework) and returns a directory the app may write into. Secondary, because a
+  folder on a cloud provider can return a location that behaves oddly; the share sheet
+  is the path that always works.
+- **Import:** `File.pickFileAsync()` (`expo-file-system`). **MIME filtering for ZIP is
+  inconsistent** across Android file providers (`application/zip`,
+  `application/octet-stream`, `*/*`). Accept broadly and validate by reading the
+  archive's first four bytes (`50 4B 03 04`, "PK"), not the extension.
+- **Do not** hardcode a path like `Documents/MyHi Companion/Backup/`. Since Android 10
+  scoped storage an app cannot freely create and write such a path.
 
 ---
 
-## Technology decision: `CommunityToolkit.Maui` (used narrowly, for `FileSaver`)
+## Technology decision: `fflate` for ZIP
 
-**What problem does it solve?** MAUI's built-in APIs cover sharing a file to
-another app (`Share.RequestAsync`) but not "let the user pick a folder and save a
-file there directly." This phase's export wants the second option as an
-optional, secondary path alongside the share sheet.
+**What problem does it solve?** The backup is a ZIP that can reach tens of megabytes,
+and both directions must stream: building it without holding every sample in memory,
+and reading it back without decompressing the whole thing first.
 
-**Why are we using it?** It's the community-standard companion package for
-exactly this kind of MAUI gap, actively maintained, and this project's actual
-usage is narrow: just `FileSaver`, not the whole toolkit's grab-bag of
-behaviors/converters/popups.
+**Why are we using it?** Pure JavaScript (no native module, nothing to rebuild, runs
+identically on the phone and in Jest), small, MIT, and it has true streaming classes
+in both directions: `Zip` + `ZipDeflate` to produce an archive chunk by chunk, and
+`Unzip` + `UnzipInflate` to consume one chunk by chunk, handing you each entry's name
+before its data so the allowlist check happens before any content is read. Because
+it's plain JavaScript, it's allowed in `core/`.
 
 **Alternatives considered:**
 
-1. **`Share.Default.RequestAsync` only** (built into MAUI Essentials, no extra
-   package) — zero dependency, already this phase's primary export path, but
-   hands the file off to another app rather than a direct "save to a folder I
-   pick" flow. This is already the plan as the *primary* mechanism; the question
-   is only whether a secondary path is worth a dependency.
-2. **`CommunityToolkit.Maui`'s `FileSaver`** (the actual choice, as a secondary
-   button) — genuine "Save As" for users who want an on-device file, but has a
-   documented history of permission failures on API 33+ and unresolvable
-   `content://` paths from some cloud-picked destinations. A real,
-   already-acknowledged weakness, which is exactly why it's demoted to
-   secondary/optional above rather than the primary path.
-3. **Hand-rolled Android SAF intent** (`ACTION_CREATE_DOCUMENT` directly) — no
-   dependency, but doesn't remove the underlying Android storage-permission
-   mess. `FileSaver`'s bugs *are* Android SAF's quirks, not something the
-   package introduced; writing it yourself means owning that workaround code
-   personally for a secondary feature.
+1. **`react-native-zip-archive`.** Pros: native, fast, simple API (`zip(folder)`,
+   `unzip(file, folder)`). Cons: it works folder-to-file and file-to-folder, so import
+   means extracting to disk first (bringing zip-slip back as a real concern) and
+   export means writing every JSON file to disk first; a native module to keep
+   compatible; can't run in Jest. Learning curve: low. The better choice for apps
+   that genuinely want files on disk, like downloading and unpacking assets.
+2. **JSZip.** Pros: the best-known JavaScript ZIP library, friendly API. Cons: it
+   loads the whole archive into memory to read it, which is exactly what "streaming
+   import" forbids at tens of megabytes. Learning curve: low. The better choice for
+   small archives.
+3. **No ZIP: share a copy of the SQLite file itself** (`expo-sqlite` can back up a
+   database). Pros: trivially simple, perfectly faithful. Cons: ties the backup format
+   to the schema version (an older backup can't be read by a newer schema without
+   running migrations on the user's file), exports integer ids that mean nothing on
+   another phone, and can't be partially validated or merged (Phase 15). Learning
+   curve: lowest. The better choice for a pure same-device "undo" snapshot, which is
+   actually a reasonable shape for the pre-import safety backup if this phase's
+   exporter ever proves too slow for it.
 
-**Why not the alternatives?** `Share`-only rejected as the *sole* mechanism
-because "save a file to a folder I choose" is a real, if secondary, backup use
-case. Hand-rolled SAF rejected because it wouldn't actually dodge the underlying
-platform mess — it would just mean maintaining that workaround personally, for a
-feature that's explicitly optional.
+**Why not the alternatives?** `react-native-zip-archive` forces a disk round trip and
+can't be tested in Node. JSZip can't stream reads. A raw database copy gives up the
+portable, versioned format that Phase 15's merge depends on.
 
-**Long-term considerations.** Narrow usage (one call site) means low blast
-radius if the package were ever abandoned, cheap to replace later, unlike a
-project leaning on the toolkit's behaviors/converters/popups throughout.
+**Long-term considerations.** No native code means no SDK-upgrade risk at all. The
+streaming API is lower-level than JSZip's, which is real code to write once (and
+test once). Replacing it would touch two files in `src/core/backup/`.
 
-**Practical example:** This phase's backup page, "Save to device" secondary
-button next to the primary share-sheet export.
+**Practical example:** `src/core/backup/backupExporter.ts` and `backupImporter.ts`,
+this phase.
 
 ---
 
@@ -188,622 +199,532 @@ button next to the primary share-sheet export.
 **Replace must not be destructive on failure.** "Delete current data, then restore":
 if that throws at file 3 of 5 the user has neither. Required:
 
-1. Write an automatic pre-import backup to app-private storage **first**
-2. Perform the entire data import inside **one SQLite transaction**
-3. Apply settings **after** the transaction commits. `Preferences` sits outside the
+1. Validate the whole archive **before** touching the database (task 9.3's first pass)
+2. Write an automatic pre-import backup to app-private storage
+3. Perform the entire data import inside **one SQLite transaction**
+4. Apply settings **after** the transaction commits. The kv-store sits outside the
    transaction, and losing six toggles is recoverable while losing years of workouts
    is not
-4. Offer "undo last import" for one session
+5. Offer "undo last import" for one session
 
 Also:
 
 - **Atomic export:** write to `.tmp`, then rename. An interrupted export must not leave
   a truncated file with a valid-looking name.
-- **Zip-slip guard:** reject any entry whose name is not in the known filename
-  allowlist. Three lines, closes an entire bug class.
-- **Decompression cap:** reject archives whose uncompressed size exceeds ~500 MB.
-- **Streaming import.** With telemetry included, backups reach tens of MB. Do not
-  deserialise the whole document into memory.
+- **Entry allowlist:** reject any entry whose name is not one of the five above.
+- **Decompression cap:** reject archives whose decompressed size exceeds ~500 MB,
+  counted as bytes actually come out of the decompressor (an entry's declared size can
+  lie).
+- **Streaming import.** With telemetry included, backups reach tens of MB. Never hold
+  the whole decompressed archive in memory.
 - **Block export during an active workout**; **block import while connected or
   mid-workout.**
-- **Timestamps are UTC plus stored offset**, serialised as ISO 8601 with offset.
+- **Timestamps are UTC plus stored offset**, serialised as ISO 8601.
 - **Restored saved devices will not auto-connect** on a new phone: the MAC restores
-  but the bond does not. Tell the user they need to reconnect once, rather than letting
-  it look broken.
+  but the phone still has to find the treadmill again. Tell the user they need to
+  reconnect once, rather than letting it look broken.
 
 ---
 
 ## Reference docs
 
-- **`ZipFile` class** (`ZipFile.CreateFromDirectory`, `ZipFile.OpenRead`):
-  https://learn.microsoft.com/en-us/dotnet/api/system.io.compression.zipfile.
-  Everything task 9.2/9.3 need is on this one page; no third-party ZIP library.
-- **`JsonSerializer.DeserializeAsyncEnumerable`**:
-  https://learn.microsoft.com/en-us/dotnet/api/system.text.json.jsonserializer.deserializeasyncenumerable.
-  Read this before task 9.3. It streams a root-level JSON *array* one element at a
-  time, exactly the shape of `workouts.json`/`samples.json`/`devices.json`, which is
-  what makes "streaming import" concrete rather than aspirational.
-- **`Microsoft.Data.Sqlite` transactions**:
-  https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/transactions.
-  The single-transaction replace-import in task 9.3 is exactly the pattern this page
-  describes; `MigrationRunner.Apply` (Phase 00) already uses the same
-  `BeginTransaction`/`Commit` shape if you want a second example in this codebase.
-- **`Share` (`Share.RequestAsync`)**:
-  https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/data/share.
-  `HomeViewModel.ShareLogAsync` (Phase 00) already calls this for the log file; task
-  9.7's export button does the same thing with the backup ZIP instead.
-- **`FilePicker`**:
-  https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/storage/file-picker.
-  Read the "pick a file" section for `PickOptions`; task 9.7's import button uses it.
-- **File system helpers (`FileSystem.CacheDirectory`)**:
-  https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/storage/file-system-helpers.
-  The export target directory; note the platform note that the OS may clear this
-  storage, which is exactly why the pre-import *safety* backup in task 9.3 goes to
-  `FileSystem.AppDataDirectory` instead (app-private, not cache; the two are not
-  interchangeable in this phase).
-- **`CommunityToolkit.Maui` `FileSaver`**:
-  https://learn.microsoft.com/en-us/dotnet/communitytoolkit/maui/essentials/file-saver.
-  Already listed in `docs/learning/03-Doc-Links.md`; used only for the optional
-  secondary "Save a Copy to Device" button in task 9.8.
-- **Getting started with `CommunityToolkit.Maui`**:
-  https://learn.microsoft.com/en-us/dotnet/communitytoolkit/maui/get-started.
-  The package isn't referenced yet (check `MyHi.Companion.csproj`; it currently only
-  has `CommunityToolkit.Mvvm`, a different package). Task 9.8 adds it and calls
-  `.UseMauiCommunityToolkit()`.
+- **`fflate`**: https://github.com/101arrowz/fflate. Read the "Streaming" and
+  "ZIP files" sections of the README, specifically `Zip`/`ZipDeflate` (task 9.2) and
+  `Unzip`/`UnzipInflate` with `onfile` (task 9.3).
+- **`TextDecoder`**: https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder.
+  `decoder.decode(chunk, { stream: true })` is how bytes become text without breaking
+  a multi-byte character that happens to straddle two chunks.
+- **`expo-file-system`**: https://docs.expo.dev/versions/latest/sdk/filesystem/.
+  `File`, `Directory`, `Paths.cache`, `Paths.document`, `file.open()` and the
+  `FileHandle` (`readBytes`, `writeBytes`), `File.pickFileAsync`,
+  `Directory.pickDirectoryAsync`, `move`.
+- **`expo-sharing`**: https://docs.expo.dev/versions/latest/sdk/sharing/. Phase 00's
+  capture screen already calls it for capture files; task 9.7 does the same thing
+  with the backup ZIP.
+- **`node:sqlite`** and **`node:crypto`**: only in tests (task 9.5), for a real
+  database and a SHA-256 checksum. Neither is ever imported by app code.
 
 ---
 
 ## Walkthrough
 
-### 9.1 — Export DTOs and manifest (data shapes — write these directly)
+### 9.1 — Export types and the I/O seams (data shapes — write these directly)
 
-Creates: `src/MyHi.Companion.Core/Backup/BackupDtos.cs`.
+Creates: `src/core/backup/backupTypes.ts`.
 
-These are plain data records, not logic, same category as `NavDestination` or
-`TreadmillSample`, safe to write in full rather than from a skeleton. Every field maps
-1:1 to a column in `../phase-06-recording-schema/README.md`, with the portable GUID identities swapped in for
-the integer `Id`/`WorkoutRowId`/`DeviceId` columns that never leave the phone:
+These are plain data shapes, not logic, safe to write in full rather than from a
+skeleton. Every field maps 1:1 to a column in `../phase-06-recording-schema/README.md`,
+with the portable GUID identities swapped in for the integer
+`Id`/`WorkoutRowId`/`DeviceId` columns that never leave the phone:
 
-```csharp
-namespace MyHi.Companion.Core.Backup;
+```ts
+export const BACKUP_FORMAT_VERSION = 1;
 
-public sealed record BackupManifest(
-    int BackupFormatVersion,
-    string AppVersion,
-    DateTimeOffset ExportedAtUtc,
-    int WorkoutCount,
-    int SampleCount,
-    int DeviceCount);
+export const ENTRY_NAMES = [
+  'manifest.json',
+  'devices.json',
+  'workouts.json',
+  'samples.jsonl',
+  'settings.json',
+] as const;
+export type EntryName = (typeof ENTRY_NAMES)[number];
 
-public sealed record WorkoutExportDto(
-    string WorkoutId,              // GUID — Workout.Id (integer) is never exported
-    DateTimeOffset StartedAtUtc,
-    DateTimeOffset? EndedAtUtc,
-    int StartOffsetMinutes,
-    int DurationSeconds,
-    double DistanceMeters,
-    int Calories,
-    double AvgSpeedKph,
-    double MaxSpeedKph,
-    int? AvgHeartRate,
-    int? MaxHeartRate,
-    int Status,
-    string? DeviceUid,             // Device.DeviceUid — not Workout.DeviceId
-    string? Notes);
+export interface BackupManifest {
+  readonly backupFormatVersion: number;
+  readonly appVersion: string;
+  readonly exportedAtUtc: string;
+  readonly workoutCount: number;
+  readonly sampleCount: number;
+  readonly deviceCount: number;
+}
 
-public sealed record WorkoutSampleExportDto(
-    string WorkoutId,              // joins back to WorkoutExportDto.WorkoutId,
-                                    // not the integer WorkoutRowId
-    int ElapsedSec,
-    double? SpeedKph,
-    double? DistanceM,
-    int? Calories,
-    int? HeartRate,
-    int Flags);
+export interface WorkoutExport {
+  readonly workoutId: string;          // GUID; Workout.Id (integer) is never exported
+  readonly startedAtUtc: string;
+  readonly endedAtUtc: string | null;
+  readonly startOffsetMinutes: number;
+  readonly durationSeconds: number;
+  readonly distanceMeters: number;
+  readonly calories: number;
+  readonly avgSpeedKph: number;
+  readonly maxSpeedKph: number;
+  readonly avgHeartRate: number | null;
+  readonly maxHeartRate: number | null;
+  readonly status: number;
+  readonly deviceUid: string | null;   // Device.DeviceUid, not Workout.DeviceId
+  readonly notes: string | null;
+}
 
-public sealed record DeviceExportDto(
-    string DeviceUid,
-    string MacAddress,
-    string Name,
-    DateTimeOffset? LastSeenUtc,
-    bool IsPreferred);
+export interface WorkoutSampleExport {
+  readonly workoutId: string;          // joins back to WorkoutExport.workoutId,
+                                       // not the integer WorkoutRowId
+  readonly elapsedSec: number;
+  readonly speedKph: number | null;
+  readonly distanceM: number | null;
+  readonly calories: number | null;
+  readonly heartRate: number | null;
+  readonly flags: number;
+}
+
+export interface DeviceExport {
+  readonly deviceUid: string;
+  readonly macAddress: string;
+  readonly name: string;
+  readonly lastSeenUtc: string | null;
+  readonly isPreferred: boolean;
+}
+
+export type SettingsExport = Readonly<Record<string, string>>;
+
+/** Where backup bytes go. In the app: a FileHandle. In tests: an array. */
+export interface ByteSink {
+  write(chunk: Uint8Array): Promise<void>;
+}
+
+/** Where backup bytes come from. read() returns an empty array at the end. */
+export interface ByteSource {
+  read(maxBytes: number): Promise<Uint8Array>;
+}
+
+/** A reason-carrying error the UI can show as-is. */
+export class BackupValidationError extends Error {}
 ```
 
-`settings.json` doesn't need its own DTO; it's just the
-`IReadOnlyDictionary<string,string>` that `AppSettingsService` (Phase 08) already
-speaks in terms of its `Preferences` keys. Add these two methods to
-`AppSettingsService` now (small enough to write directly, no skeleton needed; it's
+`settings.json` is just the key/value pairs `AppSettings` (Phase 08) already stores.
+Add these two methods to `AppSettings` now (small enough to write directly; it's
 straight delegation to the store you already wrote):
 
-```csharp
-// In AppSettingsService (src/MyHi.Companion.Core/Settings/AppSettingsService.cs)
-public IReadOnlyDictionary<string, string> Snapshot() => new Dictionary<string, string>
-{
-    [ThemeKey] = Theme.ToString(),
-    [UnitsKey] = Units.ToString(),
-    // TODO: the remaining bool-backed keys — store their string form ("True"/"False")
-    // the same way; RestoreFrom (below) is what parses them back
-};
+```ts
+// In AppSettings (src/core/settings/appSettings.ts)
+toExport(): SettingsExport {
+  // TODO: { [key]: storedString } for every key in KEYS that has a stored value
+}
 
-public void RestoreFrom(IReadOnlyDictionary<string, string> snapshot)
-{
-    // TODO: for each known key present in snapshot, write it back through the
-    // corresponding property (Theme = ..., Units = ..., AutoReconnect = ...).
-    // Unknown keys are ignored, not an error — a newer backup may carry a setting
-    // this version doesn't have yet.
+restoreFrom(exported: SettingsExport): void {
+  // TODO: for each known key present, write it back through store.setString, then
+  // refresh(). Unknown keys are ignored, not an error: a newer backup may carry a
+  // setting this version doesn't have yet. Values go through the normal read path
+  // afterwards, so a garbage value still falls back to its default (Phase 08).
 }
 ```
 
 ### 9.2 — `BackupExporter` (the logic — you write this)
 
-Creates: `src/MyHi.Companion.Core/Backup/BackupExporter.cs`.
+Creates: `src/core/backup/backupExporter.ts`.
 
-```csharp
-using System.IO.Compression;
-using System.Text.Json;
-using MyHi.Companion.Core.Data;
+```ts
+import { Zip, ZipDeflate } from 'fflate';
 
-namespace MyHi.Companion.Core.Backup;
+export interface ExportInput {
+  readonly appVersion: string;
+  readonly settings: SettingsExport;
+  readonly now: Date;
+}
 
-public sealed class BackupExporter(SqliteConnectionFactory connectionFactory)
-{
-    public const int CurrentFormatVersion = 1;
+export class BackupExporter {
+  constructor(private readonly db: Db) {}
 
-    internal static readonly string[] EntryNames =
-        ["manifest.json", "workouts.json", "samples.json", "devices.json", "settings.json"];
-
-    /// <summary>
-    /// Builds a backup ZIP inside <paramref name="workingDirectory"/> and returns its
-    /// path. Deliberately takes a plain directory string, not FileSystem.CacheDirectory
-    /// directly — that's a MAUI type this class must never reference; the caller (the
-    /// app-layer ViewModel in task 9.7) decides which directory.
-    /// </summary>
-    public async Task<string> ExportAsync(
-        string workingDirectory,
-        string appVersion,
-        IReadOnlyDictionary<string, string> settingsSnapshot,
-        CancellationToken ct = default)
-    {
-        // TODO, in order:
-        // 1. using var connection = connectionFactory.Create();
-        // 2. Query Workout LEFT JOIN Device ON Workout.DeviceId = Device.Id — LEFT
-        //    JOIN because DeviceId can be NULL — selecting Device.DeviceUid instead of
-        //    the integer DeviceId. Map each row to a WorkoutExportDto.
-        // 3. Query WorkoutSample JOIN Workout ON WorkoutSample.WorkoutRowId = Workout.Id
-        //    to translate WorkoutRowId -> the GUID WorkoutId for every sample. Map to
-        //    WorkoutSampleExportDto.
-        // 4. Query Device; map to DeviceExportDto.
-        // 5. Serialize each list, and settingsSnapshot, to
-        //    <workingDirectory>/<entry-name>.json using
-        //    JsonSerializer.SerializeAsync against a FileStream — the stream overload,
-        //    not the string-returning one, because samples.json can be tens of MB.
-        // 6. Build a BackupManifest from the counts you already have (step 2-4's list
-        //    lengths) and write manifest.json last.
-        // 7. var tempZipPath = Path.Combine(workingDirectory, $"{fileName}.tmp");
-        //    ZipFile.CreateFromDirectory(workingDirectory, tempZipPath) — this is what
-        //    picks up the five *.json files you just wrote — then File.Move(tempZipPath,
-        //    finalPath, overwrite: true). This two-step write-then-rename is the
-        //    "atomic export" requirement: a crash mid-zip leaves only a stray .tmp
-        //    file, never a truncated file under the real name.
-        // 8. Delete the five loose *.json files (they've served their purpose once
-        //    zipped) and return finalPath.
-        throw new NotImplementedException();
-    }
+  /**
+   * Streams a complete backup ZIP into `sink`. Knows nothing about files: the caller
+   * (task 9.6) decides where the bytes land, and does the .tmp + rename.
+   */
+  async export(sink: ByteSink, input: ExportInput): Promise<BackupManifest> {
+    // TODO, in order:
+    // 1. Counts first (three SELECT COUNT(*)), so the manifest can be written first.
+    //
+    // 2. Collect output chunks as fflate produces them:
+    //      const pending: Uint8Array[] = [];
+    //      const zip = new Zip((err, chunk) => { if (err) throw err; pending.push(chunk); });
+    //    and a small `drain()` that awaits sink.write(...) for everything in pending
+    //    and empties it. fflate calls ondata synchronously; drain() after each step
+    //    is how output reaches the sink without piling up in memory.
+    //
+    // 3. For each entry, in ENTRY_NAMES order:
+    //      const entry = new ZipDeflate(name, { level: 6 }); zip.add(entry);
+    //      entry.push(bytes, isLast)  // bytes = new TextEncoder().encode(text)
+    //    manifest.json, devices.json, workouts.json, settings.json: small, build the
+    //    whole JSON text and push it once.
+    //
+    // 4. samples.jsonl: page through
+    //      SELECT w.WorkoutId AS workoutId, s.ElapsedSec AS elapsedSec, ...
+    //      FROM WorkoutSample s JOIN Workout w ON w.Id = s.WorkoutRowId
+    //      ORDER BY s.WorkoutRowId, s.ElapsedSec LIMIT 2000 OFFSET $offset
+    //    and for each page push one chunk of `JSON.stringify(row) + '\n'` lines, then
+    //    drain(). The JOIN is what translates WorkoutRowId -> the GUID. The last page
+    //    is pushed with final = true (an empty final push is fine).
+    //    Devices: SELECT ... FROM Device; workouts: Workout LEFT JOIN Device (LEFT,
+    //    because DeviceId can be NULL), selecting Device.DeviceUid, not DeviceId.
+    //
+    // 5. zip.end(); drain(); return the manifest.
+  }
 }
 ```
 
 ### 9.3 — `BackupImporter` (the logic — you write this)
 
-Creates: `src/MyHi.Companion.Core/Backup/BackupImporter.cs`.
+Creates: `src/core/backup/backupImporter.ts`.
 
-This is the phase's highest-stakes file. Every numbered step below is one of the
-"Safety requirements" above turned into code, not extra caution:
+This is the phase's highest-stakes file. Every step below is one of the "Safety
+requirements" above turned into code, not extra caution. It reads the archive
+**twice**: once to validate everything without touching the database, once to import.
+Reading a 30 MB file twice costs a second or two; trusting a file you haven't fully
+checked costs the user's history.
 
-```csharp
-using System.IO.Compression;
-using System.Text.Json;
-using MyHi.Companion.Core.Data;
+```ts
+import { Unzip, UnzipInflate } from 'fflate';
 
-namespace MyHi.Companion.Core.Backup;
+export interface ImportResult {
+  readonly workoutCount: number;
+  readonly sampleCount: number;
+  readonly deviceCount: number;
+  readonly settings: SettingsExport;
+}
 
-public sealed record BackupImportResult(
-    int WorkoutCount,
-    int SampleCount,
-    int DeviceCount,
-    IReadOnlyDictionary<string, string> Settings);
+export interface ImportProgress {
+  readonly stage: string;
+  readonly fractionComplete: number;
+}
 
-public sealed record BackupImportProgress(string Stage, double FractionComplete);
+const MAX_DECOMPRESSED_BYTES = 500 * 1024 * 1024;
+const CHUNK = 64 * 1024;
 
-public sealed class BackupValidationException(string message) : Exception(message);
+export class BackupImporter {
+  constructor(private readonly db: Db) {}
 
-public sealed class BackupImporter(
-    SqliteConnectionFactory connectionFactory,
-    BackupExporter preImportBackupExporter,
-    string preImportBackupDirectory)
-{
-    private const long MaxUncompressedBytes = 500L * 1024 * 1024;
+  /**
+   * Pass 1. Reads the whole archive, writes nothing. Throws BackupValidationError on
+   * the first problem. Returns the manifest.
+   */
+  async validate(open: () => Promise<ByteSource>): Promise<BackupManifest> {
+    // TODO, in order. Do not reorder: each one guards the next.
+    // 1. HEADER: the first 4 bytes are 50 4B 03 04, or it isn't a ZIP at all.
+    // 2. ALLOWLIST: in unzip.onfile, before calling file.start(), reject any
+    //    file.name that isn't in ENTRY_NAMES. Also reject a duplicate name.
+    // 3. DECOMPRESSION CAP: in each file's ondata, add chunk.length to a running
+    //    total; over MAX_DECOMPRESSED_BYTES -> reject.
+    // 4. MANIFEST: parse manifest.json; backupFormatVersion > BACKUP_FORMAT_VERSION ->
+    //    reject with "This backup was created by a newer version of the app."
+    // 5. CONTENT: every line of samples.jsonl and every element of the other files
+    //    parses as JSON with the expected fields; counts match the manifest. Anything
+    //    else -> reject, naming the entry and line number.
+    // Reading pattern: loop { chunk = await source.read(CHUNK); unzip.push(chunk,
+    // chunk.length === 0); if (chunk.length === 0) break; } with
+    // unzip.register(UnzipInflate) once up front. onfile/ondata run synchronously
+    // inside push(), so record errors in a variable and throw after push returns.
+  }
 
-    public async Task<BackupImportResult> ImportAsync(
-        string zipPath,
-        IProgress<BackupImportProgress>? progress = null,
-        CancellationToken ct = default)
-    {
-        // TODO, in order — do not reorder these, each one guards the next:
-        //
-        // 1. ZIP-SLIP GUARD, first pass, before extracting anything:
-        //    using var archive = ZipFile.OpenRead(zipPath);
-        //    foreach entry in archive.Entries, throw BackupValidationException if
-        //    entry.FullName is not exactly one of BackupExporter.EntryNames. This is
-        //    the "reject any entry whose name is not in the known allowlist" rule —
-        //    three lines, but they have to run before step 2 touches any entry's
-        //    content.
-        //
-        // 2. DECOMPRESSION CAP, same pass: sum entry.Length across all entries; throw
-        //    BackupValidationException if the total exceeds MaxUncompressedBytes.
-        //
-        // 3. Read manifest.json's entry (it's tiny — fine to fully deserialize with
-        //    JsonSerializer.Deserialize<BackupManifest>, unlike the three big files
-        //    below) and check BackupFormatVersion. If it's greater than
-        //    BackupExporter.CurrentFormatVersion, throw BackupValidationException with
-        //    a message like "This backup was created by a newer version of the app."
-        //    Do not attempt to import a format you don't recognize.
-        //
-        // 4. PRE-IMPORT SAFETY BACKUP, before touching the current database at all:
-        //    await preImportBackupExporter.ExportAsync(preImportBackupDirectory, ...).
-        //    This directory is app-private storage (FileSystem.AppDataDirectory in the
-        //    caller), not the cache directory export uses — it must survive
-        //    independently of whatever happens next. This is what "undo last import"
-        //    (task 9.9) replays.
-        //
-        // 5. using var connection = connectionFactory.Create();
-        //    using var tx = connection.BeginTransaction();
-        //    DELETE FROM WorkoutSample; DELETE FROM Workout; DELETE FROM Device;
-        //    — Replace mode, the whole scope of this phase. Everything from here to
-        //    step 9 happens on this one transaction.
-        //
-        // 6. Stream-parse workouts.json:
-        //    await foreach (var dto in JsonSerializer.DeserializeAsyncEnumerable
-        //        <WorkoutExportDto>(entryStream, cancellationToken: ct))
-        //    — NOT DeserializeAsync<List<WorkoutExportDto>>, which buffers the whole
-        //    array. INSERT each row with a prepared SqliteCommand (reassigning
-        //    parameters and calling ExecuteNonQuery per row — see
-        //    phase-06-recording-schema/README.md's "Sample write strategy" for why
-        //    one prepared command beats one command
-        //    per row). Capture the new integer Id SQLite assigns via
-        //    `cmd.ExecuteScalar()` on a trailing `SELECT last_insert_rowid();`, and
-        //    build a Dictionary<string, long> from WorkoutId -> new Id for step 7.
-        //
-        // 7. Stream-parse samples.json the same way. For each WorkoutSampleExportDto,
-        //    look up its new WorkoutRowId from the dictionary built in step 6 (skip
-        //    and log any sample whose WorkoutId isn't in the dictionary — a corrupt or
-        //    hand-edited backup, not a crash) and INSERT. Call `progress?.Report(...)`
-        //    every few hundred rows — this is the number the progress bar in task
-        //    9.7's UI shows, and samples.json is the file large enough for it to
-        //    matter.
-        //
-        // 8. Stream-parse devices.json; INSERT, letting SQLite assign new integer Ids.
-        //
-        // 9. tx.Commit(). The method must not return successfully until this line has
-        //    run — the caller (task 9.7) applies settings.json's contents through
-        //    AppSettingsService.RestoreFrom only after this method returns, never
-        //    before or during.
-        //
-        // Return a BackupImportResult with the row counts and the settings.json
-        // dictionary (parsed with a normal, non-streaming JsonSerializer.Deserialize —
-        // it's small) for the caller to apply.
-        throw new NotImplementedException();
-    }
+  /**
+   * Pass 2. Only after validate() succeeded AND the caller wrote the pre-import
+   * safety backup. Replaces everything inside one transaction.
+   */
+  async importReplace(
+    open: () => Promise<ByteSource>,
+    onProgress?: (p: ImportProgress) => void,
+  ): Promise<ImportResult> {
+    // TODO:
+    // 1. return this.db.transaction(async (tx) => { ... }): everything below happens
+    //    on tx, and the whole thing rolls back if anything throws.
+    // 2. DELETE FROM WorkoutSample; DELETE FROM Workout; DELETE FROM Device;
+    //    (Replace mode, the whole scope of this phase.)
+    // 3. Stream the archive again. Entries arrive in ENTRY_NAMES order (task 9.2):
+    //    - devices.json: INSERT each; build Map<deviceUid, newId>.
+    //    - workouts.json: INSERT each with a prepared statement, looking up DeviceId
+    //      from the map; build Map<workoutId, newRowId> from each run's
+    //      lastInsertRowId.
+    //    - samples.jsonl: split decoded text into lines (keep the trailing partial
+    //      line for the next chunk), plain INSERT (not OR REPLACE: a duplicate in a
+    //      backup is corruption, and should fail loudly) through ONE prepared statement,
+    //      looking up WorkoutRowId from the map. A sample whose workoutId isn't in
+    //      the map is skipped and counted (validate() should make this impossible;
+    //      count it anyway). Call onProgress every few hundred rows.
+    //    - settings.json: parse and keep for the result. Do NOT apply it here.
+    // 4. Because inserting is async but onfile/ondata are synchronous, collect each
+    //    chunk's complete lines into an array during push(), then await the inserts
+    //    for that array before reading the next chunk. That keeps memory bounded to
+    //    one chunk's worth of lines.
+    // 5. Return the counts and the settings. The caller applies settings only after
+    //    this promise resolves, which only happens after COMMIT.
+  }
 }
 ```
 
-### 9.4 — `AutoBackupService` (the logic — you write this)
+### 9.4 — `AutoBackup` (the logic — you write this)
 
-Creates: `src/MyHi.Companion.Core/Backup/AutoBackupService.cs`.
+Creates: `src/features/backup/autoBackup.ts`.
 
-```csharp
-namespace MyHi.Companion.Core.Backup;
+This one manages files (create a directory, list it, delete old ones), so it lives in
+`features/`:
 
-public sealed class AutoBackupService(BackupExporter exporter, string backupDirectory)
-{
-    public const int MaxRetained = 5;
+```ts
+export const MAX_RETAINED = 5;
 
-    public async Task RunAsync(
-        string appVersion,
-        IReadOnlyDictionary<string, string> settingsSnapshot,
-        CancellationToken ct = default)
-    {
-        // TODO:
-        // 1. Directory.CreateDirectory(backupDirectory) — no-op if it already exists.
-        // 2. await exporter.ExportAsync(backupDirectory, appVersion, settingsSnapshot, ct);
-        // 3. Directory.GetFiles(backupDirectory, "MyHiBackup_*.zip"), sort ascending —
-        //    the yyyy-MM-dd_HHmm timestamp embedded in the filename sorts correctly as
-        //    a plain string, no need to parse it — and delete every file except the
-        //    newest MaxRetained.
-        throw new NotImplementedException();
-    }
+export async function runAutoBackup(exporter: BackupExporter, settings: AppSettings): Promise<void> {
+  // TODO:
+  // 1. const dir = new Directory(Paths.document, 'auto-backups'); create it if missing.
+  // 2. Export through exportToFile (task 9.6), into dir.
+  // 3. List dir's MyHiBackup_*.zip files, sort ascending by name (the
+  //    yyyy-MM-dd_HHmm timestamp in the name sorts correctly as a plain string, no
+  //    need to parse it), and delete every file except the newest MAX_RETAINED.
 }
 ```
 
-This runs from wherever Phase 04's workout engine raises its "workout finished" event.
-By the time you reach this phase that event exists; wire a call to `RunAsync` into its
-handler the same way `HomeViewModel` already wires `_captures.SessionChanged` in
-Phase 00. The exact hookup point is a one-line call, not designed here, because it
-depends on Phase 04's actual API.
+Call it from `WorkoutSession` (Phase 07) when the engine reaches `'finished'`, after
+the recorder's final flush. A failed auto-backup is logged, never shown as a workout
+failure.
 
 ### 9.5 — Tests: the export → wipe → import checksum test
 
-Creates: `src/MyHi.Companion.Tests/Backup/BackupExportImportTests.cs`.
+Creates: `src/core/backup/backup.test.ts`, plus `src/core/backup/testing/memoryBytes.ts`
+(an in-memory `ByteSink` that collects chunks and a `ByteSource` that replays them;
+test infrastructure, about twenty lines).
 
 This is the test the phase's acceptance criteria are built around. "No data loss" has
 to mean something more precise than eyeballing a row count.
 
 Concrete steps:
-1. Same setup pattern as `MigrationRunnerTests` (Phase 00):
-   `Directory.CreateTempSubdirectory`, a `SqliteConnectionFactory` per test, disposed
-   in `Dispose()`. Apply the real migration set from Phase 06 (whatever
-   `AppDatabase`/`MauiProgram.cs` passes to `MigrationRunner` by the time you reach
-   this phase) so the test runs against the actual schema, not a hand-rolled one.
+1. Same setup pattern as `migrationRunner.test.ts` (Phase 00): a fresh `nodeSqliteDb`
+   per test, PRAGMAs on, the real `migrations` from Phase 06 applied, so the test runs
+   against the actual schema, not a hand-rolled one.
 2. Seed 10–50 workouts with samples and a couple of devices directly via SQL (or via
-   whatever repository Phase 06 built, either is fine, the point is realistic data),
-   including at least one workout with `EndedAtUtc == null`, at least one with
-   `AvgHeartRate == null`, and a sample with `Flags` bit 0 set for a connection gap.
-3. `[Fact] Export_then_wipe_then_import_reproduces_the_original_data`: export to a
-   temp directory, compute a canonical checksum of the seeded data (e.g. SHA-256 over
-   every row serialized in a fixed field order; write a small helper for this, it's
-   test infrastructure, not phase logic), wipe the three tables, import the exported
-   ZIP, compute the same checksum again, assert equality. This is the literal
-   "SHA-256 of a canonically-ordered dump matches" row in the table below.
-4. `[Fact] Import_rejects_an_archive_entry_outside_the_allowlist`: hand-build a ZIP
-   with an extra entry named `../evil.txt` (or any name not in
-   `BackupExporter.EntryNames`), assert `ImportAsync` throws `BackupValidationException`
-   and that none of `Workout`/`WorkoutSample`/`Device` were touched.
-5. `[Fact] Import_rejects_a_newer_format_version`: hand-build a manifest.json with
-   `BackupFormatVersion = BackupExporter.CurrentFormatVersion + 1`, assert the same.
-6. `dotnet test src/MyHi.Companion.Tests`: all green, including every prior phase.
+   Phase 06's `WorkoutRepository`; either is fine, the point is realistic data),
+   including at least one workout with `EndedAtUtc` null, one with `AvgHeartRate`
+   null, one with a negative `StartOffsetMinutes`, and a sample with `Flags` bit 0 set.
+3. `test('export, wipe, import reproduces the original data', ...)`: compute a
+   canonical checksum of the seeded data (SHA-256 from `node:crypto` over every row
+   serialised in a fixed column order, ordered by the GUIDs, never by integer ids,
+   since those change on import; write a small helper for this, it's test
+   infrastructure, not phase logic), export to a memory sink, wipe the three tables,
+   validate and import from the same bytes, compute the checksum again, expect
+   equality. This is the literal "SHA-256 of a canonically-ordered dump matches" row
+   in the table below.
+4. `test('rejects an entry outside the allowlist', ...)`: build a ZIP with fflate's
+   `zipSync({ 'manifest.json': ..., '../evil.txt': ... })`, expect `validate` to throw
+   `BackupValidationError`, and the three tables untouched (row counts unchanged).
+5. `test('rejects a newer format version', ...)`: a manifest with
+   `backupFormatVersion: BACKUP_FORMAT_VERSION + 1`, same expectation.
+6. `test('a failure mid-import rolls everything back', ...)`: call `importReplace`
+   directly (skipping `validate`) on an archive whose `samples.jsonl` contains the
+   same `(workoutId, elapsedSec)` twice, near the end. The import uses plain `INSERT`
+   (after the `DELETE`s there's nothing to replace, so `OR REPLACE` would only hide a
+   corrupt file), so the duplicate hits the primary key and throws. Expect the throw,
+   and the database to equal the pre-import checksum: the earlier `DELETE`s and
+   thousands of inserts all rolled back.
+7. `npm test`: all green, including every prior phase.
 
-### 9.6 — Wiring `BackupImporter`'s dependencies in `MauiProgram.cs`
+### 9.6 — File plumbing: `exportToFile`, atomic rename, file sources
 
-`BackupImporter`'s constructor takes a `BackupExporter` (for the pre-import safety
-backup) and a directory string — both need real values only the app project can supply
-(`FileSystem.AppDataDirectory`). Register with a factory lambda, the same pattern
-`CaptureSessionManager` already uses in `MauiProgram.cs`:
+Creates: `src/features/backup/backupFiles.ts` (logic, yours).
 
-```csharp
-// ---- Backup ----
-builder.Services.AddSingleton<BackupExporter>();
-builder.Services.AddSingleton(sp => new BackupImporter(
-    sp.GetRequiredService<SqliteConnectionFactory>(),
-    sp.GetRequiredService<BackupExporter>(),
-    Path.Combine(FileSystem.AppDataDirectory, "safety-backups")));
-builder.Services.AddSingleton(sp => new AutoBackupService(
-    sp.GetRequiredService<BackupExporter>(),
-    Path.Combine(FileSystem.AppDataDirectory, "auto-backups")));
-```
+```ts
+/** Exports into `dir` atomically: writes NAME.zip.tmp, then renames to NAME.zip. */
+export async function exportToFile(exporter: BackupExporter, dir: Directory, input: ExportInput): Promise<File> {
+  // TODO:
+  // 1. name = `MyHiBackup_${yyyy-MM-dd_HHmm}.zip` from input.now (local time)
+  // 2. const tmp = new File(dir, `${name}.tmp`); tmp.create(); const handle = tmp.open();
+  // 3. sink = { write: (chunk) => handle.writeBytes(chunk) }
+  // 4. await exporter.export(sink, input); handle.close() (in a finally)
+  // 5. rename tmp to the final name (File.move to the destination File), replacing
+  //    an existing file of that name. A crash before this line leaves only a .tmp,
+  //    never a truncated file under the real name.
+}
 
-### 9.7 — `BackupViewModel` (the logic — you write this)
-
-Creates: `src/MyHi.Companion/Features/Backup/BackupViewModel.cs`.
-
-```csharp
-using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
-using MyHi.Companion.Core.Backup;
-using MyHi.Companion.Core.Settings;
-using MyHi.Companion.Features.Shared;
-
-namespace MyHi.Companion.Features.Backup;
-
-public sealed partial class BackupViewModel : BaseViewModel
-{
-    private readonly BackupExporter _exporter;
-    private readonly BackupImporter _importer;
-    private readonly AppSettingsService _settings;
-    private string? _lastPreImportBackupPath;
-
-    // TODO: constructor also takes whatever Phase 04 exposes for "is a workout
-    // active right now" — this walkthrough can't name its exact type since Phase 04
-    // isn't built yet at the time this doc was written. Inject it, subscribe to
-    // however it signals a change, and keep IsWorkoutActive below in sync with it.
-    public BackupViewModel(BackupExporter exporter, BackupImporter importer, AppSettingsService settings)
-    {
-        _exporter = exporter;
-        _importer = importer;
-        _settings = settings;
-    }
-
-    [ObservableProperty]
-    private bool isWorkoutActive;
-
-    [ObservableProperty]
-    private string? progressStage;
-
-    [ObservableProperty]
-    private bool canUndoImport;
-
-    [RelayCommand]
-    private async Task ExportAsync()
-    {
-        // TODO:
-        // 1. Guard: if IsWorkoutActive, StatusMessage = "..."; return.
-        // 2. IsBusy = true; ProgressStage = "Building backup…";
-        // 3. var zipPath = await _exporter.ExportAsync(
-        //        FileSystem.CacheDirectory, AppInfo.VersionString, _settings.Snapshot());
-        // 4. await Share.Default.RequestAsync(new ShareFileRequest
-        //        { Title = "MyHi Companion backup", File = new ShareFile(zipPath) });
-        // 5. StatusMessage = "Backup shared."; IsBusy = false; ProgressStage = null;
-        //    Wrap in try/catch — set StatusMessage to the exception's message on
-        //    failure, same pattern as ScanViewModel.ConnectAsync (Phase 00).
-    }
-
-    [RelayCommand]
-    private async Task ImportAsync()
-    {
-        // TODO:
-        // 1. Guard: IsWorkoutActive or IsBusy -> StatusMessage, return.
-        // 2. var pick = await FilePicker.Default.PickAsync(new PickOptions
-        //        { PickerTitle = "Choose a MyHi Companion backup" });
-        //    if (pick is null) return;
-        // 3. Confirm before doing anything destructive — same DisplayAlert pattern as
-        //    CaptureSessionsViewModel.DeleteAsync (Phase 00): grab
-        //    Application.Current?.Windows.FirstOrDefault()?.Page, call
-        //    page.DisplayAlertAsync("Replace all workout history?",
-        //    "This replaces every workout on this phone with the contents of the
-        //    backup. A safety copy of the current data is made first.", "Replace",
-        //    "Cancel"). Return if not confirmed.
-        // 4. IsBusy = true; var progress = new Progress<BackupImportProgress>(p =>
-        //        ProgressStage = $"{p.Stage} ({p.FractionComplete:P0})");
-        // 5. var result = await _importer.ImportAsync(pick.FullPath, progress);
-        // 6. _settings.RestoreFrom(result.Settings); — only now, after ImportAsync has
-        //    already returned (which only happens after its transaction committed).
-        // 7. CanUndoImport = true; StatusMessage = $"Imported {result.WorkoutCount}
-        //    workouts."; IsBusy = false; ProgressStage = null;
-        //    Wrap in try/catch for BackupValidationException specifically — show its
-        //    Message directly, it's already written to be user-facing (see task 9.3).
-    }
-
-    [RelayCommand(CanExecute = nameof(CanUndoImport))]
-    private async Task UndoImportAsync()
-    {
-        // TODO: re-run _importer.ImportAsync against the pre-import safety backup
-        // ImportAsync itself wrote during the last ImportAsync call (task 9.3 step 4).
-        // You'll need ImportAsync or BackupImportResult to surface that path — add a
-        // field to BackupImportResult for it, or have ImportAsync raise an event; your
-        // call which, just make it deliberate.
-    }
+/** A ByteSource over a file, for the importer. */
+export function fileSource(file: File): () => Promise<ByteSource> {
+  // TODO: each call opens a fresh handle (the importer reads twice) and returns
+  // { read: (n) => handle.readBytes(n) }, closing the handle when read returns empty.
 }
 ```
 
-### 9.8 — Add `CommunityToolkit.Maui` (for the optional "Save to Device" button)
+### 9.7 — `useBackup` (the logic — you write this)
 
-The package isn't referenced yet. Check `src/MyHi.Companion/MyHi.Companion.csproj`,
-it currently only has `CommunityToolkit.Mvvm`. Concrete steps:
+Creates: `src/features/backup/useBackup.ts`.
 
-1. Add the package:
-   ```powershell
-   dotnet add src/MyHi.Companion/MyHi.Companion.csproj package CommunityToolkit.Maui
-   ```
-2. In `MauiProgram.cs`, add `using CommunityToolkit.Maui;` and chain
-   `.UseMauiCommunityToolkit()` onto the builder, next to `.UseMauiApp<App>()`:
-   ```csharp
-   builder
-       .UseMauiApp<App>()
-       .UseMauiCommunityToolkit()
-       .ConfigureFonts(fonts => { ... });
-   ```
-3. Add a `SaveCopyAsync` command to `BackupViewModel` following the "Save to device"
-   flow on the `FileSaver` doc page linked above, exporting the same way as 9.7 step 3,
-   then `await FileSaver.Default.SaveAsync(fileName, stream, cancellationToken)`
-   instead of `Share.Default.RequestAsync`. Wrap in try/catch: the doc page's known
-   permission failures on API 33+ are exactly why this is the *secondary* button, not
-   the primary one. A failure here should not read as "backup failed," just "couldn't
-   save a copy," since the primary export already succeeded.
+```ts
+export interface BackupState {
+  readonly isWorkoutActive: boolean;
+  readonly busy: boolean;
+  readonly progressStage: string | null;
+  readonly statusMessage: string | null;
+  readonly canUndoImport: boolean;
+}
 
-### 9.9 — UI: `BackupPage.xaml` (agent-authored)
-
-Per the collaboration model in `../README.md`, this is UI. Full XAML below, using
-only tokens/styles from `docs/learning/04-Monochrome-Theme.md`.
-
-Creates: `src/MyHi.Companion/Features/Backup/BackupPage.xaml` and `BackupPage.xaml.cs`.
-
-**`BackupPage.xaml`:**
-
-```xml
-<?xml version="1.0" encoding="utf-8" ?>
-<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             xmlns:backup="clr-namespace:MyHi.Companion.Features.Backup"
-             x:Class="MyHi.Companion.Features.Backup.BackupPage"
-             x:DataType="backup:BackupViewModel"
-             Title="Backup">
-
-    <ScrollView>
-        <VerticalStackLayout Padding="16" Spacing="12">
-
-            <Label Text="Export" Style="{StaticResource SubHeadline}" HorizontalOptions="Start" />
-            <Label Text="Builds a single ZIP with your full workout history, saved devices, and settings."
-                   Style="{StaticResource Caption}" />
-
-            <Border Padding="14" IsVisible="{Binding IsWorkoutActive}">
-                <Label Text="Export is disabled while a workout is active. Stop or finish the workout first."
-                       Style="{StaticResource Caption}" />
-            </Border>
-
-            <Button Text="Export Backup"
-                    Command="{Binding ExportCommand}"
-                    IsEnabled="{Binding IsWorkoutActive, Converter={StaticResource InverseBoolConverter}}" />
-
-            <Button Text="Save a Copy to Device"
-                    Style="{StaticResource SecondaryButton}"
-                    Command="{Binding SaveCopyCommand}"
-                    IsEnabled="{Binding IsWorkoutActive, Converter={StaticResource InverseBoolConverter}}" />
-
-            <BoxView HeightRequest="1" Margin="0,8" />
-
-            <Label Text="Import" Style="{StaticResource SubHeadline}" HorizontalOptions="Start" />
-            <Label Text="Replaces all workout history on this phone with the contents of a backup ZIP. A safety copy of the current data is made automatically first."
-                   Style="{StaticResource Caption}" />
-
-            <Button Text="Choose Backup File…"
-                    Command="{Binding ImportCommand}"
-                    IsEnabled="{Binding IsWorkoutActive, Converter={StaticResource InverseBoolConverter}}" />
-
-            <Button Text="Undo Last Import"
-                    Style="{StaticResource SecondaryButton}"
-                    Command="{Binding UndoImportCommand}"
-                    IsVisible="{Binding CanUndoImport}" />
-
-            <VerticalStackLayout Spacing="8" IsVisible="{Binding IsBusy}">
-                <ActivityIndicator IsRunning="{Binding IsBusy}" />
-                <Label Text="{Binding ProgressStage}" Style="{StaticResource Caption}" HorizontalOptions="Center" />
-            </VerticalStackLayout>
-
-            <Border Padding="14" IsVisible="{Binding StatusMessage, Converter={StaticResource NotNullConverter}}">
-                <Label Text="{Binding StatusMessage}" />
-            </Border>
-
-        </VerticalStackLayout>
-    </ScrollView>
-
-</ContentPage>
-```
-
-`InverseBoolConverter` and `NotNullConverter` are both already registered in `App.xaml`
-(Phase 00), so no new converters are needed.
-
-**`BackupPage.xaml.cs`**: identical pattern to every other page:
-
-```csharp
-namespace MyHi.Companion.Features.Backup;
-
-public partial class BackupPage : ContentPage
-{
-    public BackupPage(BackupViewModel viewModel)
-    {
-        InitializeComponent();
-        BindingContext = viewModel;
-    }
+export function useBackup(): BackupState & {
+  exportAndShare(): Promise<void>;
+  saveCopyToDevice(): Promise<void>;
+  importFromFile(): Promise<void>;
+  undoLastImport(): Promise<void>;
+} {
+  // TODO: read exporter, importer, settings, workout (engine) and treadmill from
+  // useServices(); isWorkoutActive from Phase 04's useWorkoutState.
+  //
+  // exportAndShare:
+  //   guard isWorkoutActive -> statusMessage, return
+  //   busy = true; progressStage = 'Building backup...'
+  //   const file = await exportToFile(exporter, new Directory(Paths.cache), {...})
+  //   await Sharing.shareAsync(file.uri, { mimeType: 'application/zip' })
+  //   statusMessage = 'Backup shared.'; in a finally: busy = false, progressStage = null
+  //   catch: statusMessage = the error's message
+  //
+  // saveCopyToDevice: same export, then Directory.pickDirectoryAsync() and copy the
+  //   file into the picked directory (see the expo-file-system docs for whether
+  //   file.copy accepts it directly, or whether you create a file in it and stream
+  //   the bytes). A failure here reads "couldn't save a copy", never "backup failed":
+  //   it's the secondary path.
+  //
+  // importFromFile:
+  //   guard isWorkoutActive or treadmill connected or busy -> statusMessage, return
+  //   pick with File.pickFileAsync(); cancelled -> return
+  //   await importer.validate(fileSource(picked))   // BEFORE asking the user anything
+  //   confirm with Alert.alert('Replace all workout history?', 'This replaces every
+  //     workout on this phone with the contents of the backup. A safety copy of the
+  //     current data is made first.', Cancel / Replace); cancelled -> return
+  //   safety backup: exportToFile into new Directory(Paths.document, 'safety-backups'),
+  //     remember that file for undo
+  //   const result = await importer.importReplace(fileSource(picked), p => progressStage = ...)
+  //   settings.restoreFrom(result.settings)   // only now, after the commit
+  //   canUndoImport = true; statusMessage = `Imported ${result.workoutCount} workouts.
+  //     Reconnect to your treadmill once.`
+  //   BackupValidationError: show its message directly; it's written to be user-facing
+  //
+  // undoLastImport: validate + importReplace from the remembered safety backup, then
+  //   restoreFrom its settings. Clears canUndoImport.
 }
 ```
 
-### 9.10 — Wire it up
+`Alert.alert` takes callbacks rather than returning a promise. Wrap it in a tiny
+`confirm(title, message, confirmLabel): Promise<boolean>` helper in
+`src/features/shared/confirm.ts` so the import reads top to bottom; write that helper
+yourself, it's five lines.
 
-Touches: `MauiProgram.cs`, `AppShell.xaml.cs`, `Features/Shared/HomeViewModel.cs`.
+### 9.8 — UI: the backup screen (agent-authored)
+
+Per the collaboration model in `../README.md`, this is UI. Full TSX below, using only
+tokens and components from `docs/learning/04-Monochrome-Theme.md`.
+
+Creates: `src/features/backup/BackupScreen.tsx` and `src/app/backup.tsx`.
+
+```tsx
+import { ActivityIndicator, ScrollView, View } from 'react-native';
+
+import { useBackup } from './useBackup';
+import { Button } from '@/features/shared/theme/Button';
+import { Screen } from '@/features/shared/theme/Screen';
+import { SecondaryButton } from '@/features/shared/theme/SecondaryButton';
+import { Surface } from '@/features/shared/theme/Surface';
+import { Text } from '@/features/shared/theme/Text';
+import { spacing } from '@/features/shared/theme/tokens';
+import { useTheme } from '@/features/shared/theme/useTheme';
+
+export function BackupScreen() {
+  const b = useBackup();
+  const { colors } = useTheme();
+  const locked = b.isWorkoutActive || b.busy;
+
+  return (
+    <Screen>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}>
+        <Text variant="subheadline">Export</Text>
+        <Text variant="caption">
+          Builds a single ZIP with your full workout history, saved devices, and settings.
+        </Text>
+
+        {b.isWorkoutActive && (
+          <Surface style={{ padding: 14 }}>
+            <Text variant="caption">Backup is disabled while a workout is active. Finish the workout first.</Text>
+          </Surface>
+        )}
+
+        <Button label="Export backup" onPress={() => void b.exportAndShare()} disabled={locked} />
+        <SecondaryButton label="Save a copy to device" onPress={() => void b.saveCopyToDevice()} disabled={locked} />
+
+        <View style={{ height: 1, backgroundColor: colors.border, marginVertical: spacing.sm }} />
+
+        <Text variant="subheadline">Import</Text>
+        <Text variant="caption">
+          Replaces all workout history on this phone with the contents of a backup ZIP. A safety copy of the current data is made automatically first.
+        </Text>
+
+        <Button label="Choose backup file..." onPress={() => void b.importFromFile()} disabled={locked} />
+        {b.canUndoImport && (
+          <SecondaryButton label="Undo last import" onPress={() => void b.undoLastImport()} disabled={b.busy} />
+        )}
+
+        {b.busy && (
+          <View style={{ alignItems: 'center', gap: spacing.sm }}>
+            <ActivityIndicator color={colors.textPrimary} accessibilityLabel="Working" />
+            {b.progressStage !== null && <Text variant="caption">{b.progressStage}</Text>}
+          </View>
+        )}
+
+        {b.statusMessage !== null && (
+          <Surface style={{ padding: 14 }}>
+            <Text>{b.statusMessage}</Text>
+          </Surface>
+        )}
+      </ScrollView>
+    </Screen>
+  );
+}
+```
+
+`src/app/backup.tsx`:
+
+```tsx
+import { BackupScreen } from '@/features/backup/BackupScreen';
+
+export default BackupScreen;
+```
+
+### 9.9 — Wire it up
+
+Touches: `src/features/services.tsx`, `DashboardScreen.tsx`, `package.json`.
 
 Concrete steps:
-1. In `MauiProgram.cs`, add:
-   ```csharp
-   builder.Services.AddTransient<BackupViewModel>();
-   builder.Services.AddTransient<BackupPage>();
-   ```
-   next to the registrations from task 9.6.
-2. In `AppShell.xaml.cs`, add `Routing.RegisterRoute("backup", typeof(BackupPage));`.
-3. In `HomeViewModel.cs`, add a `NavDestination`:
-   ```csharp
-   new NavDestination("Backup", "Export workout history to a ZIP, or restore from one", "backup"),
-   ```
-4. Build and run: `dotnet build src/MyHi.Companion/MyHi.Companion.csproj -f net10.0-android`,
-   then walk through the manual test table below on-device before calling the phase
-   done.
+1. `npm install fflate`.
+2. `services.tsx`: `exporter: new BackupExporter(db)`, `importer: new BackupImporter(db)`.
+3. Add a "Backup" link next to "Settings" on the dashboard.
+4. Run it and walk through the manual test table below on-device before calling the
+   phase done.
 
 ---
 
@@ -811,27 +732,29 @@ Concrete steps:
 
 | Test | Expected |
 |------|----------|
-| Export with 50 workouts | ZIP created, opens, contains all five files |
-| Export → wipe → import | Row counts match **and** SHA-256 of a canonically-ordered dump matches — see task 9.5 |
+| Export with 50 workouts | ZIP created, opens on a PC, contains all five files |
+| Export → wipe → import | Row counts match **and** SHA-256 of a canonically-ordered dump matches (task 9.5) |
 | Kill app mid-import | No data loss; pre-import backup recoverable |
 | Import corrupt ZIP | Clear error, existing data untouched |
-| Import archive with `../` entry | Rejected — task 9.5's zip-slip test |
-| Import backup with newer format version | Clear "created by a newer version" message — task 9.5's version test |
+| Import archive with an unexpected entry | Rejected (task 9.5) |
+| Import backup with newer format version | Clear "created by a newer version" message (task 9.5) |
+| Failure mid-import | Everything rolled back (task 9.5) |
 | Export during active workout | Blocked with explanation |
 | Auto-backup after 6 workouts | Exactly 5 files retained, oldest rotated out |
 
-The first six rows are automated (`BackupExportImportTests`, task 9.5) except "Kill app
-mid-import," which needs a real device — **`[HUMAN]`**: start an import with a large
-backup, force-stop the app mid-transaction, relaunch, and confirm the database is
-either fully the old data or fully the new data, never a mix (SQLite's transaction
-guarantees this if task 9.3 is structured correctly — this test is there to catch a
-mistake in the *code*, not in SQLite).
+The automated rows run in `backup.test.ts` (task 9.5). "Kill app mid-import" needs a
+real device: **`[HUMAN]`**: start an import with a large backup, force-stop the app
+mid-import (`adb shell am force-stop com.myhi.companion`), relaunch, and confirm the
+database is either fully the old data or fully the new data, never a mix (SQLite's
+transaction guarantees this if task 9.3 is structured correctly; this test is there to
+catch a mistake in the *code*, not in SQLite).
 
 ## Acceptance
 
 - [ ] The export→wipe→import **checksum** test passes. "No data loss" is measured by
       checksum, not by eyeballing a list
 - [ ] No test leaves the database in a partial state
-- [ ] Zip-slip and format-version rejection tests pass
-- [ ] Export is blocked while `IsWorkoutActive` is true; import is blocked the same way
-- [ ] Zero warnings; all Phase 00–08 tests still pass
+- [ ] Allowlist and format-version rejection tests pass
+- [ ] Export is blocked while a workout is active; import is blocked the same way and
+      while connected
+- [ ] `tsc` and lint clean; all Phase 00–08 tests still pass

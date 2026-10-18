@@ -1,17 +1,19 @@
-# Phase 01 — Protocol Decode & Fixtures (01a) + `ITreadmillService` Skeleton (01b)
+# Phase 01 — Protocol Decode & Fixtures (01a) + `TreadmillService` Contract (01b)
 
 > This phase is split into two independent tracks with different blocking status.
-> **Track 01b needs nothing and starts today.** Track 01a needs real capture data
-> that doesn't exist yet. See `../README.md` for the collaboration model: you write
-> the code, the agent explains concepts up front and reviews after.
+> **Track 01b needs nothing but Phase 00's scaffold and starts right away.** Track
+> 01a needs real capture data that doesn't exist yet. See `../README.md` for the
+> collaboration model: you write the code, the agent explains concepts up front and
+> reviews after.
 
 **Hardware:** none for either track.
 
 ---
 
-## Track 01b — `ITreadmillService` skeleton + `FakeTreadmillService` ← START HERE
+## Track 01b — `TreadmillService` contract + `FakeTreadmillService` ← START HERE
 
-**Blocked by:** nothing. `ITreadmillService.cs` already exists in this folder.
+**Blocked by:** Phase 00 task 0.1 (the project has to exist). `treadmillService.ts`
+already exists in this folder.
 **Unblocks:** Phase 03 (Live Dashboard), 04 (Workout Engine), 06 (Recording & Schema).
 Anything that needs to display or react to treadmill data can now be built and tested
 without the real hardware in the room.
@@ -26,7 +28,7 @@ resource that can't be conjured by typing faster.
 
 **Why not just wait for the real thing?** The simplest-sounding plan is: don't
 build a fake, wait until 01a is unblocked and the real parsers exist, then build
-one `TreadmillService` and be done. That's actually the worse plan, not the
+one `BleTreadmillService` and be done. That's actually the worse plan, not the
 simpler one. Phases 03, 04, 06, 09, 10, 11, and 12 all need treadmill data flowing
 to be built and tested at all. If everything waits on one in-person capture
 session, the rest of the project serializes behind a single bottleneck outside
@@ -37,221 +39,224 @@ earns its keep is counting how many things it unblocks. Here, the answer is six
 phases for about 150 lines of code. Clear win, not a judgement call.
 
 **The pattern, named plainly.** This is **programming against an interface, not
-an implementation**, one of the oldest ideas in object-oriented design, applied
-here as a **seam**: a deliberately placed point where a real dependency (live
-Bluetooth) can be swapped for a stand-in (the fake) without anything on the other
-side noticing or changing. `ITreadmillService` *is* the seam. The cost is real:
-one extra layer of indirection. Any code holding an `ITreadmillService` genuinely
-doesn't know whether it's talking to hardware or a simulation, which is one more
-thing to hold in your head. The payoff is specific to this project: BLE hardware
-is expensive to keep "in the loop" for every phase's day-to-day development
-(you'd need the treadmill physically present and powered on for every single test
-run). Where the real dependency is cheap and instant to use directly, most plain
-data transformations for instance, this same pattern would be needless ceremony.
-It earns its place here because the real thing is hard to get to, not as a
-default habit for every dependency in the app.
+an implementation**, one of the oldest ideas in software design, applied here as a
+**seam**: a deliberately placed point where a real dependency (live Bluetooth) can
+be swapped for a stand-in (the fake) without anything on the other side noticing
+or changing. `TreadmillService` *is* the seam. The cost is real: one extra layer of
+indirection. Any code holding a `TreadmillService` genuinely doesn't know whether
+it's talking to hardware or a simulation, which is one more thing to hold in your
+head. The payoff is specific to this project: BLE hardware is expensive to keep "in
+the loop" for every phase's day-to-day development (you'd need the treadmill
+physically present and powered on for every single test run). Where the real
+dependency is cheap and instant to use directly, most plain data transformations
+for instance, this same pattern would be needless ceremony. It earns its place here
+because the real thing is hard to get to, not as a default habit for every
+dependency in the app.
+
+In TypeScript the seam costs even less than in most languages: interfaces are
+**structural**. Any object with the right methods *is* a `TreadmillService`; there's
+no `implements` keyword required (though writing `class FakeTreadmillService
+implements TreadmillService` is still worth it, because it makes the compiler point
+at the exact missing method instead of failing somewhere far away).
 
 ### Learning goals
 
 - Implementing an interface against a contract someone else already designed
-  (`ITreadmillService.cs`), reading intent from doc comments, not just signatures
-- C# events (`event EventHandler<T>?`): why this project uses them instead of, say,
-  `IObservable<T>` or return values (see the design notes at the top of
-  `ITreadmillService.cs`)
+  (`treadmillService.ts`), reading intent from doc comments, not just signatures.
+- **Subscribe-returns-unsubscribe** as an event pattern: why this project uses it
+  instead of an `EventEmitter` class or RxJS (see the design notes at the top of
+  `treadmillService.ts`), and why it fits React's `useEffect` cleanup exactly.
 - The **seam / fake pattern**: build a believable stand-in for something you don't
-  have yet (real BLE data), so everything above it can be built and tested now
-- **Where code belongs, and why**: `ITreadmillService.cs` currently sits in this
-  phase folder, outside every `.csproj`. It isn't compiled into anything yet. None of its
-  types (`TreadmillSample`, `ConnectionState`, etc.) reference MAUI or Android at all,
-  which is exactly the test the Phase 00 primer describes for "does this belong in
-  `Core`" (see `docs/learning/00-What-Is-Maui.md`). So it belongs in `Core`, not the
-  app project, which also means `FakeTreadmillService` can get real xUnit tests,
-  the same way `FtmsCommands` and `CaptureRecorder` do.
-- Registering a class in `MauiProgram.cs`'s DI container, and why that's the *only*
-  place that will need to change when a real implementation replaces the fake one
-  later
+  have yet (real BLE data), so everything above it can be built and tested now.
+- **Where code belongs, and why**: `treadmillService.ts` imports nothing from React,
+  React Native or Expo, which is exactly the test for "does this belong in
+  `src/core/`" (see `docs/learning/00-Expo-And-React-Native.md`). So
+  `FakeTreadmillService` lives in `core/` too and gets real Jest tests, the same way
+  `ftmsCommands` and the capture formatter do.
+- **Jest fake timers**: testing something that ticks once a second without the test
+  taking seconds.
+- The **composition root** (`src/features/services.tsx`): the *only* place that will
+  need to change when a real implementation replaces the fake one later.
 
 ### Reference docs
 
-- **`./ITreadmillService.cs`**: read the whole file before writing anything.
+- **`./treadmillService.ts`**: read the whole file before writing anything.
   Every type you need (`ConnectionState`, `TreadmillSample`, `MachineEvent`,
-  `TreadmillCapabilities`, `SpeedRange`, `ControlResult`, `FtmsResultCode`,
-  `AppErrorCode`, `ITreadmillSimulation`, `SimulationScenario`) is already defined
-  there, with doc comments explaining constraints.
+  `TreadmillCapabilities`, `SpeedRange`, `clampSpeed`, `ControlResult`,
+  `FtmsResultCode`, `AppErrorCode`, `TreadmillSimulation`, `SimulationScenario`) is
+  already defined there, with doc comments explaining constraints.
 - **`../phase-00-probe-app/PHASE-00-FINDINGS.md`**, section V2. The control-point
   finding matters here: `Start` does not appear to preserve a pre-set target speed on
   the real device. `FakeTreadmillService` doesn't have to reproduce this quirk, but
-  decide *consciously* whether your fake should (see task 1b.1).
-- **`../phase-00-probe-app/PHASE-00-FINDINGS.md`**: the speed range (1.0–16.0 km/h, 0.1 increment) is a
-  measured fact, safe to reuse as the fake's advertised range.
-- **C# events**: [Events (C# Programming Guide)](https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/events/).
-  Read this before writing `SampleReceived`/`StateChanged`/etc.; the interface
-  already declares them as `event EventHandler<T>?`. This doc explains what that
-  buys you and how a subscriber unhooks (`-=`) to avoid a leak.
-- **`System.Threading.Timer`**: [Timer class](https://learn.microsoft.com/en-us/dotnet/api/system.threading.timer).
-  The mechanism task 1b.2 uses to raise a sample roughly once a second. `PeriodicTimer`
-  ([docs](https://learn.microsoft.com/en-us/dotnet/api/system.threading.periodictimer))
-  is the newer, `async`-friendly alternative and arguably the better fit here. Worth
-  reading both and picking one deliberately, not defaulting to whichever you've used
-  before.
-- **Dependency injection in .NET MAUI** (task 1b.4): https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/dependency-injection.
-  Read the "Registration" section; `MauiProgram.cs` already registers
-  `TreadmillConnection` the same way you'll register `FakeTreadmillService`.
+  decide *consciously* whether your fake should (see task 1b.2).
+- **`../phase-00-probe-app/PHASE-00-FINDINGS.md`**: the speed range (1.0–16.0 km/h,
+  0.1 increment) is a measured fact, safe to reuse as the fake's advertised range.
+- **`src/core/shared/emitter.ts`** (from Phase 00): `createEmitter<T>()` gives you
+  `emit(value)` and `subscribe(listener) → unsubscribe` in a dozen lines. Use it for
+  the three event streams rather than writing listener arrays by hand.
+- **`setInterval` / `clearInterval`**: the mechanism task 1b.2 uses to raise a sample
+  roughly once a second. Whatever starts an interval must be able to stop it; an
+  interval nobody clears keeps firing (and keeps the fake "connected") forever.
+- **`AbortSignal`**: [AbortController (MDN)](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
+  The standard JavaScript way to say "give up on this async operation", used by
+  `connect(deviceId, signal)`. Read it before 1b.2: `signal.aborted` and the
+  `abort` event are the two things you'll touch.
+- **Jest fake timers**: [Timer Mocks](https://jestjs.io/docs/timer-mocks). Read
+  before 1b.3; `jest.useFakeTimers()` plus `await jest.advanceTimersByTimeAsync(ms)`
+  is the whole trick.
 
 ### Your tasks
 
-**1b.1: Move the contract into `Core`**
+**1b.1: Move the contract into `core/`**
 
-Creates: `src/MyHi.Companion.Core/Treadmill/ITreadmillService.cs` (new `Treadmill/`
-folder).
+Creates: `src/core/treadmill/treadmillService.ts` (new `treadmill/` folder).
 
 Concrete steps:
-1. In your editor, create the folder `src/MyHi.Companion.Core/Treadmill/`.
-2. Move `ITreadmillService.cs` from this phase folder into that folder. Use a real
-   file move (drag in your editor's file tree, or `git mv` on the command line), not
-   a retype. The content doesn't need to change.
-3. Open the moved file and check the `namespace` line. It should read
-   `namespace MyHi.Companion.Core.Treadmill;` (file-scoped namespace, matching the
-   folder). Fix it if it still says something else.
-4. Build just the `Core` project to confirm it compiles standalone with nothing
-   MAUI-flavoured leaking in:
+1. Create the folder `src/core/treadmill/`.
+2. Move `treadmillService.ts` from this phase folder into it with a real move
+   (`git mv phases/phase-01-protocol-decode/treadmillService.ts src/core/treadmill/`),
+   not a retype. The content doesn't need to change.
+3. Run the two checks that matter for anything in `core/`:
    ```powershell
-   dotnet build src/MyHi.Companion.Core/MyHi.Companion.Core.csproj
+   cd src
+   npx tsc --noEmit
+   npx expo lint
    ```
-   Zero errors, zero warnings is the bar, same as every other phase.
+   Zero errors, zero warnings is the bar, same as every other phase. The lint run
+   is what proves nothing React-Native-flavoured leaked in.
 
 **1b.2: `FakeTreadmillService`**
 
-Creates: `src/MyHi.Companion.Core/Treadmill/FakeTreadmillService.cs`.
+Creates: `src/core/treadmill/fakeTreadmillService.ts`.
 
-Implement `ITreadmillService` fully. Instead of talking to real Bluetooth, generate a
+Implement `TreadmillService` fully. Instead of talking to real Bluetooth, generate a
 synthetic session on a timer:
 
-- Raise `SampleReceived` roughly once a second with a `TreadmillSample` that changes
+- Emit a sample roughly once a second with a `TreadmillSample` that changes
   realistically over time (speed ramping up, distance accumulating, elapsed time
   counting up). This is exactly what Phase 03's dashboard will render, so it needs
   to actually look like a workout, not just static numbers.
-- Support at least the `NormalWalk` scenario end to end: warm-up → steady speed →
+- Support at least the `normalWalk` scenario end to end: warm-up → steady speed →
   cool-down.
-- `ConnectAsync` should transition `State` through
-  `Connecting → Discovering → Ready` with a short delay at each step, mirroring the
-  shape of a real connection (see `Features/Bluetooth/TreadmillConnection.cs` from
-  Phase 00 for what the real state machine looks like) so nothing built against this
-  fake is surprised later. `DisconnectAsync` transitions `Ready → Disconnected`.
-- `RequestControlAsync` / `SetSpeedAsync` / `StartAsync` / `PauseAsync` / `StopAsync`
-  should return a plausible `ControlResult` and actually affect the simulated sample
-  stream (e.g. `SetSpeedAsync` changes what speed subsequent samples report). One
-  design decision that's yours to make, informed by the Phase 00 finding above:
-  should this fake also model "Start doesn't preserve target speed"? Either answer is
-  defensible. Just make it a deliberate choice, and write a one-line comment saying
-  which you picked and why.
-- Populate `Capabilities` and `SpeedRange` with reasonable values once "connected."
-- Note: raising events "on the UI thread" (per the interface's doc comment) is a
-  real MAUI-app requirement, but a class living in `Core` can't reference
-  `MainThread.BeginInvokeOnMainThread` (that's a MAUI type). Fine to raise the events
-  directly from `Core`. Marshalling to the UI thread, if still needed, becomes
-  something the *consumer* (Phase 03's ViewModel) or a thin wrapper handles, not this
-  class. We'll talk through this at the review checkpoint if it's unclear.
+- `connect()` transitions state through `connecting → discovering → ready` with a
+  short delay at each step, mirroring the shape of the real connection (see
+  `src/features/bluetooth/treadmillConnection.ts` from Phase 00 for what the real
+  state machine looks like) so nothing built against this fake is surprised later.
+  `disconnect()` transitions `ready → disconnected` and stops the sample interval.
+- `requestControl()` / `setSpeed()` / `start()` / `pause()` / `stop()` resolve to a
+  plausible `ControlResult` and actually affect the simulated sample stream (e.g.
+  `setSpeed()` changes what speed subsequent samples report). One design decision
+  that's yours to make, informed by the Phase 00 finding above: should this fake also
+  model "Start doesn't preserve target speed"? Either answer is defensible. Just make
+  it a deliberate choice, and write a one-line comment saying which you picked and
+  why.
+- Populate the capabilities and the speed range once "connected."
 
 The shape of the class, not the implementation. Just the skeleton so you're not
 staring at a blank file:
 
-```csharp
-namespace MyHi.Companion.Core.Treadmill;
+```ts
+import { createEmitter } from '../shared/emitter';
+import {
+  type ConnectionState, type ConnectionStateChange, type ControlResult,
+  type MachineEvent, type SpeedRange, type TreadmillCapabilities,
+  type TreadmillSample, type TreadmillService, type Unsubscribe,
+} from './treadmillService';
 
-public sealed class FakeTreadmillService : ITreadmillService
-{
-    private PeriodicTimer? _sampleTimer;
-    private CancellationTokenSource? _sampleLoopCts;
-    private double _currentSpeedKmh;
-    private double _distanceMeters;
+export class FakeTreadmillService implements TreadmillService {
+  private state: ConnectionState = 'disconnected';
+  private capabilities: TreadmillCapabilities | null = null;
+  private speedRange: SpeedRange | null = null;
+  private sampleTimer: ReturnType<typeof setInterval> | null = null;
+  private currentSpeedKph = 0;
+  private distanceMeters = 0;
 
-    public ConnectionState State { get; private set; } = ConnectionState.Disconnected;
-    public TreadmillCapabilities? Capabilities { get; private set; }
-    public SpeedRange? SpeedRange { get; private set; }
+  private readonly stateChanges = createEmitter<ConnectionStateChange>();
+  private readonly samples = createEmitter<TreadmillSample>();
+  private readonly machineEvents = createEmitter<MachineEvent>();
 
-    public event EventHandler<TreadmillSample>? SampleReceived;
-    public event EventHandler<ConnectionState>? StateChanged;
-    // ... the rest of ITreadmillService's events
+  getConnectionState(): ConnectionState { return this.state; }
+  // ... getCapabilities, getSpeedRange, hasControl
 
-    public async Task ConnectAsync(CancellationToken ct = default)
-    {
-        // transition Disconnected -> Connecting -> Discovering -> Ready,
-        // with a short delay at each step, raising StateChanged each time
-    }
+  onSample(listener: (sample: TreadmillSample) => void): Unsubscribe {
+    return this.samples.subscribe(listener);
+  }
+  // ... onConnectionStateChange, onMachineEvent: same one-liner
 
-    private async Task RunSampleLoopAsync(CancellationToken ct)
-    {
-        // PeriodicTimer, tick ~once/sec, mutate _currentSpeedKmh / _distanceMeters
-        // per the NormalWalk shape (warm-up -> steady -> cool-down), raise SampleReceived
-    }
+  async connect(deviceId: string, signal?: AbortSignal): Promise<void> {
+    // transition disconnected -> connecting -> discovering -> ready, with a short
+    // delay at each step, emitting a state change each time; bail out (back to
+    // 'disconnected') if signal?.aborted becomes true along the way
+  }
 
-    // DisconnectAsync, RequestControlAsync, SetSpeedAsync, StartAsync, PauseAsync,
-    // StopAsync — same pattern: mutate state, raise the relevant event, return a
-    // ControlResult
+  private tick(): void {
+    // called by setInterval ~once/sec: advance currentSpeedKph / distanceMeters
+    // per the normalWalk shape (warm-up -> steady -> cool-down), emit a sample
+  }
+
+  // disconnect, requestControl, setSpeed, start, pause, stop: same pattern:
+  // mutate state, emit the relevant event, resolve a ControlResult
 }
 ```
 
 Deliberately **not required yet**: the other `SimulationScenario` values
-(`DropoutMidSession`, `SparseFields`, `ControlRejected`, `IntervalWalk`) and a
-counter-reset scenario. Get `NormalWalk` solid first; we'll extend this file when a
+(`dropoutMidSession`, `sparseFields`, `controlRejected`, `intervalWalk`) and a
+counter-reset scenario. Get `normalWalk` solid first; we'll extend this file when a
 later phase actually needs a specific scenario for a specific test, rather than
 building five scenarios speculatively now.
 
-**1b.3: A real xUnit test**
+**1b.3: Real Jest tests**
 
-Creates: `src/MyHi.Companion.Tests/Treadmill/FakeTreadmillServiceTests.cs`.
+Creates: `src/core/treadmill/fakeTreadmillService.test.ts` and
+`src/core/treadmill/clampSpeed.test.ts`.
 
-At minimum: connecting reaches `Ready`, `SetSpeedAsync` clamps to `SpeedRange` (reuse
-`SpeedRange.Clamp`, which already exists in `ITreadmillService.cs` and has its own
-logic worth testing directly too), and subscribing to `SampleReceived` after
-`ConnectAsync` + `StartAsync` actually receives at least one sample within a
-reasonable timeout.
-
-Concrete steps:
-1. Create the test file in `src/MyHi.Companion.Tests/Treadmill/` (new folder, mirrors
-   the source layout, same pattern as the existing `Ftms/` and `Capture/` test
-   folders from Phase 00).
-2. Write `[Fact] public async Task ConnectAsync_ReachesReady()`: call `ConnectAsync`,
-   assert `State == ConnectionState.Ready` afterward.
-3. Write `[Theory]` cases for `SpeedRange.Clamp` at min, max, below min, above max.
-   This one doesn't even need a `FakeTreadmillService` instance; it's testing the
-   struct directly.
-4. Write a test that subscribes to `SampleReceived`, calls `ConnectAsync` then
-   `StartAsync`, and awaits (with a timeout, e.g. `Task.WhenAny` against a short
-   `Task.Delay`) at least one raised sample.
-5. Run `dotnet test src/MyHi.Companion.Tests`: all green, including Phase 00's
-   existing tests (regression).
-
-**1b.4: Register it in DI**
-
-Touches: `src/MyHi.Companion/MauiProgram.cs`.
-
-Register `FakeTreadmillService` as the `ITreadmillService` implementation, as a
-singleton, same reasoning as the existing `TreadmillConnection` registration already
-in that file (one treadmill connection concept per running app).
+At minimum: connecting reaches `ready`, `setSpeed()` clamps to the speed range
+(through `clampSpeed`, which already exists in `treadmillService.ts` and has its own
+logic worth testing directly too), and a listener subscribed with `onSample` after
+`connect()` + `start()` actually receives at least one sample.
 
 Concrete steps:
-1. Open `MauiProgram.cs` and find the existing
-   `builder.Services.AddSingleton<TreadmillConnection>();`-style registration from
-   Phase 00; that's the pattern to copy.
-2. Add `builder.Services.AddSingleton<ITreadmillService, FakeTreadmillService>();`
-   near it.
-3. Add the `using MyHi.Companion.Core.Treadmill;` directive at the top if it's not
-   already there.
-4. Build the app project (`dotnet build MyHi.Companion/MyHi.Companion.csproj -f net10.0-android`)
-   to confirm DI resolves. A missing registration only shows up at runtime when
-   something tries to inject `ITreadmillService`, so this step alone won't prove it
-   works; that's what the tiny wire-up at the review checkpoint below is for.
+1. `clampSpeed.test.ts`: a `test.each` table covering min, max, below min, above max,
+   mid-increment (6.47 → 6.5), and the floating-point case the doc comment mentions
+   (`1.0 + 3 * 0.1` → exactly `1.3`). This one doesn't need a fake at all; it's
+   testing a pure function directly.
+2. `fakeTreadmillService.test.ts`, with `jest.useFakeTimers()` in a `beforeEach`:
+   - `test('connect reaches ready', ...)`: start `connect()`, advance timers past the
+     fake's delays, `await` it, expect `getConnectionState()` to be `'ready'`.
+   - A test that subscribes with `onSample`, connects, starts, advances timers by
+     ~3 s, and expects the listener to have been called at least twice.
+   - A test that calls the unsubscribe function and proves the listener stops being
+     called. A subscription that can't be cancelled is a memory leak waiting to
+     happen in Phase 03.
+3. Run `npm test`: all green, including Phase 00's existing tests (regression).
+
+**1b.4: Wire it into the composition root**
+
+Touches: `src/features/services.tsx`.
+
+Create one `FakeTreadmillService` at module scope and expose it as `treadmill` on
+the services object, typed as `TreadmillService` (the interface, not the class).
+That type annotation is the whole point: every consumer sees only the contract, so
+swapping in the real implementation later can't break them.
+
+Concrete steps:
+1. Open `services.tsx` and find the existing Phase 00 entries (the BLE client, the
+   capture recorder); that's the pattern to copy.
+2. Add `treadmill: TreadmillService` to the `Services` interface and
+   `treadmill: new FakeTreadmillService()` to `createServices()`.
+3. `npx tsc --noEmit`. A missing field shows up here at compile time, not at
+   runtime, which is one thing this hand-rolled composition root does better than a
+   DI container.
 
 ### Review checkpoint
 
 Before Phase 03 starts building UI on top of this: the agent reviews
-`FakeTreadmillService.cs` against `ITreadmillService.cs`'s doc comments (which encode
-real constraints, e.g. "events raised on the UI thread," "control methods return a
-result rather than throwing"). Then we wire up something tiny together, even just a
-button that connects and a label bound to the latest sample's speed, to *see* it
-work before Phase 03 builds a real screen on the assumption that it does.
+`fakeTreadmillService.ts` against `treadmillService.ts`'s doc comments (which encode
+real constraints, e.g. "control methods resolve to a result rather than rejecting,"
+"listeners run synchronously in subscription order"). Then we wire up something
+tiny together, even just a button that connects and a line of text showing the latest
+sample's speed, to *see* it work before Phase 03 builds a real screen on the
+assumption that it does.
 
 ---
 
@@ -260,7 +265,7 @@ work before Phase 03 builds a real screen on the assumption that it does.
 **Blocked by:** Probe Part C (four-plus matched console-vs-hex pairs) and C7 (counter
 reset semantics) from `../phase-00-probe-app/HUMAN-RUNBOOK.md`. Neither has been
 captured yet; only the control-point finding (V2) has.
-**Unblocks:** the *real* `TreadmillService` (as opposed to 01b's fake) becoming
+**Unblocks:** the *real* `BleTreadmillService` (as opposed to 01b's fake) becoming
 trustworthy. Nothing else is newly blocked on this beyond what it always blocked.
 
 > Pure desk work once unblocked. No hardware in the loop. The hardware speaks in
@@ -271,14 +276,14 @@ trustworthy. Nothing else is newly blocked on this beyond what it always blocked
 
 **The problem.** The treadmill sends a stream of raw bytes over Bluetooth,
 meaningless without a decoder. A parser's job is translation: turn `"02 4B 00 A3
-01 ..."` into `SpeedKph = 6.5, DistanceMeters = 412`. That translation step is
+01 ..."` into `speedKph = 6.5, distanceMeters = 412`. That translation step is
 where almost every real bug in a BLE app lives. The "dictionary" you're
 translating against (the FTMS spec) is a *general* spec written for any fitness
 machine, and this specific treadmill (a FitShow module, not a native FTMS
 implementation) is already proven to deviate from it (see the `0x2ACC` finding
-above that the feature flags over-claim). The goal is what this one
-device actually does, verified against real captured bytes, not just the general
-spec on paper.
+below that the feature flags over-claim). The goal is what this one device
+actually does, verified against real captured bytes, not just the general spec on
+paper.
 
 **Why the parser can't be "read the bytes in order."** The naive, simplest-sounding
 approach (read byte 0 as speed, byte 1 as distance, and so on at fixed positions)
@@ -305,7 +310,10 @@ plausible-looking-but-wrong numbers silently corrupting a chart three screens
 later. Uncle Bob's framing applies directly here. This isn't a rule to follow
 blindly on every function; it's specifically valuable at a **trust boundary**
 (bytes arriving from outside your program's control), which is exactly what a BLE
-packet is.
+packet is. `DataView` helps in a specific way: reading past its end *throws*
+(`RangeError`) instead of quietly returning garbage. Validating the length first
+means that throw never happens in practice; if it ever does, it's a bug in your
+length calculation, and it's loud.
 
 ### Reference docs
 
@@ -313,6 +321,9 @@ packet is.
   traps, `0x2A37`, `0x2ADA`, `0x2AD3`. (Control point response format, `0x2AD9`,
   lives in `../phase-05-treadmill-control/README.md` since that's the phase that
   writes to it.)
+- **`DataView`**: [DataView (MDN)](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/DataView).
+  `getUint8`, `getUint16(offset, true)`, `getInt16(offset, true)`. The `true` is
+  little-endian and it is never optional in this project.
 - `../phase-00-probe-app/PHASE-00-FINDINGS.md`: the measured truth
 - `../../captures/`: raw sessions
 
@@ -541,13 +552,16 @@ the opposite of every other bit in the field. Decoding it as a normal presence b
 shifts every subsequent field and corrupts the entire packet. This trips up most
 first-time FTMS implementations.
 
-**Trap 2: Total Distance is uint24.** Three bytes, little-endian. There is no
-`BitConverter` overload; assemble it manually:
+**Trap 2: Total Distance is uint24.** Three bytes, little-endian. `DataView` has
+`getUint16`/`getUint32` but no 24-bit reader; assemble it manually:
 
-```csharp
-uint distance = (uint)(data[i] | (data[i + 1] << 8) | (data[i + 2] << 16));
+```ts
+const distance = view.getUint16(i, true) | (view.getUint8(i + 2) << 16);
 i += 3;
 ```
+
+(`true` means little-endian. `DataView`'s default is big-endian, which is the
+single easiest way to get every multi-byte field in this file wrong.)
 
 **Trap 3: Expended Energy is one flag bit but three fields**, 5 bytes total:
 Total Energy (uint16, kcal), Energy Per Hour (uint16, kcal), Energy Per Minute
@@ -606,8 +620,11 @@ on entirely.
 - **Validate length before parsing:** compute the expected byte count from the flags
   and reject the packet if it doesn't match. Log rejected packets with their hex. Do
   not read past the buffer.
-- Return a struct, not a heap allocation, on the hot path.
-- Treat every field as optional in the domain model (`double?`, `int?`), because
+- Return a result, not a thrown exception, for a malformed packet: a rejected
+  packet at 1 Hz is an expected event, and `try`/`catch` around every notification
+  would bury real errors. A discriminated union (`{ ok: true, sample }` /
+  `{ ok: false, reason, hex }`) makes the caller handle both.
+- Treat every field as nullable in the domain model (`number | null`), because
   presence is per-packet, not per-device.
 
 ### Heart Rate Service (`180D`): the preferred HR source
@@ -747,55 +764,85 @@ Without these you are writing a parser you cannot test, which is the same as not
 having one. If you have treadmill access again before this is done, running
 `HUMAN-RUNBOOK.md` Part C is the highest-value fifteen minutes available.
 
+
 ### Tasks (once unblocked)
 
 **1a.1: Extract fixtures from captures**
 
-Creates: `src/MyHi.Companion.Tests/Fixtures/*.json`. Pull every distinct packet out
-of `../../captures/` into named fixtures, each carrying its provenance (source file,
-timestamp, and, for `0x2ACD`, the paired console values). Include the ugly ones:
-short packets, unexpected lengths, anything the log flagged.
+Creates: `src/core/ftms/fixtures/*.json`. Pull every distinct packet out of
+`../../captures/` into named fixtures, each carrying its provenance (source file,
+line `id`, timestamp, and, for `0x2ACD`, the paired console values). Include the
+ugly ones: short packets, unexpected lengths, anything the log flagged. Jest imports
+JSON directly (`import fixtures from './fixtures/treadmillData.json'`), so the
+fixtures stay plain data a human can read.
 
 **1a.2: `0x2ACD` Treadmill Data parser ← the one that matters**
 
-Creates: `src/MyHi.Companion.Core/Ftms/TreadmillDataParser.cs`, same project and
-namespace as the existing `FtmsCommands`/`ControlPointResponseParser` from Phase 00,
-since this is pure byte-parsing with no MAUI dependency and needs the same kind of
-fixture-based xUnit tests they got. Cursor-based, flag-driven, never fixed-offset.
-The three traps (bit 0 inverted, uint24 distance, 5-byte expended energy) are
-documented in the "Treadmill Data" section of the FTMS protocol reference above,
-and in this project's Phase 00 `TASKS.md`.
-Read both before writing this parser; they cover the mistakes that otherwise get made
-here. Length validation is mandatory: reject and log anything that doesn't match its
-flags, never read past the buffer. Returns a `TreadmillSample` struct (from
-`ITreadmillService.cs`, moved into `Core` in 1b.1). No heap allocation on the hot
-path, every field nullable.
+Creates: `src/core/ftms/treadmillData.ts`, next to Phase 00's `ftmsCommands.ts` and
+`controlPointResponse.ts`, since this is pure byte-parsing with no React Native
+dependency and needs the same kind of fixture-based tests they got. Cursor-based,
+flag-driven, never fixed-offset. The three traps (bit 0 inverted, uint24 distance,
+5-byte expended energy) are documented in the "Treadmill Data" section of the FTMS
+protocol reference above. Read it before writing this parser; it covers the
+mistakes that otherwise get made here. Length validation is mandatory: reject and
+log anything that doesn't match its flags, never read past the buffer.
+
+The shape:
+
+```ts
+export type ParseResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly reason: string; readonly hex: string };
+
+/** Decodes one 0x2ACD notification. Never throws on malformed input. */
+export function parseTreadmillData(
+  bytes: Uint8Array,
+  receivedAtMs: number,
+): ParseResult<TreadmillSample> {
+  // TODO:
+  // 1. bytes.length < 2 -> { ok: false, ... }
+  // 2. const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  //    const flags = view.getUint16(0, true);
+  // 3. compute the expected length from the flags (one helper, table-driven from
+  //    the field table above) and reject if bytes.length differs
+  // 4. walk a cursor from offset 2, field by field in table order
+  // 5. return { ok: true, value: { receivedAtMs, speedKph: ..., ... } } with null for
+  //    every field whose flag said "absent"
+}
+```
+
+Two details worth knowing before you start. `new DataView(bytes.buffer, ...)` needs
+the `byteOffset`/`byteLength` arguments because a `Uint8Array` can be a *window* onto
+a larger buffer. And `bytes.byteOffset` is almost always `0` in this app, which is
+exactly why forgetting it produces a bug that only shows up later.
 
 **1a.3: Remaining parsers**
 
-Creates: `src/MyHi.Companion.Core/Ftms/`: one file each for `0x2ACC` (decode +
-expose, never branch on it), `0x2AD4` (3× uint16 LE), `0x2ADA` (op code +
-parameters), `0x2AD3` (display only), `0x2A37` (heart rate, bit 0 selects
-uint8/uint16, bits 1–2 are sensor contact). The control point response decoder
-already exists here from Phase 00 (`FtmsControlPoint.cs`); reuse it, don't
-duplicate it.
+Creates, in `src/core/ftms/`: one file each for `0x2ACC` (`fitnessMachineFeature.ts`:
+decode and expose, never branch on it), `0x2AD4` (`supportedSpeedRange.ts`: 3×
+uint16 LE), `0x2ADA` (`machineStatus.ts`: op code + parameters, returning the
+`MachineEvent` union), `0x2AD3` (`trainingStatus.ts`: display only), `0x2A37`
+(`heartRateMeasurement.ts`: bit 0 selects uint8/uint16, bits 1–2 are sensor
+contact). The control point response decoder already exists from Phase 00
+(`controlPointResponse.ts`); reuse it, don't duplicate it.
 
 **1a.4: Capability derivation**
 
-Creates: `src/MyHi.Companion.Core/Ftms/CapabilityTracker.cs`. `0x2ACC` is advisory:
-log it, never gate on it (see the "Capabilities (`0x2ACC`)" finding in
+Creates: `src/core/ftms/capabilityTracker.ts`. `0x2ACC` is advisory: log it, never
+gate on it (see the "Capabilities (`0x2ACC`)" finding in
 `../phase-00-probe-app/PHASE-00-FINDINGS.md` for why). Instead, accumulate the
 union of observed `0x2ACD` flag bits over the first ~30 s after connecting; a
-field is real if it arrives in packets.
+field is real if it arrives in packets. A pure class: feed it `(flags, receivedAtMs)`,
+ask it `isFieldObserved('distance')`.
 
-**1a.5: `TreadmillService` (real implementation)**
+**1a.5: `BleTreadmillService` (real implementation)**
 
-Creates: `src/MyHi.Companion/Features/Treadmill/TreadmillService.cs`. This one
-*does* belong in the app project, not `Core`, because it depends on Plugin.BLE
-(`TreadmillConnection`, `ControlPointClient` from Phase 00), which only makes sense
-on a real platform. Implements `ITreadmillService` (from `Core`) using the parsers
-above. This is where 01b's fake gets a real sibling: same interface, same DI slot,
-swapped in `MauiProgram.cs` once this is done and reviewed.
+Creates: `src/features/treadmill/bleTreadmillService.ts`. This one belongs in
+`features/`, not `core/`, because it depends on ble-manager (through Phase 00's
+`bleClient.ts`, `treadmillConnection.ts` and `controlPointClient.ts`), which only
+exists on a real phone. Implements `TreadmillService` (from `core/`) using the parsers
+above. This is where 01b's fake gets a real sibling: same interface, same slot in
+`services.tsx`, swapped in once this is done and reviewed. The swap is one line.
 
 **1a.6: Update the protocol reference**
 
@@ -807,27 +854,29 @@ the real capture contradicts. Anything still genuinely unknown stays recorded in
 `PHASE-00-FINDINGS.md`'s "Still unresolved after this run" table, tagged with the
 phase it blocks.
 
-### Tests — this is where the project's real automated test suite lives
+### Tests: this is where the project's real automated test suite lives
 
-Everything else in this app is I/O and UI. These are the meaningful automated tests:
+Everything else in this app is I/O and UI. These are the meaningful automated tests
+(all in `src/core/ftms/*.test.ts`, run with `npm test`):
 
-- Every fixture decodes to its expected values.
-- Console-matched fixtures decode to the console's numbers, within rounding: the
-  test that proves correctness, not just non-crashing.
-- Malformed input (truncated packet, length/flags mismatch, empty buffer): rejected
-  and logged, never crashes, never reads out of bounds.
+- Every fixture decodes to its expected values (`test.each` over the fixture file).
+- Console-matched fixtures decode to the console's numbers, within rounding
+  (`toBeCloseTo`): the test that proves correctness, not just non-crashing.
+- Malformed input (truncated packet, length/flags mismatch, empty buffer): returns
+  `{ ok: false }` with the hex, never throws, never reads out of bounds.
 - Bit 0 specifically: More-Data-set vs. not, asserting the speed field's presence
   flips the way the spec says.
 - uint24 distance at boundary values (`0x00FFFF`, `0x010000`).
 - Expended Energy advancing exactly 5 bytes: assert a following field still lands
   correctly.
-- `SpeedRange.Clamp` at min, max, below min, above max, mid-increment.
+- A `Uint8Array` that's a window onto a bigger buffer (`new Uint8Array(buf, 3, 10)`)
+  decodes the same as a fresh copy: the `byteOffset` trap from task 1a.2.
 
 ### Acceptance
 
 - [ ] Every blank in `../phase-00-probe-app/PHASE-00-FINDINGS.md` resolved or marked unsupported
 - [ ] Console-matched fixtures decode to the console's values at all captured speeds
-- [ ] Malformed-input tests pass: nothing crashes, everything logs
+- [ ] Malformed-input tests pass: nothing throws, everything logs
 - [ ] `FakeTreadmillService` (from 01b) still produces a realistic stream and the
-      real `TreadmillService` can be swapped in without any consumer changing
-- [ ] Zero warnings; all Phase 00 tests still pass
+      real `BleTreadmillService` can be swapped in without any consumer changing
+- [ ] `tsc` and lint clean; all Phase 00 tests still pass

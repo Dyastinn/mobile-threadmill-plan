@@ -27,7 +27,8 @@ These don't need re-measuring; they're the starting point for everything below.
 Bluetooth permission path is out of scope, do not implement it. Xiaomi requires
 more than standard battery optimisation (see the HyperOS checklist below).
 
-**HyperOS background-execution checklist (`[HUMAN]`, needed before Phase 14):**
+**HyperOS background-execution checklist (`[HUMAN]`, needed before runbook Part H
+and again before Phase 14):**
 standard Android battery optimisation is **not sufficient** on Xiaomi.
 
 | Control | Where | Status |
@@ -39,8 +40,19 @@ standard Android battery optimisation is **not sufficient** on Xiaomi.
 
 *Confidence: high that these controls exist and matter; moderate on exact menu
 names, which Xiaomi renames between HyperOS versions.* **Verify all four before
-Phase 14.** Skipping them means endurance tests fail for reasons unrelated to the
-code.
+Part H and before Phase 14.** Skipping them means those tests fail for reasons
+unrelated to the code.
+
+**Developer options for installing builds (`[HUMAN]`, needed before task 0.1's
+first install):** Xiaomi splits USB debugging into separate toggles, and has
+historically required a signed-in Mi account (sometimes a SIM card) to enable them.
+
+| Control | Status |
+|---------|--------|
+| USB debugging | ⬜ NEEDED |
+| Install via USB | ⬜ NEEDED |
+| USB debugging (Security settings) | ⬜ NEEDED |
+| Wireless debugging paired with the PC (for unplugged tests) | ⬜ NEEDED |
 
 ### Treadmill
 
@@ -137,7 +149,7 @@ unverified.
 
 ---
 
-## Verdicts: the four that decide later phases
+## Verdicts: the five that decide later phases
 
 ### V1 · Counter semantics (**blocks Phase 06 entirely**)
 
@@ -223,6 +235,26 @@ Is 0x1826 in the advertisement?  [ ] yes → filter on service UUID
 ```
 
 Never fall back to unfiltered scanning. Ship one filter, not both.
+
+### V5 · Background JavaScript (**decides where BLE lives, Phase 07**)
+
+From runbook Part H, release APK, phone unplugged, all four HyperOS controls set.
+
+```
+                        Max notify gap   Max heartbeat gap   Disconnects
+H1 keep-alive OFF, 5 min      ______ s          ______ s          ______
+H2 locked, 15 min             ______ s          ______ s          ______
+H3 split + YouTube, 15 min    ______ s          ______ s          ______
+H4 locked, 60 min             ______ s          ______ s          ______
+Battery over H4: ______ %
+
+[ ] Holds        → BLE and recording stay in TypeScript; Phase 07 finishes the spike
+[ ] Partly holds → specify which signal stalled: ______________________________
+[ ] Fails        → BLE and recording move into the Kotlin module (Phase 07 fallback)
+```
+
+Pass bar: notify gap ≤ 5 s, heartbeat gap ≤ 10 s (the heartbeat ticks every 5 s), zero
+disconnects, in every keep-alive-ON run.
 
 ---
 

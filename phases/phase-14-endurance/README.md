@@ -35,8 +35,13 @@ Also before the first test:
 - [ ] Phone fully charged. A mid-test low-battery power-save mode is a confound you
       don't want to have to untangle from a real bug
 - [ ] Treadmill powered on, safety key clipped on
-- [ ] Enough free storage for capture logs. Tests 1–6 each produce one, test 2's is
-      the largest (120 minutes)
+- [ ] Enough free storage for capture logs. Tests 1–6 each produce one
+- [ ] The **release APK** installed (`npx expo run:android --variant release`), not
+      the development build: the release build carries its own JavaScript and runs at
+      real speed, and it's what you'll actually use day to day
+- [ ] Phone **unplugged** for every test. Android doesn't enter Doze while charging,
+      so a test on a cable can pass and then fail in a real workout. Pair wireless
+      debugging first if you want `adb` (tests 2 and 7) or the agent watching logcat
 - [ ] You know where the app's Capture Recorder screen lives (same screen used in
       Phase 00) and how to start/stop/export a session from it
 
@@ -51,7 +56,7 @@ logs along with it.
 | # | Test | Pass condition |
 |---|------|----------------|
 | 1 | 60-minute walk, screen locked | No disconnect, no sample gap > 5 s |
-| 2 | 120-minute walk | Same, plus flat memory — also the empirical check that `connectedDevice` has no 6-hour timeout |
+| 2 | 60-minute walk with memory readings | Same, plus flat memory |
 | 3 | Split screen, switching YouTube / Messenger / Chrome throughout | No disconnect |
 | 4 | Lock/unlock 20× during a workout | No disconnect, no duplicate samples |
 | 5 | Disable Bluetooth mid-workout, re-enable | Grace-window resume works |
@@ -97,36 +102,37 @@ above are the only ones that count. Nothing below invents a new number.
 any disconnect event, anywhere in the log. Note the elapsed time it happened at; that
 timestamp is the first thing worth looking at when debugging.
 
-### Test 2 — 120-minute walk, flat memory
+### Test 2 — 60-minute walk, flat memory
 
-Same procedure as Test 1, extended to 120 minutes, with a memory measurement added.
-This test is also the practical proof that `connectedDevice` foreground services don't
-hit a 6-hour cutoff on this device. 2 hours is comfortably inside that, so a clean
-run here is reassurance, not a new claim.
+Same procedure as Test 1, with memory measured along the way. Sixty minutes matches
+how long a real session on this treadmill lasts; a leak slow enough to stay invisible
+for an hour can't hurt a one-hour workout. (If sessions ever get longer, extend this
+test to match the longest one. `connectedDevice` services aren't subject to Android
+15's 6-hour foreground-service limit, so length alone isn't the risk; memory is.)
 
-1. Before starting the capture, connect the phone to a computer via USB with ADB
-   available, and confirm `adb devices` shows the phone.
+1. Before starting the capture, confirm `adb devices` shows the phone over wireless
+   debugging (the phone stays unplugged).
 2. Start Common Setup, then immediately record a baseline:
    ```
-   adb shell dumpsys meminfo <your.package.name>
+   adb shell dumpsys meminfo com.myhi.companion
    ```
    Note the `TOTAL PSS` value.
-3. Walk for 120 minutes, same locked-screen discipline as Test 1.
-4. At the 60-minute mark, run the same `dumpsys meminfo` command again and note the
-   value. At 120 minutes, run it a third time.
+3. Walk for 60 minutes, same locked-screen discipline as Test 1.
+4. Run the same `dumpsys meminfo` command at 20, 40 and 60 minutes. Running it doesn't
+   wake the screen, so it doesn't disturb the test.
 5. Stop the workout and capture per Common Setup step 5.
 
 **Check:**
-- Same gap/disconnect check as Test 1, over the full 120 minutes.
-- Compare the three `TOTAL PSS` readings. Expect normal fluctuation between readings
+- Same gap/disconnect check as Test 1, over the full 60 minutes.
+- Compare the four `TOTAL PSS` readings. Expect normal fluctuation between readings
   (garbage collection, background system noise) but **no sustained upward trend**:
-  the 120-minute reading should not simply be the largest of the three by a wide,
-  consistent margin. A flat or sawtooth pattern is a pass; a steady climb across all
-  three readings is a leak.
+  the 60-minute reading should not simply be the largest by a wide, consistent
+  margin. A flat or sawtooth pattern is a pass; a steady climb across all four
+  readings is a leak (Phase 12's heap-snapshot comparison is how you find it).
 
 **Pass:** no gap > 5 s, no disconnect, memory pattern flat/sawtooth, not climbing.
 **Fail:** either the connectivity criteria from Test 1 fail, or memory climbs steadily
-across all three readings.
+across all four readings.
 
 ### Test 3 — Split screen, switching apps
 
@@ -303,16 +309,17 @@ should have). Note which day and what specifically was wrong.
 ### Understanding what you're building (read this before the tasks)
 
 **Why unit tests aren't enough here.** Every parser this project has is already
-proven correct: `TreadmillDataParser` and its siblings from Phase 01a pass
+proven correct: `parseTreadmillData` and its siblings from Phase 01a pass
 against real captured bytes, matching the console's own numbers within
 rounding. But "the parser reads bytes correctly" and "the app survives
 someone's actual workout" are different claims, and only one of them can be
-checked by running `dotnet test`. This phase exists because the actual risks
+checked by running `npm test`. This phase exists because the actual risks
 to this app aren't in the math. They're in things no unit test can construct:
-a phone with its screen off for two hours while HyperOS's Autostart, Battery
+a phone with its screen off for an hour while HyperOS's Autostart, Battery
 saver, Recents-lock, and Android battery optimization settings (see "Before
 starting" above) all quietly decide whether this app's Bluetooth connection is
-worth keeping alive, real BLE radio interference, and real OS lifecycle events
+worth keeping alive (and whether React Native's JavaScript keeps running while
+it does), real BLE radio interference, and real OS lifecycle events
 (a force-close, a Bluetooth toggle, a treadmill power-cycle) landing at an
 arbitrary moment mid-workout.
 
@@ -320,10 +327,10 @@ arbitrary moment mid-workout.
 cheaper alternative is: run the app for a few minutes, watch it connect and
 receive a couple of samples, call it verified. After all, the parsers are
 already proven correct, so what's left to prove? The answer is specific to
-each of the nine tests, and none of it is padding. Test 2's 120 minutes exists
+each of the nine tests, and none of it is padding. Test 2's 60 minutes exists
 because a memory leak of a few kilobytes per sample is invisible at five
-minutes and only shows up as a trend across three `dumpsys meminfo` readings
-taken over two hours. There is no way to observe "steady climb across three
+minutes and only shows up as a trend across four `dumpsys meminfo` readings
+taken over an hour. There is no way to observe "steady climb across four
 readings" in a five-minute run. Test 4's 20 lock/unlock cycles exists because
 the specific failure it's hunting, a duplicate sample re-delivered after a
 lock/unlock, is a timing race that may not reproduce on cycle 1 or 2 but
@@ -333,7 +340,7 @@ timing that `FakeTreadmillService` was never built to reproduce. It was
 explicitly built in Phase 01b to unblock other phases quickly, not to
 simulate radio dropout. Test 8's export/uninstall/reinstall/import check is
 the one case where "the automated test already covers this" is almost true
-(Phase 09 has a real xUnit test against a temp database) except that test
+(Phase 09 has a real checksum test against a real SQLite database) except that test
 can't observe what happens to a file that has to survive an actual uninstall,
 a share-sheet, and cloud storage in between, which is exactly the gap only a
 human running the real flow can close. Each of the nine tests maps to one
