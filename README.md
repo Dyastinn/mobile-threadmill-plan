@@ -1,139 +1,244 @@
 # MyHi Companion
 
-A personal Android app that replaces FitShow for daily use with the MY-HI Q8Y
-treadmill. Connects over Bluetooth FTMS, shows live metrics, controls speed,
-and records workout history with per-workout telemetry. Fully offline: no
-account, no network calls, no cloud sync.
+A personal Android app for the MY-HI Q8Y treadmill, to replace the FitShow app. It
+connects over Bluetooth, shows live speed and distance, controls the speed, and saves
+every workout. It works fully offline: no account, no internet, no cloud.
 
-Built with **Flutter**, not the .NET MAUI stack this project started with —
-see the [Stack](#stack) section below for what changed and why. This is a
-learning project as much as an app: past Phase 00, the code is written by the
-project owner, with an AI agent teaching concepts and reviewing rather than
-implementing. See [`flutter/phases/README.md`](flutter/phases/README.md) for
-exactly how that works.
+It's also a learning project. After Phase 00, you write the app's logic yourself and
+the AI agent teaches and reviews. [`phases/README.md`](phases/README.md) explains how
+that works.
 
 ---
 
 ## Status
 
-**Starting fresh: no code in the repo yet.** An earlier build of Phase 00 (the
-probe/diagnostic app, then written in MAUI) ran on the real treadmill and its
-measurements are still good — hardware facts don't depend on the UI
-framework. See [`phases/phase-00-probe-app/PHASE-00-FINDINGS.md`](phases/phase-00-probe-app/PHASE-00-FINDINGS.md)
-for what's already known. The Flutter app itself is being built from scratch,
-following [`flutter/phases/phase-00-probe-app/`](flutter/phases/phase-00-probe-app/)
-(start with `TASKS.md`).
+**No app code yet.** The plan was first written for .NET MAUI, then moved to
+**Expo (React Native)** in October 2026, before any code existed. You already know
+TypeScript and Expo, and C# was new, so Expo is the better fit.
 
-> **Note on the two `phases/` folders.** `phases/` at the repo root is the
-> original MAUI-era plan; it's kept because its protocol reference, measured
-> device findings, and human test procedures are framework-independent and
-> still the source of truth. `flutter/phases/` is the current implementation
-> plan, in Flutter/Dart, and is what to follow for actually building the app.
+An earlier MAUI version of the Phase 00 test app did run on the treadmill. Its
+measurements are still valid and are in
+[`PHASE-00-FINDINGS.md`](phases/phase-00-probe-app/PHASE-00-FINDINGS.md).
+
+Next step: Phase 00, starting with
+[`phases/phase-00-probe-app/TASKS.md`](phases/phase-00-probe-app/TASKS.md).
+
+---
+
+## What you need
+
+Everything, so nothing surprises you later. Status is as checked on this PC on
+2026-10-18. How to set each one up is in
+[`docs/learning/01-Device-And-Emulator-Setup.md`](docs/learning/01-Device-And-Emulator-Setup.md).
+
+### Before Phase 00 (required)
+
+| Thing | Why | Status |
+|---|---|---|
+| Windows PC | Builds the app | ✅ |
+| Git | Version control | ✅ |
+| VS Code (or any editor) | Writing code | ✅ |
+| Node.js 24 LTS | Runs Expo, the bundler and the tests | ✅ v24.17.0 |
+| JDK 17 | Gradle needs it to build the Android app | ✅ 17.0.20, `JAVA_HOME` set |
+| Android SDK: platform 36, build-tools 36, platform-tools | Building and installing Android apps | ✅ in `%LOCALAPPDATA%\Android\Sdk` |
+| `ANDROID_HOME` set, and `adb` on `PATH` | So the build tools can find the SDK | ⚠️ not set yet. One command, in the setup doc |
+| The phone (Poco X6 Pro) with Developer options on | Where the app runs | ⬜ |
+| Phone: **USB debugging**, **Install via USB**, **USB debugging (Security settings)** | Xiaomi needs all three to install apps from the PC. May need a Mi account and a SIM card | ⬜ |
+| A USB cable that carries data | First connection to the phone | ⬜ check it's not charge-only |
+| Phone and PC on the same Wi-Fi | The app loads its code from the PC while you develop | ⬜ |
+
+### During Phase 00
+
+| Thing | Why | Status |
+|---|---|---|
+| Wireless debugging paired with the PC | Screen-off tests must run unplugged (the phone acts differently while charging) | ⬜ |
+| **nRF Connect** app on the phone (free, by Nordic) | Double-checks what our app reads over Bluetooth | ⬜ |
+| The four HyperOS settings: Autostart on, Battery saver "No restrictions", app locked in Recents, battery optimisation off | Stops HyperOS from killing the app in the background | 1 of 4 done |
+| The treadmill and its safety key | The thing we're testing | ✅ |
+| Somewhere to stand off the belt | Some tests start the belt from the phone | ✅ |
+
+### Later phases
+
+| Thing | Phase | Why |
+|---|---|---|
+| A SQLite viewer on the PC, e.g. "DB Browser for SQLite" (free) | 06, 12 | Open the app's database file and check it by hand |
+| Google Drive or email on the phone | 09, 14 | Somewhere to send backup files |
+| Excel or Google Sheets | 15 | Open the CSV export |
+| Any image editor (Figma, Inkscape, Paint.NET) | 13 | App icon and splash image |
+| A kitchen timer or a second device | 14 | Timing long tests without unlocking the phone |
+
+### Optional
+
+| Thing | When it helps |
+|---|---|
+| Android Studio | Easiest way to manage the SDK; its profiler is an extra in Phase 12 |
+| An Android emulator (x86_64 image) | Looking at screens without the phone. It can't do Bluetooth |
+| Battery Historian | A battery timeline in Phase 12, if the drain looks bad |
+| VS Code extensions: ESLint, Expo Tools | Lint errors and `app.json` help inside the editor |
+
+### Not needed
+
+An Expo account, EAS cloud builds, a Mac, or a Play Store developer account. Everything
+builds on this PC and installs straight onto the phone.
 
 ---
 
 ## The device
 
-MY-HI Q8Y folding treadmill, whose BLE module is a FitShow (Xiamen) transparent-UART
-board presenting an FTMS shim (`0x1826`) over the top. The shim's own feature
-declaration is provably unreliable (it claims incline support on a machine with
-no incline), so this project verifies everything against captured hex rather
-than trusting the spec or the device's self-description. See
-[`phases/phase-01-protocol-decode/README.md`](phases/phase-01-protocol-decode/README.md)
-for the byte-level detail and each phase's own README for what's still an open
-question in that phase's scope.
+The MY-HI Q8Y is a folding treadmill. Its Bluetooth chip is made by FitShow, and it
+speaks the standard fitness-machine protocol (FTMS, service `0x1826`) on top of
+FitShow's own one. That FTMS layer doesn't always tell the truth about itself: it
+claims the machine has an incline, and it doesn't. So this project checks everything
+against bytes actually captured from the machine, not against the spec.
+
+The byte-level details are in
+[`phases/phase-01-protocol-decode/README.md`](phases/phase-01-protocol-decode/README.md).
 
 ---
 
-## Stack
+## Tech stack
 
-| Component | Choice |
-|-----------|--------|
-| Framework | Flutter, Android only |
-| Language | Dart |
-| Bluetooth | [`flutter_blue_plus`](https://pub.dev/packages/flutter_blue_plus) |
-| Database | SQLite via [`sqflite`](https://pub.dev/packages/sqflite) |
-| State management / DI | [`flutter_riverpod`](https://pub.dev/packages/flutter_riverpod) |
-| Navigation | [`go_router`](https://pub.dev/packages/go_router) |
-| Min/target SDK | Android 31 / 36 |
+What the app and its tools use, what each piece is for, and the phase that adds it.
+Versions are from October 2026. `npx expo install` picks matching versions of the
+Expo packages for you.
 
-**Why Flutter, and not the .NET MAUI stack this project started with:** the
-developer works on Linux, and MAUI's edit loop there has no XAML Hot
-Reload — confirmed in JetBrains Rider's own documentation, whose Hot Reload
-support table lists Windows, macOS, and iOS only. Every UI change would mean
-a full rebuild-and-redeploy cycle, indefinitely. Flutter's hot reload is
-engine-level, not IDE-specific, so it works identically on Linux. For a solo
-developer, that recurring daily cost outweighed the one-time cost of learning
-Dart. Full writeup, including what the original MAUI decision record said and
-why it no longer holds, in
-[`flutter/phases/phase-00-probe-app/README.md`](flutter/phases/phase-00-probe-app/README.md#technology-decisions).
+### Platform and framework
 
-New to Dart or Flutter? Start at
-[`flutter/docs/learning/00-Dart-and-Flutter-Essentials.md`](flutter/docs/learning/00-Dart-and-Flutter-Essentials.md).
-Curious *why* each piece of this stack, specifically? Every dependency has a
-full decision record (problem it solves, alternatives considered, why they
-lost) in the `flutter/phases/` folder that introduced it.
+| Piece | Version | What it's for | Added in |
+|-------|---------|---------------|----------|
+| Android | min SDK 31 (Android 12), target SDK 36 | The only platform. Phone: Poco X6 Pro, Android 16 / HyperOS | 00 |
+| Expo SDK | 58 | Builds the app, manages Android settings, provides most libraries | 00 |
+| React Native | 0.88 | Runs your TypeScript on the phone and shows real Android screens | 00 |
+| React | 19.3 | Components and hooks | 00 |
+| TypeScript | strict mode, plus `noUncheckedIndexedAccess` | The language for everything except one Kotlin file group | 00 |
+| Kotlin | comes with the Android tools | The background service (Phase 07) | 00, 07 |
+| Development build | via `expo-dev-client` | Your own version of Expo Go that includes the Bluetooth library. Expo Go itself can't run this app | 00 |
 
-## Repository layout
+### Libraries in the app
+
+| Library | What it's for | Added in |
+|---------|---------------|----------|
+| [`react-native-ble-manager`](https://github.com/innoveit/react-native-ble-manager) | Bluetooth: scan, connect, read, write, notifications | 00 |
+| `expo-router` | Moving between screens. Each screen is a file in `src/app/` | 00 |
+| `expo-build-properties` | Sets the Android SDK versions from `app.json` | 00 |
+| `expo-sqlite` | The workout database | 00, 06 |
+| `expo-sqlite/kv-store` | Small saved values, like settings | 00, 08 |
+| `expo-file-system` | Log files, capture files, backup files, file pickers | 00, 09 |
+| `expo-sharing` | The Android share sheet | 00, 09 |
+| `expo-clipboard` | Copying hex values on the test screens | 00 |
+| `react-native-safe-area-context` | Keeps screens clear of the status bar. Comes with Expo Router | 00 |
+| `expo-crypto` | Creates unique workout IDs | 06 |
+| `fflate` | Creates and reads backup ZIP files | 09 |
+| `react-native-svg` | Draws the charts | 10 |
+| `expo-haptics` | One small vibration when a speed change is confirmed | 13 |
+| `expo-keep-awake` | Keeps the screen on during a workout (if you turn that setting on) | 13 |
+| `expo-splash-screen` | The splash screen | 13 |
+
+### Code in this repo that runs on Android directly
+
+| Piece | What it's for | Added in |
+|-------|---------------|----------|
+| `src/modules/recording-service/` (Kotlin) | A background service that keeps the app and its timers running while the screen is off, and shows the workout notification | 00 (test version), 07 |
+| `src/plugins/withResizeableActivity.js` | Turns on split-screen support in the Android settings Expo generates | 11 |
+
+### Tools for building and testing
+
+| Tool | What it's for | Added in |
+|------|---------------|----------|
+| Metro | Sends your code to the phone while you develop, and updates it when you save | 00 |
+| Jest + `jest-expo` | Automated tests | 00 |
+| `node:sqlite` (built into Node) | A real database for tests, with no phone | 00 |
+| ESLint (`npx expo lint`) | Catches mistakes, including importing phone-only code into `src/core/` | 00 |
+| `tsc --noEmit` | Type checking | 00 |
+| React Native DevTools | Debugger and memory snapshots (press `j` while `npx expo start` runs) | 00, 12 |
+| `adb` | Installs the app, shows logs, reads phone state | 00 |
+
+### Deliberately not used
+
+No state library (Zustand, Redux), no UI kit (Paper, Tamagui), no ORM (Drizzle), no
+chart library, no Expo Go, no cloud builds, no server. Each one was considered and
+didn't earn its place. Each phase's "Technology decision" section says why, starting
+with [Phase 00's](phases/phase-00-probe-app/README.md#technology-decisions).
+
+New to how Expo works under the hood? Read
+[`00-Expo-And-React-Native.md`](docs/learning/00-Expo-And-React-Native.md). Want the
+React and TypeScript patterns explained properly? Read
+[`00a-React-And-TypeScript-Essentials.md`](docs/learning/00a-React-And-TypeScript-Essentials.md).
+
+---
+
+## Folders
+
+Phase 00 creates `src/`. It doesn't exist yet.
 
 ```
-flutter/
-├── myhi_companion/                 the Flutter app — Android only
-│   ├── lib/features/               scan, connect, dashboard, diagnostics
-│   └── test/                       flutter_test — widget tests
-├── packages/myhi_companion_core/   pure Dart package: hex/FTMS/capture/SQLite —
-│                                   zero Flutter dependency, `dart test`-able
-├── phases/                         the current, Flutter-specific work order
-└── docs/learning/                  Dart/Flutter primer
+src/                           the Expo project (package.json, app.json)
+├── app/                       screens: one file per screen
+├── core/                      plain TypeScript: Bluetooth decoding, workout logic,
+│                              database code, backup. No phone-only imports, so it
+│                              can be tested on the PC
+├── features/                  React code: hooks, components, and the code that
+│                              talks to Bluetooth, files and notifications
+├── modules/recording-service/ Kotlin: the background service
+└── android/                   made by Expo when you build. Never edit it, never
+                               commit it
 
-phases/                        the original MAUI-era plan — kept for its
-                                framework-independent protocol reference,
-                                database schema, and device findings
-docs/learning/                 the original MAUI/.NET primer (superseded)
-captures/                      raw BLE session logs (JSONL) from the probe app —
-                                the source of every parser test fixture, shared
-                                by both plans
+phases/                        one folder per phase: what to build next and why
+docs/learning/                 guides: how Expo works, setup, glossary, theme
+captures/                      raw Bluetooth logs from the treadmill
 ```
+
+---
 
 ## Building and running
 
-Once the project exists (see Status above):
+All commands run from `src/`, once Phase 00 has created it.
 
-```bash
-cd flutter/myhi_companion
-flutter pub get
-flutter test                                     # widget tests
-cd ../packages/myhi_companion_core && dart test  # pure-logic unit tests
+Check the code:
+
+```powershell
+cd src
+npm install
+npx tsc --noEmit      # types: must show no errors
+npx expo lint         # lint: must show no errors or warnings
+npm test              # tests
 ```
 
-To install on a phone over USB (Developer Options / USB debugging enabled):
+Build the app and install it on the phone:
 
-```bash
-cd flutter/myhi_companion
-flutter run --release
+```powershell
+npx expo run:android --device
 ```
 
-For a standalone APK to sideload without a cable:
+You only rebuild when something native changes (a new library with Android code, or
+`app.json`). For normal code changes, run `npx expo start`. The app on the phone
+updates when you save, like Expo Go did.
 
-```bash
-flutter build apk --release
+Build the release version, which runs without the PC:
+
+```powershell
+npx expo run:android --variant release --device
 ```
 
-The APK lands in `flutter/myhi_companion/build/app/outputs/flutter-apk/`.
+Use the release version for battery tests, screen-off tests and daily use. The APK
+lands in `src/android/app/build/outputs/apk/release/`. It's signed with Expo's
+built-in test key, which is fine for a personal app. Keep using the same key: Android
+won't install an update signed with a different one, and uninstalling first deletes
+your data (that's why Phase 09 adds backups).
+
+The emulator can't use Bluetooth, so it's only for checking screens.
 
 ## Safety
 
-The app can start the belt moving. **The physical safety key is the emergency
-stop, not this app.** Every control that can cause motion has a confirmation
-step and says so.
+The app can start the belt. **The physical safety key is the emergency stop, not
+this app.** Every button that can move the belt asks you to confirm first.
 
-## Non-goals
+## Not in scope
 
-Writing these down so they don't creep in: cloud sync, social features,
-multi-user, iOS, Strava/Garmin export, training plans, coaching. This is a
-personal, offline, single-device, single-treadmill app.
+Cloud sync, social features, multiple users, iOS, Strava/Garmin export, training
+plans, coaching. This is a personal, offline app for one phone and one treadmill.
 
-## Risk register
+## Risks
 
-See [`phases/README.md`](phases/README.md#risk-register) for the standing list
-of what's most likely to go wrong and the mitigation in place for each.
+[`phases/README.md`](phases/README.md#risk-register) lists what's most likely to go
+wrong, and the plan for each.

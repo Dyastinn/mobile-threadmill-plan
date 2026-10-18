@@ -1,267 +1,339 @@
-# Phase 00 — `[HUMAN]` runbook
+# Phase 00 — Treadmill runbook
 
-> For the operator, with the app installed. **Budget 60–75 minutes.**
-> Do it properly once rather than three times badly.
+> For you, with the app installed. **Parts A–G take 60–75 minutes.** Part H is a
+> second session of about 90 minutes (it includes a one-hour walk). Do it properly
+> once rather than three times in a rush.
 >
-> The implementing agent has no Bluetooth radio and no treadmill. Everything below is
-> unknowable to it until you run this and paste the results back.
+> The agent has no Bluetooth and no treadmill, so it can't know any of this until you
+> run it and paste the results back. With the phone on wireless `adb`, it *can* watch
+> the logs and pull capture files while you walk.
 
 ---
 
 ## Before you start
 
-- [ ] App sideloaded and launching
-- [ ] Treadmill powered on, safety key clipped on
-- [ ] **nRF Connect** installed (Nordic Semiconductor, free) as an independent
-      cross-check. If the app disagrees with nRF Connect, **nRF Connect is right.**
-- [ ] Somewhere to paste text
+- [ ] The app is installed and opens (`npx expo run:android --device`). For Part H,
+      the release build instead.
+- [ ] For Parts A–G with the development build: `npx expo start` running on the PC,
+      and the phone on the same Wi-Fi. (The release build doesn't need the PC.)
+- [ ] Treadmill on, safety key clipped on.
+- [ ] **nRF Connect** installed (free, by Nordic) to double-check readings. If our app
+      and nRF Connect disagree, **nRF Connect is right.**
+- [ ] Somewhere to paste text.
 
-**Safety.** Parts D and E move the belt while you hold a phone. Stand on the side
-rails, not the belt, when starting a remote-control test. If the belt does something
-unexpected, **pull the safety key**. Do not try to fix it from the phone.
+**Safety.** Parts D and E move the belt while you're holding a phone. Stand on the side
+rails, not the belt, when testing remote commands. If the belt does anything
+unexpected, **pull the safety key**. Don't try to fix it from the phone.
 
-**Copy the capture after each part**, not at the very end. If the app crashes at Part
-E you do not want to lose Part A.
-
----
-
-## Ten-minute quick wins (do these first)
-
-No walking, no belt, no risk. These five unblock the entire Phase 01 desk work, so if
-the full session has to wait, do at least these.
-
-| # | Step | Screen | Answers |
-|---|------|--------|---------|
-| 1 | Raw hex of `0x2ACC` | Read Dump | Parser fixture + verifies the feature decode |
-| 2 | Raw hex of `0x2AD4` | Read Dump | Predicted `64 00 40 06 0A 00` — confirm or disprove |
-| 3 | MAC address and address type | Scan (adv. detail) | If **random**, the schema's unique index on MAC is wrong |
-| 4 | Is `0x1826` in the advertisement? | Scan (adv. detail) | Decides the production scan filter |
-| 5 | Negotiated MTU | GATT Tree | Whether records can arrive split |
-
-On item 2: if the actual bytes differ from `64 00 40 06 0A 00`, the documented decode
-is wrong and **everything downstream inherits the error**. This is a two-minute check
-that protects the whole project.
+**Share the capture file after each part**, not just at the end. If the app crashes in
+Part E, you don't want to lose Part A.
 
 ---
 
-## Part A: Static reads · 5 min · belt stopped
+## Quick wins (do these first, ~10 minutes)
 
-Connect, let discovery finish, **Dump All** on the Read Dump screen.
+No walking, no belt, no risk. These five unblock all of Phase 01's desk work. If the
+full session has to wait, do at least these.
+
+| # | Step | Screen | Why |
+|---|------|--------|-----|
+| 1 | Raw hex of `0x2ACC` | Read dump | Test data for the feature decoder |
+| 2 | Raw hex of `0x2AD4` | Read dump | Expected `64 00 40 06 0A 00`. Confirm or disprove |
+| 3 | MAC address and address type | Scan (MAC), **nRF Connect** (address type; our app can't see it) | If the type is **random**, remembering the treadmill by MAC won't work |
+| 4 | Is `0x1826` in the advertisement? | Scan (advert bytes) | Decides how the real app finds the treadmill |
+| 5 | Packet size (MTU) | Service list | Whether packets can arrive split in two |
+
+About item 2: if the bytes aren't `64 00 40 06 0A 00`, the documented decoding is
+wrong, and **everything built on it would be wrong too**. Two minutes that protect the
+whole project.
+
+---
+
+## Part A: Read everything · 5 min · belt stopped
+
+Connect, wait for the service list, then tap **Dump all** on the Read dump screen.
 
 - [ ] `0x2ACC` hex recorded
 - [ ] `0x2AD4` hex recorded
-- [ ] `0x2AD3` hex recorded (expect Training Status `Idle` = `0x01`)
-- [ ] `180A` strings recorded — firmware/model, for `PHASE-00-FINDINGS.md`
-- [ ] Full service + characteristic list matches what is already in `PHASE-00-FINDINGS.md`
+- [ ] `0x2AD3` hex recorded (expect `Idle`, which is `0x01`)
+- [ ] `180A` text recorded (firmware and model)
+- [ ] The service and characteristic list matches `PHASE-00-FINDINGS.md`
 
-Tap **Confirm** on each row you have cross-checked against nRF Connect.
+Tap **Confirm** on each row you've checked against nRF Connect.
 
 ---
 
-## Part B: Idle stream · 5 min · belt stopped
+## Part B: Idle data · 5 min · belt stopped
 
-Notification Log screen. Subscribe to `0x2ACD` and `0x2ADA`. **Do not walk yet.**
-Let it run two minutes.
+Notification log screen. Turn on `0x2ACD` and `0x2ADA`. **Don't walk yet.** Let it run
+two minutes.
 
-- [ ] Does `0x2ACD` notify while stopped? yes / no
-- [ ] Rate, from the on-screen Hz counter: ______ Hz
-- [ ] Flags tracker: how many distinct values? ______ (if >1 while idle, note it —
-      it means the layout varies and the parser must be strictly flag-driven)
+- [ ] Does `0x2ACD` send data while stopped? yes / no
+- [ ] Rate (from the on-screen counter): ______ per second
+- [ ] Flags tracker: how many different values? ______ (more than 1 while idle means
+      the packet layout changes; note it)
 - [ ] Packet length: ______ bytes
-- [ ] Any `0x2ADA` traffic while idle? op codes: ______
+- [ ] Anything on `0x2ADA` while idle? codes: ______
 
-If the rate is ~1 Hz the FTMS spec's recommendation holds. If it is genuinely higher,
-say so. The dashboard will need UI throttling.
+About 1 per second is what the spec suggests. If it's clearly faster, say so: the
+dashboard will need to slow its updates.
 
 ---
 
-## Part C: Walking capture · 15 min · **the important one**
+## Part C: Walking · 15 min · **the most important part**
 
-**Console controls only.** Do not touch the app's control console yet.
+**Use the treadmill's own buttons only.** Don't touch the app's console yet.
 
 1. Start at the lowest speed. Walk 2 minutes.
-2. Step the speed up one notch. Walk 1 minute. Repeat to a comfortable maximum, then
-   step back down the same way.
-3. **At each speed**, use the console-value quick entry to record what the treadmill's
-   own display shows at that moment. The app pairs it with the current packet.
+2. Go up one step. Walk 1 minute. Repeat up to a comfortable top speed, then come back
+   down the same way.
+3. **At each speed**, use the console-value form to enter what the treadmill's own
+   display shows right then. The app pairs it with the current packet.
 
-**Minimum four matched pairs at different speeds.** This table is the only thing that
-can prove the parser is right; there is no substitute.
+**At least four of these pairs, at different speeds.** They're the only way to prove
+the decoder is right.
 
 - [ ] Four or more console-vs-hex pairs captured
-- [ ] Did the flags value change mid-session? no / yes → values: ______
-- [ ] Heart rate: is a plausible value ever populated? value seen: ______ bpm
-- [ ] Stop from the console → `0x2ADA` op code emitted: ______
+- [ ] Did the flags value change while walking? no / yes → values: ______
+- [ ] Heart rate: does a believable value ever appear? value: ______ bpm
+- [ ] Stop with the treadmill's button → `0x2ADA` code sent: ______
 
-### C7: the critical one · counter reset behaviour
+### C7: do the counters reset? (critical)
 
-After stopping, note distance / calories / elapsed time. Then start a **new** session
-on the console and check the same fields immediately.
+After stopping, note distance, calories and time. Then start a **new** session with the
+treadmill's buttons and check the same values straight away.
 
 ```
 Distance   end of session 1: ______ m     start of session 2: ______ m
-Elapsed    end of session 1: ______ s     start of session 2: ______ s
+Time       end of session 1: ______ s     start of session 2: ______ s
 Calories   end of session 1: ______ kcal  start of session 2: ______ kcal
 
-Then power-cycle the treadmill, reconnect:
+Then turn the treadmill off and on, and reconnect:
 Distance after power cycle: ______ m
 
 Verdict:
-[ ] Per-session — counters reset to 0
-[ ] Cumulative — counters continue
-[ ] Mixed — which fields do what: ______________________________
+[ ] Per session — counters go back to 0
+[ ] Cumulative  — counters keep counting
+[ ] Mixed       — which does what: ______________________________
 ```
 
-**This one answer determines the entire Phase 06 recording implementation.** Per-session
-means values get recorded directly; cumulative means every workout value is a delta
-against a start baseline and the engine has to detect mid-workout re-baselining.
-Guessing wrong makes every stored workout wrong. Do not skip it and do not guess.
+**This one answer decides how Phase 06 saves workouts.** Per session: save the values
+as they are. Cumulative: subtract the value from the start of the workout, and handle
+the counter jumping back mid-workout. Getting it wrong makes every saved workout wrong.
+Don't skip it, and don't guess.
 
 ---
 
-## Part D: Control point · 15 min · **decides whether Phase 05 exists**
+## Part D: Speed control · 15 min · **decides whether Phase 05 happens**
 
-Control Console screen. **Stand on the side rails.** The belt may start.
+Control console screen. **Stand on the side rails.** The belt may start.
 
-**D1.** Confirm indications enabled, then **Request Control** (`00`).
-
-```
-Indication received? yes / no      Raw response: ____________   Result: 0x____
-```
-
-If this fails, record the result code and **stop Part D**. Speed control is not
-available and Phase 05 is void. That's a valid finding, not a failure. The app is
-still worth shipping read-only.
-
-**D2.** Set Target Speed while stopped, at your minimum. (2.0 km/h → `02 C8 00`.)
+**D1.** Check replies are on, then tap **Request Control** (`00`).
 
 ```
-Sent: ____________  Response: ____________  Result: 0x____
-Belt moved? yes/no      Console display changed? yes/no
+Reply received? yes / no      Raw reply: ____________   Result: 0x____
 ```
 
-**D3.** Start (`07`).  → `Response: ______  Belt started? yes/no`
+If this fails, write down the result and **stop Part D**. Remote speed control isn't
+available and Phase 05 is skipped. That's a real finding, not a failure; the app is
+still worth having without it.
 
-**D4.** Set speed while running, to something higher.
-
-```
-Sent: ____________  Response: ____________  Result: 0x____
-Belt speed changed? yes/no    Time from write to observed change: ______ s
-0x2ADA event emitted? op code 0x____
-```
-
-**D5.** Out-of-range: send a speed above 16.0 km/h using the **free hex field**.
+**D2.** Set Target Speed while stopped, at your minimum (2.0 km/h → `02 C8 00`).
 
 ```
-Sent: ____________  Response: ____________  Result: 0x____   (expect 0x03)
+Sent: ____________  Reply: ____________  Result: 0x____
+Belt moved? yes/no      Treadmill display changed? yes/no
+```
+
+**D3.** Start (`07`).  → `Reply: ______  Belt started? yes/no`
+
+**D4.** Set a higher speed while running.
+
+```
+Sent: ____________  Reply: ____________  Result: 0x____
+Belt speed changed? yes/no    Time from send to change: ______ s
+0x2ADA event? code 0x____
+```
+
+**D5.** Too fast: send a speed above 16.0 km/h with the **free hex box**.
+
+```
+Sent: ____________  Reply: ____________  Result: 0x____   (expect 0x03)
 ```
 
 **D6.** Pause (`08 02`), then Stop (`08 01`).
 
 ```
-Pause response: ______  Belt paused? yes/no
-Stop  response: ______  Belt stopped? yes/no
+Pause reply: ______  Belt paused? yes/no
+Stop reply:  ______  Belt stopped? yes/no
 ```
 
-**D7.** Leave the connection idle 5 minutes, then Set Target Speed again.
+**D7.** Leave it connected and idle for 5 minutes, then Set Target Speed again.
 
 ```
-Result: 0x____  (0x05 = permission expired)   Expiry window: ______ min
+Result: 0x____  (0x05 = permission expired)   Expired after: ______ min
 ```
 
-**D8.** Disconnect, reconnect, immediately Set Target Speed **without** Request Control.
+**D8.** Disconnect, reconnect, and Set Target Speed straight away **without** Request
+Control.
 
 ```
-Result: 0x____  (expect 0x05 — confirms control must be re-requested)
+Result: 0x____  (expect 0x05 — control has to be requested again)
 ```
 
-**Tap Confirm with a note on every command that produced the intended physical
-result.** That annotation is what turns a hex log into a specification.
+**Tap Confirm with a note on every command that did the right physical thing.** Those
+notes turn a log into a spec.
 
 ---
 
-## Part E: Resilience · 10 min
+## Part E: Connection problems · 10 min
 
 | | Test | Record |
-|---|------|--------|
-| E1 | Start a session, walk ~15 m away / into another room | Time to detect disconnect: ______ s · Does the belt keep running? |
+|---|---|---|
+| E1 | Start a session, walk ~15 m away or into another room | Time until the app notices: ______ s · Belt keeps running? |
 | E2 | Walk back | Reconnect works? Time: ______ s · Counters continue or reset? |
-| E3 | Toggle phone Bluetooth off and on | Recovers? Time: ______ s · GATT codes in log: ______ |
-| E4 | Power the treadmill off and on | Reconnects? Counters reset or retained? |
-| E5 | Screen off 5 min during a session | Survives? Max notification gap: ______ s |
+| E3 | Turn phone Bluetooth off and on | Recovers? Time: ______ s · Error codes in the log: ______ |
+| E4 | Turn the treadmill off and on | Reconnects? Counters reset or kept? |
+| E5 | Screen off for 5 min during a session, **keep-alive OFF** | Still alive? Longest packet gap: ______ s · Longest heartbeat gap: ______ s |
 
-Reconnect is manual in this phase, by design. Phase 02 automates it. And **if
-E5 fails, that is expected here.** It is the reason the foreground service exists as
-its own phase. Note it and move on.
+Reconnecting is manual in this phase; Phase 02 makes it automatic. **A big heartbeat
+gap in E5 is expected.** It's the "before" picture that Part H compares against.
 
 ---
 
-## Part F: Advertisement and bonding
+## Part F: Advertisement and pairing
 
-- [ ] Did Android ever show a pairing prompt? (Expected: no)
-- [ ] Is `0x1826` in the advertised service UUIDs? yes / no
-- [ ] Advertised name: ______   MAC: ______   Address type: public / random
+- [ ] Did Android ever ask to pair? (Expected: no)
+- [ ] Is `0x1826` in the advertised services? yes / no
+- [ ] Advertised name: ______   MAC: ______   Address type (from nRF Connect's device
+      details): public / random
 
-If `0x1826` is not advertised, the production scan filter must fall back to the `FS-`
-name prefix, **not** to unfiltered scanning, which is slower and drains more battery.
-If the address is random resolvable, remembering the device by MAC will break and the
-schema's `UX_Device_MacAddress` is wrong.
+If `0x1826` isn't advertised, the real app finds the treadmill by its `FS-` name
+instead, **not** by scanning everything (slower, and drains the battery). If the
+address is random, remembering the treadmill by MAC won't work, and the database's
+unique MAC index (Phase 06) needs changing.
 
 ---
 
 ## Part G: Heart rate · 10 min
 
-Subscribe to `0x2A37` in service `180D`.
+Turn on `0x2A37` (service `180D`).
 
-**G1.** No hands on the grips. → `Notifies? yes/no · Flags: 0x____ · Value: ______ bpm`
+**G1.** Hands off the grips. → `Sends data? yes/no · Flags: 0x____ · Value: ______ bpm`
 
-**G2.** Grip both handles firmly, 60 s. Meanwhile count your own pulse at the wrist
-for 15 s and multiply by 4.
-
-```
-Time from grip to first plausible reading: ______ s
-0x2A37 after 60 s: ______ bpm    Manually counted: ______ bpm    Difference: ______
-Stable, or jumps by ______ bpm?
-```
-
-**G3.** At the same moment, does the FTMS field in `0x2ACD` agree? yes / no / absent
-
-**G4.** Release the grips. → drops to 0 / holds last value / stops notifying
-
-**G5: the decision.** Be honest; this determines whether HR ships at all.
+**G2.** Hold both grips firmly for 60 seconds. Meanwhile, count your own pulse at the
+wrist for 15 seconds and multiply by 4.
 
 ```
-[ ] Usable    — within ~10 bpm, stable, contact status reliable
-                → show in dashboard and charts
-[ ] Marginal  — works but noisy or slow to settle
-                → record to the database, hide from the UI, revisit later
-[ ] Unusable  — implausible, wildly unstable, or never populates
-                → cut heart rate from the app entirely
+Time from gripping to a believable reading: ______ s
+0x2A37 after 60 s: ______ bpm    Counted: ______ bpm    Difference: ______
+Steady, or jumps by ______ bpm?
 ```
 
-A metric that is wrong half the time is worse than no metric. It will permanently
-pollute the average and maximum HR columns of every stored workout. **Cutting it is a
-perfectly good outcome.**
+**G3.** At the same moment, does the heart rate inside `0x2ACD` agree? yes / no / not there
+
+**G4.** Let go. → drops to 0 / keeps the last value / stops sending
+
+**G5: the decision.** Be honest: this decides whether heart rate is in the app at all.
+
+```
+[ ] Usable    — within ~10 bpm, steady, knows when you let go
+                → show it on the dashboard and charts
+[ ] Marginal  — works, but noisy or slow
+                → save it, don't show it, look again later
+[ ] Unusable  — wrong, all over the place, or never appears
+                → remove heart rate from the app
+```
+
+A number that's wrong half the time is worse than no number: it ruins the average and
+maximum of every saved workout. **Cutting it is a perfectly good outcome.**
+
+---
+
+## Part H: Screen off · ~90 min · **decides where Bluetooth code lives**
+
+A separate session. This tests the one big risk of using Expo: does the app keep
+getting Bluetooth data *and* keep running its timers with the screen locked, on
+HyperOS, for a full workout? Task 0.12 explains the keep-alive.
+
+**Set up all of this first:**
+
+- [ ] **Release build** installed (`npx expo run:android --variant release --device`),
+      not the development build. It doesn't depend on the PC.
+- [ ] **Phone unplugged.** Android doesn't go into its deep sleep mode while charging,
+      so a test on a cable can pass and then fail for real. Pair wireless debugging
+      first if you want the agent watching the logs.
+- [ ] All four HyperOS settings done (see `PHASE-00-FINDINGS.md`): Autostart on,
+      Battery saver "No restrictions", locked in Recents, battery optimisation off.
+      Without them, a failure tells us nothing about the code.
+- [ ] Connected, `0x2ACD` on in the Notification log, gap meter reset.
+
+**H1. Keep-alive OFF, 5 min.** (Skip if E5 already did this.) Lock the screen for 5
+minutes. Belt stopped is fine.
+
+```
+Longest packet gap: ______ s     Longest heartbeat gap: ______ s
+```
+
+The heartbeat gap should be about the whole 5 minutes. That's the problem the
+keep-alive fixes.
+
+**H2. Keep-alive ON, screen locked, 15 min walking.** Turn on the Keep-alive switch (a
+"Keep-alive test" notification appears), start walking, lock the screen, and don't
+look at it for 15 minutes.
+
+```
+Notification there the whole time? yes / no
+Longest packet gap: ______ s     Longest heartbeat gap: ______ s     Disconnects: ______
+```
+
+**H3. Keep-alive ON, split screen with YouTube, 15 min.** Unlock, put the app in split
+screen with a YouTube video playing in the other half, keep walking. YouTube uses a
+lot of memory, which is what makes HyperOS close background apps.
+
+```
+Longest packet gap: ______ s     Longest heartbeat gap: ______ s     Disconnects: ______
+App still running afterwards (not restarted)? yes / no
+```
+
+**H4. Keep-alive ON, screen locked, 60 min walking.** Your normal session.
+
+```
+Longest packet gap: ______ s     Longest heartbeat gap: ______ s     Disconnects: ______
+Battery %, start: ______   end: ______
+```
+
+**H5: the decision.**
+
+```
+[ ] Holds        — every run: packet gap ≤ 5 s, heartbeat gap ≤ 10 s, no disconnects
+                   → Bluetooth stays in TypeScript; Phase 07 finishes the keep-alive
+[ ] Partly holds — packets keep coming but heartbeats stall (or the other way round)
+                   → write down which; Phase 07 starts by looking at it with the agent
+[ ] Fails        — gaps over a minute, disconnects, or the app gets closed
+                   → Bluetooth and recording move into Kotlin (Phase 07's fallback)
+```
+
+Share the capture file straight after H4, before anything else.
 
 ---
 
 ## After the session
 
-1. Export the Probe Checklist → paste into `PHASE-00-FINDINGS.md`, **measured facts
-   only.** Anything still uncertain stays blank there, tagged with the phase it
-   blocks, rather than guessed.
-2. Share the capture JSONL files → commit them under `../../captures/`.
-3. Share the app log file.
-4. Hand back to the agent with: *"Update `../phase-01-protocol-decode/README.md`'s
-   FTMS protocol reference with these measured values, build parser fixtures from
-   the captured hex, and list what is still unresolved in
-   `PHASE-00-FINDINGS.md`."*
+1. Export the checklist and paste it into `PHASE-00-FINDINGS.md`. **Measured values
+   only.** Anything still unsure stays blank, marked with the phase it blocks.
+2. Share the capture files and commit them to `../../captures/`.
+3. Share the app's log file.
+4. Hand back to the agent with: *"Update Phase 01's FTMS reference with these
+   measurements, build test data from the captured hex, and list what's still unknown
+   in `PHASE-00-FINDINGS.md`."*
 
 ## Done when
 
-- [ ] Every question below has an answer in `PHASE-00-FINDINGS.md`
-- [ ] Raw hex captured for `0x2ACC` and `0x2AD4`
-- [ ] Four or more matched console-vs-hex pairs at different speeds
-- [ ] **C7 counter semantics answered unambiguously**
-- [ ] **Part D control point verdict unambiguous** — Phase 05 either exists or does not
-- [ ] **G5 heart rate decision made**, including "cut it" as a valid answer
+- [ ] Every question above has an answer in `PHASE-00-FINDINGS.md`
+- [ ] Raw hex for `0x2ACC` and `0x2AD4`
+- [ ] Four or more console-vs-hex pairs at different speeds
+- [ ] **C7 counters answered clearly**
+- [ ] **Part D control verdict clear**: Phase 05 happens or it doesn't
+- [ ] **G5 heart rate decided**, and "cut it" counts as an answer
+- [ ] **H5 screen-off decided**, from runs done unplugged on the release build

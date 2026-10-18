@@ -1,358 +1,284 @@
 # Phase 12 — Performance
 
-> Measure, then fix what is actually slow. Not the other way round.
+> Measure first, then fix what's actually slow. Not the other way round.
 
-**Hardware:** required · **Size:** S · **Blocked by:** Phase 11
+**Treadmill needed:** yes · **Size:** S · **Waits for:** Phase 11
 
 ---
 
 ## Goal
 
-Put real numbers next to every performance claim in this project instead of a
-feeling. By the end of this phase you'll have: a synthetic 5,000-workout database
-you can reuse for every future performance question, a timing harness around the
-database's hot paths, one hour of memory/CPU/battery data from a real workout, and
-an honest answer to "is this actually slow, and if so, where."
+Real numbers instead of "it feels fine". By the end you'll have: a fake database with
+5,000 workouts for testing speed, a timing screen on the phone for the database's main
+queries, an hour of memory, CPU and battery readings from a real workout, and an honest
+answer to "is anything slow, and where?"
 
-This phase is almost entirely **measurement**, not code-writing. See
-`../README.md`'s collaboration model. The two small pieces of logic you do write
-(the seed generator and the timing harness) follow the usual "you write it, the
-agent reviews" pattern. Everything else is process: attaching a profiler, reading
-its output, recording what it says.
+This phase is mostly **measuring**, not coding. The two small bits of code (the fake
+data maker and the timer) are yours. The rest is running builds and reading results.
+With the phone on wireless `adb`, the agent can run the commands below and put the
+results in a table.
 
-### Understanding what you're building (read this before the tasks)
+### The idea
 
-Profiling before touching code is the same discipline as a doctor running blood
-work before writing a prescription: symptoms alone don't say which organ is
-failing. "The workout list feels slow" tells you nothing about whether the cause
-is a missing SQLite index, a chatty BLE handler, or a memory leak slowly starving
-the whole app. This phase exists because Phases 06-11 built the actual system,
-the database, the BLE stack, the recording pipeline, without ever running it
-against a realistic 5,000-workout dataset or a real one-hour session. The seeded
-database from step 2 and the `dotnet-trace`/`dotnet-gcdump` pipeline in step 0
-are this project's blood test: they turn "feels slow" into an actual number next
-to an actual target in the Measure table, for an actual query or an actual hour
-of memory graph.
+Like a doctor running tests before prescribing: "the list feels slow" doesn't say
+whether it's a missing database index, the dashboard redrawing too often, or a slow
+memory leak. Phases 06–11 built the system, but never tried it with 5,000 workouts or a
+real hour. This phase does.
 
-**Flat matters more than low.** 160 MB that stays 160 MB for the whole hour is a
-healthy app running a real workload. 90 MB that creeps to 150 MB over that same
-hour is a leak: a `SampleReceived` subscription that never unsubscribes, a buffer
-that grows and never gets flushed. A two-hour workout or an older phone turns a
-barely-noticeable slope into a crash. That's why the Measure table records a
-slope ("flat" vs. "rising, ~X MB/hour"), not just a single end-of-hour number.
+**Flat matters more than low.** 160 MB that stays at 160 MB all hour is healthy. 90 MB
+that creeps up to 150 MB is a leak: a listener that never stops, a list that never
+empties. A longer walk or an older phone turns that slope into a crash. So record
+the *slope* ("flat" or "rising ~X MB an hour"), not just one number.
 
-**Why not just add the obvious optimizations up front.** The simpler-sounding
-plan is to skip all this measurement and apply the fixes performance work
-"usually" needs: cache the workout list, pool the `TreadmillSample` objects
-instead of allocating one per second, wrap every query in a memoization layer.
-Each of those is real code, with its own bugs and its own maintenance cost, and
-every one of them is aimed at a guess. If the weekly-aggregate query is actually
-slow because it's missing the `Workout(StartedAtUtc)` index from Phase 10/11, a
-one-line fix, then the caching layer added "just in case" is pure cost with no
-matching benefit: more code, more places a bug can hide, and still a query that's
-slow the first time it runs. `EXPLAIN QUERY PLAN` in step 3 answers "is this
-actually the index problem" directly, for the cost of one command, before any
-code changes. Measuring first isn't the cautious, slower option here. It's the
-cheaper one, because it replaces five possible fixes with the one that's actually
-needed.
+**Why not just add the usual speed-ups now?** Caching, memoising every component,
+and so on are all extra code with their own bugs, aimed at a guess. If a query is slow
+because of a missing index, that's a one-line fix, and `EXPLAIN QUERY PLAN` (step 3)
+tells you in one command. Measuring first is the *cheaper* option: it turns five
+possible fixes into the one you need. (If you spot an obviously slow loop by reading the
+code, just fix it; you don't need to measure that.)
 
-**The pattern, named plainly.** This is Donald Knuth's "premature optimization is
-the root of all evil," applied literally rather than as a slogan: optimize only
-what a measurement has shown to be slow. The cost is real: instrumenting and
-running the profiler pipeline takes longer than just changing code and hoping.
-The payoff, specific to this project, is that every optimization this phase
-produces is provably necessary, not speculative, which matters because Phase 12
-is the last chance before Phase 13's polish pass to catch a problem while it's
-still cheap to fix. An obviously quadratic loop spotted by eye in code review
-doesn't need a `dotnet-trace` session to justify fixing it. The full measurement
-ceremony earns its keep when the cause isn't obvious, not for every single change.
+## What you'll learn
 
-## Learning goals
+- **Why you always measure the release build.** The development build adds extra checks
+  and warnings, runs effects twice (Strict Mode) and loads code from the PC. It can be
+  several times slower than the real app.
+- **Two kinds of memory.** The JavaScript heap (your objects and listeners) is part of
+  it; the native side (React Native, Bluetooth, SQLite) is the rest. `dumpsys meminfo`
+  sees the whole app; a heap snapshot sees only your part, but shows *which objects*.
+- **Comparing two snapshots** taken minutes apart to find a leak: an object type whose
+  count keeps growing is the leak.
+- **`EXPLAIN QUERY PLAN`**: whether SQLite is using the index you think it is.
 
-- **Why `Release`, never `Debug`, for anything you're timing.** Debug builds run
-  with the .NET interpreter (`UseInterpreter=true`) so C# Hot Reload works. That
-  alone can make a method look 10-50× slower than it will be in the shipped app.
-  Every measurement in this phase is against a `Release` build.
-- **The EventPipe diagnostics pipeline** (`dotnet-trace` / `dotnet-gcdump` /
-  `dotnet-dsrouter`): why a phone needs a *router* forwarding a diagnostic
-  connection back to your dev machine, when a desktop .NET process would just talk
-  to these tools directly.
-- **Reading a flame graph** (speedscope format): width is time spent, not call
-  order; a wide bar low in the stack is where the CPU actually is.
-- **What a GC dump snapshot is**, and how *comparing two snapshots* taken minutes
-  apart, not looking at one in isolation, is what actually reveals a leak: a
-  type whose live object count keeps climbing between snapshots is the leak,
-  everything else is normal churn.
-- **Android's own profiler suite** (CPU, Memory, Energy) as the platform-native
-  alternative/complement to the .NET tools above, useful because it sees native
-  allocations and system-level battery attribution that EventPipe can't.
-- **`EXPLAIN QUERY PLAN`** and why an aggregate query over 5,000 rows can be instant
-  or can be 2 seconds depending entirely on whether SQLite is using the index you
-  think it's using.
-- Why **"flat" beats "small."** A memory graph that's flat at 160 MB is a healthy
-  app running a workload. A graph rising from 90 MB toward 150 MB over the same
-  hour is a leak that just hasn't run out of room yet. It will, on a longer walk
-  or an older phone.
+## Read first
 
-## Reference docs
-
-| Topic | URL |
+| Topic | Link |
 |---|---|
-| .NET MAUI Performance Profiling guide (the primary reference for this whole phase — Android/iOS/Windows workflows, `dotnet-trace`, `dotnet-gcdump`, memory leak diagnosis) | https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/profiling?view=net-maui-10.0 |
-| `maui profile` CLI (`maui profile manual` / `maui profile startup`) | https://learn.microsoft.com/en-us/dotnet/maui/developer-tools/cli/profile?view=net-maui-10.0 |
-| `dotnet-trace` | https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-trace |
-| `dotnet-gcdump` | https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-gcdump |
-| `dotnet-dsrouter` | https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-dsrouter |
-| `dotnet-counters` (live EventCounter values — useful as a lighter-weight companion to a full trace) | https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-counters |
-| Android Studio Profiler overview | https://developer.android.com/studio/profile |
-| Android Studio CPU Profiler | https://developer.android.com/studio/profile/cpu-profiler |
-| Android Studio Memory Profiler | https://developer.android.com/studio/profile/memory-profiler |
-| Profile battery usage with Batterystats and Battery Historian | https://developer.android.com/topic/performance/power/setup-battery-historian |
+| React Native performance (dev vs. release) | https://reactnative.dev/docs/performance |
+| React Native DevTools (memory snapshots, performance) | https://reactnative.dev/docs/react-native-devtools |
+| Expo debugging tools | https://docs.expo.dev/debugging/tools/ |
+| Android Studio Profiler (optional) | https://developer.android.com/studio/profile |
 | `dumpsys` | https://developer.android.com/tools/dumpsys |
-| Android app startup/launch time | https://developer.android.com/topic/performance/vitals/launch-time |
-| `Microsoft.Data.Sqlite` overview (already in `docs/learning/03-Doc-Links.md`) | https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/ |
+| Battery Historian | https://developer.android.com/topic/performance/power/setup-battery-historian |
+| SQLite `EXPLAIN QUERY PLAN` | https://www.sqlite.org/eqp.html |
+| `adb` | https://developer.android.com/tools/adb |
 
-## Measure
+## What to measure
 
-| Metric | Target |
+| What | Target |
 |--------|--------|
-| Memory over a 1-hour workout | under 150 MB, and **flat** |
-| CPU during active recording | note it |
-| Battery drain per hour of workout | note it |
-| BLE notification → UI latency | note it |
-| Sample flush duration (60 rows) | < 50 ms |
-| Full workout sample insert (720 rows) | < 1 s |
-| Workout list page (50 rows) at 5,000 workouts | < 100 ms |
-| Weekly aggregate at 5,000 workouts | < 200 ms |
-| Single workout chart load (2-hour workout) | < 200 ms |
+| Memory over a 1-hour workout (`TOTAL PSS`) | under 150 MB, and **flat** |
+| CPU while recording | write it down |
+| Battery used per hour of workout | write it down |
+| Time from Bluetooth packet to screen | write it down |
+| Save 60 samples | < 50 ms |
+| Save 720 samples | < 1 s |
+| Workout list (50 rows), 5,000 workouts | < 100 ms |
+| Weekly totals, 5,000 workouts | < 200 ms |
+| One workout's chart (2-hour workout) | < 200 ms |
 
-**The memory slope matters more than the absolute number.** A rising graph means the
-sample buffer or an event subscription is leaking, and 140 MB rising is worse than
-160 MB flat.
+**The slope matters more than the number.** 150 MB is a starting guess for a React
+Native app on this phone, not a measurement. If the first flat reading is 170 MB, write
+it down, and judge by the slope.
 
 ---
 
-## Step-by-step walkthrough
+## Steps
 
-### 0. Install the diagnostic tools
+### 0. Tools
 
-Concrete steps:
-1. Install the three global tools (once, on your dev machine, not the phone):
+1. `adb` on your `PATH` and the phone paired over wireless debugging (see the setup
+   doc). Unplugged: charging changes how the phone saves power, which spoils battery
+   numbers.
+2. React Native DevTools: with the development build and `npx expo start` running,
+   press `j`. Only for step 4B's memory snapshots, never for timing.
+3. Optional: Android Studio, only if step 5 leaves a question.
+
+### 1. Always measure the release build
+
+Every number here comes from `npx expo run:android --variant release`. If a number looks
+bad, first check it really was the release build. The timing screen (step 3) shows the
+build type, so a screenshot can't be ambiguous.
+
+### 2. Make 5,000 fake workouts (yours)
+
+**Why.** With 12 workouts, every query looks instant whether or not the indexes work.
+You need a big, repeatable dataset.
+
+- Create `src/core/data/seed/seedDatabase.ts`:
+  `seedDatabase(db, { workouts: number; seed: number })`. It adds workouts with samples:
+  a mix of short ones and ~2-hour ones (for the "2-hour chart" target). It's in `core/`,
+  so it runs on the PC (fast check) and on the phone (real measurement).
+- Spread the dates over at least two years and across daylight-saving changes, and
+  include some negative time-zone offsets. Workouts only in July would miss the tricky
+  cases.
+- **Same seed, same data**, every run. `Math.random` can't be seeded, so write a small
+  seeded random number generator (search "mulberry32"; about ten lines).
+- Save samples through Phase 06's `WorkoutSampleBuffer`. Don't write a second way to
+  insert just for this.
+
+1. Write it. Realistic speed curves aren't needed; flat or slightly random values are
+   fine. This is about the number of rows.
+2. Run it on the PC once (a test with a smaller number is enough) and check the counts.
+3. On the phone, the timing screen fills a **separate** database file (`myhi-bench.db`),
+   never `myhi.db`. Your real workouts must never share a file with 5,000 fake ones.
+
+### 3. Time the database (timer yours, screen given)
+
+**Why.** Five of the targets need the same thing: run something against the big
+database on the phone, time it, compare. You'll want to re-run this after any database
+change, so make it reusable.
+
+- `src/core/perf/timeAsync.ts`:
+  `timeAsync(label, operation, runs = 5)` returns `{ label, medianMs, maxMs }`. Run it
+  several times and report the middle value: the first run is usually slower than
+  normal. `performance.now()` works on the phone and in Node.
+- One call per row of the last five targets.
+- If a number is over target, run `EXPLAIN QUERY PLAN` on that query:
+  `db.all('EXPLAIN QUERY PLAN SELECT ...')`. A `detail` of
+  `SEARCH Workout USING INDEX IX_Workout_StartedAtUtc ...` is good; `SCAN Workout`
+  means it's reading the whole table.
+
+The timing screen (given), `src/features/diagnostics/BenchmarkScreen.tsx`, linked from
+the Diagnostics list:
+
+```tsx
+import { useState } from 'react';
+import { ScrollView } from 'react-native';
+
+import { runBenchmarks, type BenchmarkResult } from './runBenchmarks';
+import { Button } from '@/features/shared/theme/Button';
+import { Screen } from '@/features/shared/theme/Screen';
+import { Surface } from '@/features/shared/theme/Surface';
+import { Text } from '@/features/shared/theme/Text';
+import { spacing } from '@/features/shared/theme/tokens';
+
+export function BenchmarkScreen() {
+  const [results, setResults] = useState<BenchmarkResult[]>([]);
+  const [running, setRunning] = useState(false);
+
+  async function run() {
+    setRunning(true);
+    try {
+      setResults(await runBenchmarks());
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <Screen>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}>
+        <Text variant="caption">Build: {__DEV__ ? 'DEVELOPMENT (numbers not valid)' : 'release'}</Text>
+        <Button label={running ? 'Running...' : 'Fill (if needed) and run'} onPress={() => void run()} disabled={running} />
+        {results.map((r) => (
+          <Surface key={r.label} style={{ padding: 14, gap: 2 }}>
+            <Text>{r.label}</Text>
+            <Text variant="caption">
+              median {r.medianMs.toFixed(1)} ms · max {r.maxMs.toFixed(1)} ms · target {r.targetMs} ms ·{' '}
+              {r.medianMs <= r.targetMs ? 'PASS' : 'OVER'}
+            </Text>
+          </Surface>
+        ))}
+      </ScrollView>
+    </Screen>
+  );
+}
+```
+
+`runBenchmarks.ts` is yours: open (or create and fill) `myhi-bench.db` the same way as
+the real database, time the five operations with their targets, and return the list.
+
+1. Write `timeAsync` and a test for it (the middle of `[10, 12, 50, 11, 13]` is `12`).
+2. Write `runBenchmarks.ts`. Run it on the release build; take a screenshot.
+3. Write the five numbers into the table above.
+4. For anything over target, run `EXPLAIN QUERY PLAN` before changing anything. The fix
+   is almost always an index, and the plan tells you which.
+
+### 4. Memory over a 1-hour workout (treadmill)
+
+Two methods. Do both; they find different things.
+
+**A — the whole app, release build:**
+1. Release build, unplugged, on wireless `adb`, HyperOS settings done (Phase 07).
+2. Start the workout and read memory every 10 minutes for the hour:
    ```powershell
-   dotnet tool install -g dotnet-trace
-   dotnet tool install -g dotnet-gcdump
-   dotnet tool install -g dotnet-dsrouter
+   adb shell dumpsys meminfo com.myhi.companion | Select-String "TOTAL PSS"
    ```
-2. Check versions. This phase's workflow needs **at least `9.0.652701`** of each
-   (older versions require running `dotnet-dsrouter` manually as a separate
-   process instead of via the `--dsrouter` flag used below):
+   (Or ask the agent to run it every 10 minutes and make a table.)
+3. **Write down:** each reading, the highest, the last, and "flat" or "rising ~X MB an
+   hour". Up-and-down is fine (that's memory being cleaned up). Only-going-up isn't.
+
+**B — what's leaking, development build** (only if A shows a rising slope):
+1. Development build, React Native DevTools open (`j`), **Memory** tab.
+2. A 10-minute workout with the fake treadmill is fine here (you're looking for leftover
+   objects, not Bluetooth behaviour). Take a snapshot at minute 1 and at minute 10.
+3. Compare them ("Comparison" view), sorted by how much each count grew. A type that
+   grows with time (listeners from `onSample`, sample objects, capture entries) is the
+   leak.
+4. The fix is almost always a missing unsubscribe in a cleanup or a `dispose()`. Phase
+   03's "no listener left behind" test is the model for proving it's fixed.
+
+### 5. CPU while recording
+
+1. Quick number, during a release-build workout, a few times over a minute:
    ```powershell
-   dotnet-trace --version
-   dotnet-gcdump --version
-   dotnet-dsrouter --version
+   adb shell top -n 1 | Select-String "myhi"
    ```
-   If any are older, `dotnet tool update -g <name>`.
-3. Confirm `adb` is on your `PATH` (`adb --version`). The phone must be connected
-   with USB debugging enabled, same setup as `docs/learning/01-Emulator-Setup.md`.
+   A low single-digit percentage is normal for an app getting Bluetooth data once a
+   second.
+2. If it's higher than that, find out why. In the development build, React Native
+   DevTools' **Performance** tab records what your code does: look for redraws much more
+   often than the 4-per-second limit, or one long task. (Development timings are
+   inflated, so look at *what* runs and *how often*, not how long.) For the native side,
+   Android Studio's CPU profiler can attach to the development build.
+3. Write down a typical percentage. No target; just "anything surprising?"
 
-### 1. Always measure a `Release` build
+### 6. Battery per hour (treadmill)
 
-Every command in this phase targets `-c Release`. If a number looks alarming,
-the first question is "was this actually a Release build?" before anything else.
-**Never ship a build with the diagnostic properties below turned on.** They're
-development/test-only and expose extra endpoints.
-
-### 2. Task — seed a synthetic 5,000-workout database (you write this)
-
-**Concept.** Every screen-load and query-time target in the table above is
-meaningless without a database big enough to make a slow query actually slow. A
-fresh dev database with 12 workouts in it will make every query look instant
-regardless of whether the indexes from Phase 10/11 are doing their job. You need a
-deterministic generator you can re-run.
-
-**Spec.**
-- Creates: a small tool, a `[Fact]`-adjacent xUnit test-project console utility,
-  or a `dotnet run`-able project under `src/`, whichever you prefer, that inserts
-  5,000 `Workout` rows plus realistic `WorkoutSample` rows (mix of short and
-  ~2-hour workouts, so the "2-hour workout chart load" target has something real
-  to load).
-- Spread workout dates across at least two years and across a DST boundary
-  (reuses the Phase 10/11 timezone-bucketing concern; a seeder that only
-  generates workouts in July never exercises that code path).
-- Deterministic: same seed value (e.g. a fixed `Random` seed) produces the same
-  row counts every run, so "5,000 workouts" in this doc always means the same
-  dataset.
-- Writes through the same `Microsoft.Data.Sqlite` connection factory and the same
-  buffered-insert pattern Phase 06/07 already established. Don't hand-roll a
-  second insert path just for the seeder.
-
-Concrete steps:
-1. Decide where the seeder lives. A new console-style entry point is simplest;
-   ask at the review checkpoint if you're unsure where it fits given how Phase 06
-   structured the data layer.
-2. Write the row-generation logic: realistic speed/distance/calorie curves aren't
-   needed here (that's Phase 01/03's job). Flat or lightly randomized values are
-   fine, this dataset exists to stress *row counts*, not decoding correctness.
-3. Run it once, confirm `SELECT COUNT(*) FROM Workout` returns 5000 and
-   `WorkoutSample` row counts look plausible (roughly cadence × duration per
-   workout, per the 5-second cadence from `../phase-06-recording-schema/README.md`).
-4. Keep the generated `.db` file out of git (it's large and reproducible). Add it
-   to `.gitignore` if it isn't covered already.
-
-### 3. Task — a timing harness for the query/insert targets (you write this)
-
-**Concept.** The five row-count-dependent targets in the Measure table (sample
-flush, full insert, list page, weekly aggregate, chart load) all need the same
-thing: run the operation against the seeded database, time it, compare to the
-target. Wrapping each in `System.Diagnostics.Stopwatch` by hand five times is
-fine for a one-off check, but you'll re-run this after every future schema or
-query change, so it's worth a small reusable harness.
-
-**Spec.**
-- A small helper, `TimeAsync(string label, Func<Task> operation)` or similar,
-  that starts a `Stopwatch`, awaits the operation, stops it, and writes
-  `label: elapsed ms` to the console/log.
-- One call site per row in the Measure table's bottom five rows, each running
-  against the seeded 5,000-workout database from step 2.
-- `EXPLAIN QUERY PLAN <query>` run manually (via any SQLite browser, or
-  `Microsoft.Data.Sqlite`'s `ExecuteReader` against the literal `EXPLAIN QUERY
-  PLAN ...` string) against the weekly-aggregate query if its timing comes back
-  high. Confirms whether it's actually using the `Workout(StartedAtUtc)` index
-  from Phase 10/11 or silently doing a full table scan.
-
-Concrete steps:
-1. Write the `Stopwatch`-based helper. See
-   [`Stopwatch` class docs](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.stopwatch)
-   if the API is unfamiliar.
-2. Call it around: a 60-sample flush, a 720-row full insert, the workout list
-   query (50 rows), the weekly aggregate query, and a single 2-hour workout's
-   chart data load.
-3. Run it against the seeded database, record the five numbers next to the
-   Measure table above.
-4. For any number over target, run `EXPLAIN QUERY PLAN` on that specific query
-   before changing anything. The fix is almost always "add/fix an index," and
-   guessing which one without the query plan wastes time.
-
-### 4. Measure memory over a 1-hour workout — `[HUMAN]`
-
-Two independent methods. Do both, they catch different things (EventPipe sees
-managed .NET allocations; Android's profiler also sees native/JNI memory).
-
-**Method A — Android Studio Profiler:**
-1. Build a **profileable** `Release` APK (Android Studio does this automatically
-   for a `Release` variant on a device running Android 10+) and install it.
-2. In Android Studio: **View → Tool Windows → Profiler**, or the Profiler tab.
-3. Select **"Attach to a running process"** and pick the MyHi Companion process
-   from the dropdown. No need to launch it from Android Studio.
-4. Open the **Memory** timeline. Start the treadmill workout in the app right
-   after attaching, so the whole hour is captured.
-5. Let it run the full hour, screen locked per the Phase 07 foreground-service
-   setup. Watch (or come back and review) the memory timeline: is it flat after
-   the initial ramp-up, or does it keep climbing?
-6. Take a heap dump (camera icon in the Memory timeline) near the start and again
-   near the end; compare object counts by class. A class whose count roughly
-   doubled over the hour is the leak.
-
-**Method B — `dotnet-gcdump`, for a managed-memory cross-check:**
-1. Build and deploy with the diagnostic properties on (physical device; adjust
-   `DiagnosticAddress` if using the emulator instead, per the table below):
-   ```powershell
-   dotnet build -t:Run -c Release -f net10.0-android -p:DiagnosticAddress=127.0.0.1 -p:DiagnosticPort=9000 -p:DiagnosticSuspend=false -p:DiagnosticListenMode=connect
-   ```
-2. Roughly every 15 minutes during the hour, in a separate terminal:
-   ```powershell
-   dotnet-gcdump collect --dsrouter android
-   ```
-   This produces a `.gcdump` file each time (default: current directory).
-3. After the hour, open the first and last `.gcdump` in Visual Studio (or
-   [PerfView](https://github.com/microsoft/perfview) if you're not on Windows
-   with VS) and diff them. Same "which type's live count kept climbing"
-   question as Method A's heap dumps, from the managed side.
-
-*(Emulator variant of the build command, if you're not on a physical phone:
-`-p:DiagnosticAddress=10.0.2.2` instead of `127.0.0.1`. Note the whole point
-of this measurement is the real device on the real belt, so the emulator path is
-for rehearsing the tool workflow only, not for recording the actual hour.)*
-
-**Record:** peak MB, end-of-hour MB, and a plain "flat" or "rising, ~X MB/hour"
-verdict.
-
-### 5. Measure CPU during active recording
-
-1. Run `maui profile manual --framework net10.0-android` from the repo root (or
-   pass `--project` if not run from the project directory). This launches the app
-   in `Release` **without** suspending it at startup.
-2. In the app, connect to the treadmill and start a workout. Get it into the
-   steady "actively recording" state you actually want to profile.
-3. Back in the terminal, press **Enter** to attach `dotnet-trace` and start
-   collection.
-4. Let it record through a representative stretch of active recording (a minute
-   or two is enough, this isn't the hour-long test).
-5. Press **Enter** again to stop and finalize. Add `--format speedscope` to the
-   original command if you want a file viewable at
-   [speedscope.app](https://speedscope.app/) instead of the Visual-Studio-only
-   `.nettrace` default.
-6. Open the trace, sort by self time, and note which methods are actually hot.
-   This is the "note it" measurement, there's no numeric target, just "does
-   anything unexpected show up."
-
-### 6. Measure battery drain per hour of workout — `[HUMAN]`
-
-1. Fully charge the phone, then note the starting battery percentage
-   (**Settings → Battery**, or `adb shell dumpsys battery`).
-2. Reset batterystats so this run isn't polluted by earlier testing:
+1. Charge fully, then note the battery level (`adb shell dumpsys battery`).
+2. Reset the battery stats:
    ```powershell
    adb shell dumpsys batterystats --reset
    ```
-3. Run the same one-hour locked workout as step 4 (you can do this as the same
-   session; batterystats doesn't interfere with the profilers above).
-4. Pull the stats:
+3. Do the same 1-hour locked workout as step 4 (same session is fine).
+4. Save the stats:
    ```powershell
    adb shell dumpsys batterystats > batterystats.txt
+   adb shell dumpsys batterystats --charged com.myhi.companion
    ```
-   For just this app's numbers:
-   ```powershell
-   adb shell dumpsys batterystats --charged com.<yourpackageid>
-   ```
-5. Optional but worth it if the number looks bad: feed `batterystats.txt` into
-   [Battery Historian](https://developer.android.com/topic/performance/power/setup-battery-historian)
-   for a visual timeline of what was drawing power when.
-6. Record the percentage drop over the hour as your "battery drain per hour"
-   figure.
+5. Optional, if it looks bad: open `batterystats.txt` in Battery Historian for a
+   timeline. The keep-alive's wake lock (Phase 07) shows up there, and should, for the
+   length of the workout only.
+6. Write down the percentage used in the hour.
 
-### 7. Measure BLE notification → UI latency
+### 7. Time from Bluetooth packet to screen
 
-**Concept.** This is a small logic addition, not a UI change. Timestamp the
-moment a `TreadmillSample` is raised by `ITreadmillService` and the moment the
-bound property update actually reaches the UI thread, then log the delta.
+**Why.** `TreadmillSample.receivedAtMs` already records when a packet arrived. Record
+when the dashboard showed it, and log the difference.
 
-Concrete steps:
-1. At the point `SampleReceived` fires (or where the ViewModel receives it), grab
-   `DateTime.UtcNow` (or a `Stopwatch` if you want sub-millisecond resolution).
-2. At the point the ViewModel's bound property setter actually runs (e.g. inside
-   the `[ObservableProperty]`-generated setter, or immediately before it via a
-   `partial void On...Changing` hook), grab the time again and log the
-   difference.
-3. Run a few minutes of a live or fake-service workout, watch the logged deltas
-   in `adb logcat` or the rolling log file from Phase 00.
-4. Record a typical value. There's no target here, just "note it," but a number
-   consistently over ~250 ms would be worth a closer look given the 4 Hz UI
-   throttle Phase 03 already applies.
+1. In `useDashboard`, add:
+   `useEffect(() => { if (sample) log(`ui latency ${Date.now() - sample.receivedAtMs} ms`); }, [sample]);`
+   Effects run after the screen has updated, so this is close enough.
+2. Run a few minutes of a real workout on the release build, and watch
+   `adb logcat -s ReactNativeJS`.
+3. Write down a typical value. No target, but up to 250 ms is expected (that's the
+   update limit from Phase 03). Consistently more means something's in the way.
+4. Remove the log line afterwards, or put it behind a developer setting.
 
-### 8. Roll it up
+### 8. Sum up
 
-Fill in every row of the Measure table with what steps 3–7 produced, and write
-down the pass/fail against each target explicitly before calling the phase done.
+Fill every row of the table above, and write pass or fail next to each target before
+calling the phase done.
 
 ---
 
 ## Tests
 
-- Seed a synthetic 5,000-workout database and measure. Do not assume.
-- `[HUMAN]` One-hour workout with the profiler attached
-- Every screen opens in under 500 ms on the seeded database
+- 5,000 fake workouts, measured. Don't assume.
+- Treadmill: a 1-hour workout with memory read every 10 minutes
+- Every screen opens in under 500 ms with the big database (release build)
 
-## Acceptance
+## Done when
 
-- [ ] Flat memory over one hour
-- [ ] Statistics queries under 200 ms at 5,000 workouts
+- [ ] Memory stays flat over an hour
+- [ ] Statistics queries take under 200 ms with 5,000 workouts, on the phone

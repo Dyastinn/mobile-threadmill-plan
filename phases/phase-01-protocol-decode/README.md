@@ -1,712 +1,539 @@
-# Phase 01 — Protocol Decode & Fixtures (01a) + `ITreadmillService` Skeleton (01b)
+# Phase 01 — Decoding (01a) and the TreadmillService interface (01b)
 
-> This phase is split into two independent tracks with different blocking status.
-> **Track 01b needs nothing and starts today.** Track 01a needs real capture data
-> that doesn't exist yet. See `../README.md` for the collaboration model: you write
-> the code, the agent explains concepts up front and reviews after.
+> Two separate tracks. **01b needs nothing but Phase 00's project setup, so it can
+> start right away.** 01a needs treadmill data that hasn't been captured yet. You
+> write the code; the agent explains first and reviews after (see `../README.md`).
 
-**Hardware:** none for either track.
+**Treadmill needed:** no, for either track.
 
 ---
 
-## Track 01b — `ITreadmillService` skeleton + `FakeTreadmillService` ← START HERE
+## Track 01b — `TreadmillService` + a fake treadmill ← START HERE
 
-**Blocked by:** nothing. `ITreadmillService.cs` already exists in this folder.
-**Unblocks:** Phase 03 (Live Dashboard), 04 (Workout Engine), 06 (Recording & Schema).
-Anything that needs to display or react to treadmill data can now be built and tested
-without the real hardware in the room.
+**Waits for:** Phase 00 task 0.1 (the project must exist). `treadmillService.ts` is
+already in this folder.
+**Unlocks:** Phases 03, 04 and 06. Anything that shows or reacts to treadmill data can
+now be built without the treadmill.
 
-### Understanding what you're building (read this before the tasks)
+### The idea
 
-**The problem.** `FakeTreadmillService` is a stand-in for the real Bluetooth
-connection, the way a hardware rig fakes an engine's signals so a car's dashboard
-can be built and tested before the engine exists. Track 01a (the actual byte
-parsers) is blocked on physical access to the hardware, a scarce, in-person
-resource that can't be conjured by typing faster.
+`FakeTreadmillService` pretends to be the treadmill. It sends realistic speed and
+distance numbers once a second, so you can build the dashboard, the workout logic and
+the database without walking on a belt every time you test something.
 
-**Why not just wait for the real thing?** The simplest-sounding plan is: don't
-build a fake, wait until 01a is unblocked and the real parsers exist, then build
-one `TreadmillService` and be done. That's actually the worse plan, not the
-simpler one. Phases 03, 04, 06, 09, 10, 11, and 12 all need treadmill data flowing
-to be built and tested at all. If everything waits on one in-person capture
-session, the rest of the project serializes behind a single bottleneck outside
-your control. Building one small fake now isn't complexity for its own sake; it's
-what lets six other phases proceed in parallel with your actual schedule instead
-of the treadmill's availability. The concrete test for whether an abstraction
-earns its keep is counting how many things it unblocks. Here, the answer is six
-phases for about 150 lines of code. Clear win, not a judgement call.
+**Why not just wait for the real decoder?** Because six phases need treadmill data to
+be built at all, and the real decoder is stuck until the next treadmill session.
+About 150 lines of fake unblocks all six.
 
-**The pattern, named plainly.** This is **programming against an interface, not
-an implementation**, one of the oldest ideas in object-oriented design, applied
-here as a **seam**: a deliberately placed point where a real dependency (live
-Bluetooth) can be swapped for a stand-in (the fake) without anything on the other
-side noticing or changing. `ITreadmillService` *is* the seam. The cost is real:
-one extra layer of indirection. Any code holding an `ITreadmillService` genuinely
-doesn't know whether it's talking to hardware or a simulation, which is one more
-thing to hold in your head. The payoff is specific to this project: BLE hardware
-is expensive to keep "in the loop" for every phase's day-to-day development
-(you'd need the treadmill physically present and powered on for every single test
-run). Where the real dependency is cheap and instant to use directly, most plain
-data transformations for instance, this same pattern would be needless ceremony.
-It earns its place here because the real thing is hard to get to, not as a
-default habit for every dependency in the app.
+**The name for this:** a *seam*. `TreadmillService` is an interface, and anything that
+uses it can't tell the fake from the real one. The cost is one extra layer. It's worth
+it here because the real thing is hard to get to. For something cheap and instant, it
+wouldn't be.
 
-### Learning goals
+TypeScript makes this cheap: any object with the right methods counts as a
+`TreadmillService`. Still write `class FakeTreadmillService implements
+TreadmillService`, so the compiler points at a missing method right away.
 
-- Implementing an interface against a contract someone else already designed
-  (`ITreadmillService.cs`), reading intent from doc comments, not just signatures
-- C# events (`event EventHandler<T>?`): why this project uses them instead of, say,
-  `IObservable<T>` or return values (see the design notes at the top of
-  `ITreadmillService.cs`)
-- The **seam / fake pattern**: build a believable stand-in for something you don't
-  have yet (real BLE data), so everything above it can be built and tested now
-- **Where code belongs, and why**: `ITreadmillService.cs` currently sits in this
-  phase folder, outside every `.csproj`. It isn't compiled into anything yet. None of its
-  types (`TreadmillSample`, `ConnectionState`, etc.) reference MAUI or Android at all,
-  which is exactly the test the Phase 00 primer describes for "does this belong in
-  `Core`" (see `docs/learning/00-What-Is-Maui.md`). So it belongs in `Core`, not the
-  app project, which also means `FakeTreadmillService` can get real xUnit tests,
-  the same way `FtmsCommands` and `CaptureRecorder` do.
-- Registering a class in `MauiProgram.cs`'s DI container, and why that's the *only*
-  place that will need to change when a real implementation replaces the fake one
-  later
+### What you'll learn
 
-### Reference docs
+- Building something to match an interface someone else designed, including what the
+  comments say.
+- The event pattern used everywhere in this project: `onSample(listener)` returns a
+  function that stops listening. It fits React's `useEffect` cleanup exactly.
+- Fake timers in Jest: testing something that ticks once a second without waiting.
+- Where code goes: `treadmillService.ts` imports nothing phone-specific, so it goes in
+  `src/core/` and gets real tests.
+- The services file: the one place to swap the fake for the real thing later.
 
-- **`./ITreadmillService.cs`**: read the whole file before writing anything.
-  Every type you need (`ConnectionState`, `TreadmillSample`, `MachineEvent`,
-  `TreadmillCapabilities`, `SpeedRange`, `ControlResult`, `FtmsResultCode`,
-  `AppErrorCode`, `ITreadmillSimulation`, `SimulationScenario`) is already defined
-  there, with doc comments explaining constraints.
-- **`../phase-00-probe-app/PHASE-00-FINDINGS.md`**, section V2. The control-point
-  finding matters here: `Start` does not appear to preserve a pre-set target speed on
-  the real device. `FakeTreadmillService` doesn't have to reproduce this quirk, but
-  decide *consciously* whether your fake should (see task 1b.1).
-- **`../phase-00-probe-app/PHASE-00-FINDINGS.md`**: the speed range (1.0–16.0 km/h, 0.1 increment) is a
-  measured fact, safe to reuse as the fake's advertised range.
-- **C# events**: [Events (C# Programming Guide)](https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/events/).
-  Read this before writing `SampleReceived`/`StateChanged`/etc.; the interface
-  already declares them as `event EventHandler<T>?`. This doc explains what that
-  buys you and how a subscriber unhooks (`-=`) to avoid a leak.
-- **`System.Threading.Timer`**: [Timer class](https://learn.microsoft.com/en-us/dotnet/api/system.threading.timer).
-  The mechanism task 1b.2 uses to raise a sample roughly once a second. `PeriodicTimer`
-  ([docs](https://learn.microsoft.com/en-us/dotnet/api/system.threading.periodictimer))
-  is the newer, `async`-friendly alternative and arguably the better fit here. Worth
-  reading both and picking one deliberately, not defaulting to whichever you've used
-  before.
-- **Dependency injection in .NET MAUI** (task 1b.4): https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/dependency-injection.
-  Read the "Registration" section; `MauiProgram.cs` already registers
-  `TreadmillConnection` the same way you'll register `FakeTreadmillService`.
+### Read first
 
-### Your tasks
+- **`./treadmillService.ts`**, all of it. Every type you need is there.
+- **`PHASE-00-FINDINGS.md` V2**: on the real treadmill, `Start` seems to forget the
+  target speed. Decide whether your fake copies that (task 1b.2).
+- **`PHASE-00-FINDINGS.md`**: the speed range (1.0–16.0 km/h, steps of 0.1) is
+  measured. Use it in the fake.
+- **`src/core/shared/emitter.ts`** (from Phase 00): `createEmitter<T>()` gives you
+  `emit(value)` and `subscribe(listener)`. Use it for the three events.
+- **`setInterval` / `clearInterval`**: how the fake ticks once a second. Whatever starts
+  an interval must stop it, or it runs forever.
+- **`AbortSignal`**: [AbortController (MDN)](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
+  The standard way to cancel async work, used by `connect(deviceId, signal)`.
+- **Jest fake timers**: [Timer Mocks](https://jestjs.io/docs/timer-mocks).
+  `jest.useFakeTimers()` plus `await jest.advanceTimersByTimeAsync(ms)`.
 
-**1b.1: Move the contract into `Core`**
+### Tasks
 
-Creates: `src/MyHi.Companion.Core/Treadmill/ITreadmillService.cs` (new `Treadmill/`
-folder).
+**1b.1: Move the interface into `core/`**
 
-Concrete steps:
-1. In your editor, create the folder `src/MyHi.Companion.Core/Treadmill/`.
-2. Move `ITreadmillService.cs` from this phase folder into that folder. Use a real
-   file move (drag in your editor's file tree, or `git mv` on the command line), not
-   a retype. The content doesn't need to change.
-3. Open the moved file and check the `namespace` line. It should read
-   `namespace MyHi.Companion.Core.Treadmill;` (file-scoped namespace, matching the
-   folder). Fix it if it still says something else.
-4. Build just the `Core` project to confirm it compiles standalone with nothing
-   MAUI-flavoured leaking in:
-   ```powershell
-   dotnet build src/MyHi.Companion.Core/MyHi.Companion.Core.csproj
-   ```
-   Zero errors, zero warnings is the bar, same as every other phase.
+1. Create `src/core/treadmill/`.
+2. Move the file with git, don't retype it:
+   `git mv phases/phase-01-protocol-decode/treadmillService.ts src/core/treadmill/`
+3. From `src/`, run `npx tsc --noEmit` and `npx expo lint`. Both must be clean. Lint
+   proves nothing phone-specific slipped in.
 
 **1b.2: `FakeTreadmillService`**
 
-Creates: `src/MyHi.Companion.Core/Treadmill/FakeTreadmillService.cs`.
+Creates `src/core/treadmill/fakeTreadmillService.ts`. It implements every method of
+`TreadmillService`, using a timer instead of Bluetooth:
 
-Implement `ITreadmillService` fully. Instead of talking to real Bluetooth, generate a
-synthetic session on a timer:
+- About once a second, send a sample that looks like a real walk: speed ramps up,
+  distance grows, time counts up. The dashboard will show these.
+- Support the `normalWalk` scenario: warm-up, steady, cool-down.
+- `connect()` goes `connecting → discovering → ready`, with a short pause at each step,
+  like the real connection. If the signal is aborted, go back to `disconnected`.
+  `disconnect()` goes back to `disconnected` and stops the timer.
+- The control methods return a believable `ControlResult` and change the samples (after
+  `setSpeed(8)`, samples show 8 km/h).
+- Fill in capabilities and speed range once connected.
+- **Your call:** should the fake copy "Start forgets the target speed"? Either answer
+  is fine. Pick one and say which in a one-line comment.
 
-- Raise `SampleReceived` roughly once a second with a `TreadmillSample` that changes
-  realistically over time (speed ramping up, distance accumulating, elapsed time
-  counting up). This is exactly what Phase 03's dashboard will render, so it needs
-  to actually look like a workout, not just static numbers.
-- Support at least the `NormalWalk` scenario end to end: warm-up → steady speed →
-  cool-down.
-- `ConnectAsync` should transition `State` through
-  `Connecting → Discovering → Ready` with a short delay at each step, mirroring the
-  shape of a real connection (see `Features/Bluetooth/TreadmillConnection.cs` from
-  Phase 00 for what the real state machine looks like) so nothing built against this
-  fake is surprised later. `DisconnectAsync` transitions `Ready → Disconnected`.
-- `RequestControlAsync` / `SetSpeedAsync` / `StartAsync` / `PauseAsync` / `StopAsync`
-  should return a plausible `ControlResult` and actually affect the simulated sample
-  stream (e.g. `SetSpeedAsync` changes what speed subsequent samples report). One
-  design decision that's yours to make, informed by the Phase 00 finding above:
-  should this fake also model "Start doesn't preserve target speed"? Either answer is
-  defensible. Just make it a deliberate choice, and write a one-line comment saying
-  which you picked and why.
-- Populate `Capabilities` and `SpeedRange` with reasonable values once "connected."
-- Note: raising events "on the UI thread" (per the interface's doc comment) is a
-  real MAUI-app requirement, but a class living in `Core` can't reference
-  `MainThread.BeginInvokeOnMainThread` (that's a MAUI type). Fine to raise the events
-  directly from `Core`. Marshalling to the UI thread, if still needed, becomes
-  something the *consumer* (Phase 03's ViewModel) or a thin wrapper handles, not this
-  class. We'll talk through this at the review checkpoint if it's unclear.
+A starting outline:
 
-The shape of the class, not the implementation. Just the skeleton so you're not
-staring at a blank file:
+```ts
+import { createEmitter } from '../shared/emitter';
+import {
+  type ConnectionState, type ConnectionStateChange, type ControlResult,
+  type MachineEvent, type SpeedRange, type TreadmillCapabilities,
+  type TreadmillSample, type TreadmillService, type Unsubscribe,
+} from './treadmillService';
 
-```csharp
-namespace MyHi.Companion.Core.Treadmill;
+export class FakeTreadmillService implements TreadmillService {
+  private state: ConnectionState = 'disconnected';
+  private capabilities: TreadmillCapabilities | null = null;
+  private speedRange: SpeedRange | null = null;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private speedKph = 0;
+  private distanceMeters = 0;
 
-public sealed class FakeTreadmillService : ITreadmillService
-{
-    private PeriodicTimer? _sampleTimer;
-    private CancellationTokenSource? _sampleLoopCts;
-    private double _currentSpeedKmh;
-    private double _distanceMeters;
+  private readonly stateChanges = createEmitter<ConnectionStateChange>();
+  private readonly samples = createEmitter<TreadmillSample>();
+  private readonly machineEvents = createEmitter<MachineEvent>();
 
-    public ConnectionState State { get; private set; } = ConnectionState.Disconnected;
-    public TreadmillCapabilities? Capabilities { get; private set; }
-    public SpeedRange? SpeedRange { get; private set; }
+  getConnectionState(): ConnectionState { return this.state; }
+  // TODO: getCapabilities, getSpeedRange, hasControl
 
-    public event EventHandler<TreadmillSample>? SampleReceived;
-    public event EventHandler<ConnectionState>? StateChanged;
-    // ... the rest of ITreadmillService's events
+  onSample(listener: (sample: TreadmillSample) => void): Unsubscribe {
+    return this.samples.subscribe(listener);
+  }
+  // TODO: onConnectionStateChange, onMachineEvent (same one line)
 
-    public async Task ConnectAsync(CancellationToken ct = default)
-    {
-        // transition Disconnected -> Connecting -> Discovering -> Ready,
-        // with a short delay at each step, raising StateChanged each time
-    }
+  async connect(deviceId: string, signal?: AbortSignal): Promise<void> {
+    // TODO: connecting -> discovering -> ready, short pause between each
+  }
 
-    private async Task RunSampleLoopAsync(CancellationToken ct)
-    {
-        // PeriodicTimer, tick ~once/sec, mutate _currentSpeedKmh / _distanceMeters
-        // per the NormalWalk shape (warm-up -> steady -> cool-down), raise SampleReceived
-    }
+  private tick(): void {
+    // TODO: move speed and distance along the walk, then send a sample
+  }
 
-    // DisconnectAsync, RequestControlAsync, SetSpeedAsync, StartAsync, PauseAsync,
-    // StopAsync — same pattern: mutate state, raise the relevant event, return a
-    // ControlResult
+  // TODO: disconnect, requestControl, setSpeed, start, pause, stop
 }
 ```
 
-Deliberately **not required yet**: the other `SimulationScenario` values
-(`DropoutMidSession`, `SparseFields`, `ControlRejected`, `IntervalWalk`) and a
-counter-reset scenario. Get `NormalWalk` solid first; we'll extend this file when a
-later phase actually needs a specific scenario for a specific test, rather than
-building five scenarios speculatively now.
+**Not needed yet:** the other scenarios (`dropoutMidSession`, `sparseFields`,
+`controlRejected`, `intervalWalk`) and counter resets. Add each one when a later test
+needs it.
 
-**1b.3: A real xUnit test**
+**1b.3: Tests**
 
-Creates: `src/MyHi.Companion.Tests/Treadmill/FakeTreadmillServiceTests.cs`.
+Create `src/core/treadmill/clampSpeed.test.ts` and
+`src/core/treadmill/fakeTreadmillService.test.ts`.
 
-At minimum: connecting reaches `Ready`, `SetSpeedAsync` clamps to `SpeedRange` (reuse
-`SpeedRange.Clamp`, which already exists in `ITreadmillService.cs` and has its own
-logic worth testing directly too), and subscribing to `SampleReceived` after
-`ConnectAsync` + `StartAsync` actually receives at least one sample within a
-reasonable timeout.
+1. `clampSpeed`: a `test.each` table with min, max, below min, above max, a
+   between-steps value (6.47 → 6.5), and `1.0 + 3 * 0.1` → exactly `1.3`.
+2. The fake, with `jest.useFakeTimers()`:
+   - `connect` reaches `ready`.
+   - A listener added with `onSample` gets at least two samples in 3 fake seconds.
+   - After calling the unsubscribe function, the listener gets nothing more. (A
+     listener you can't remove is a memory leak waiting to happen.)
+3. `npm test`: everything passes, including Phase 00's tests.
 
-Concrete steps:
-1. Create the test file in `src/MyHi.Companion.Tests/Treadmill/` (new folder, mirrors
-   the source layout, same pattern as the existing `Ftms/` and `Capture/` test
-   folders from Phase 00).
-2. Write `[Fact] public async Task ConnectAsync_ReachesReady()`: call `ConnectAsync`,
-   assert `State == ConnectionState.Ready` afterward.
-3. Write `[Theory]` cases for `SpeedRange.Clamp` at min, max, below min, above max.
-   This one doesn't even need a `FakeTreadmillService` instance; it's testing the
-   struct directly.
-4. Write a test that subscribes to `SampleReceived`, calls `ConnectAsync` then
-   `StartAsync`, and awaits (with a timeout, e.g. `Task.WhenAny` against a short
-   `Task.Delay`) at least one raised sample.
-5. Run `dotnet test src/MyHi.Companion.Tests`: all green, including Phase 00's
-   existing tests (regression).
+**1b.4: Add it to the services file**
 
-**1b.4: Register it in DI**
+In `src/features/services.tsx`, add `treadmill: TreadmillService` to the `Services`
+type and `treadmill: new FakeTreadmillService()` where services are created. The type
+is the interface, not the class, so nothing else can depend on fake-only details.
+Run `npx tsc --noEmit`: a missing field is caught here.
 
-Touches: `src/MyHi.Companion/MauiProgram.cs`.
+### Review
 
-Register `FakeTreadmillService` as the `ITreadmillService` implementation, as a
-singleton, same reasoning as the existing `TreadmillConnection` registration already
-in that file (one treadmill connection concept per running app).
-
-Concrete steps:
-1. Open `MauiProgram.cs` and find the existing
-   `builder.Services.AddSingleton<TreadmillConnection>();`-style registration from
-   Phase 00; that's the pattern to copy.
-2. Add `builder.Services.AddSingleton<ITreadmillService, FakeTreadmillService>();`
-   near it.
-3. Add the `using MyHi.Companion.Core.Treadmill;` directive at the top if it's not
-   already there.
-4. Build the app project (`dotnet build MyHi.Companion/MyHi.Companion.csproj -f net10.0-android`)
-   to confirm DI resolves. A missing registration only shows up at runtime when
-   something tries to inject `ITreadmillService`, so this step alone won't prove it
-   works; that's what the tiny wire-up at the review checkpoint below is for.
-
-### Review checkpoint
-
-Before Phase 03 starts building UI on top of this: the agent reviews
-`FakeTreadmillService.cs` against `ITreadmillService.cs`'s doc comments (which encode
-real constraints, e.g. "events raised on the UI thread," "control methods return a
-result rather than throwing"). Then we wire up something tiny together, even just a
-button that connects and a label bound to the latest sample's speed, to *see* it
-work before Phase 03 builds a real screen on the assumption that it does.
+The agent checks the fake against the interface's comments (for example: control
+methods never throw). Then you wire up something tiny together, like a Connect button
+and a line showing the latest speed, and watch it work before Phase 03 builds on it.
 
 ---
 
-## Track 01a — Parsers & fixtures (blocked)
+## Track 01a — Decoding the treadmill's data (blocked)
 
-**Blocked by:** Probe Part C (four-plus matched console-vs-hex pairs) and C7 (counter
-reset semantics) from `../phase-00-probe-app/HUMAN-RUNBOOK.md`. Neither has been
-captured yet; only the control-point finding (V2) has.
-**Unblocks:** the *real* `TreadmillService` (as opposed to 01b's fake) becoming
-trustworthy. Nothing else is newly blocked on this beyond what it always blocked.
+**Waits for:** runbook Part C (four console-vs-hex pairs) and C7 (counter resets).
+Neither has been captured yet.
+**Unlocks:** the *real* `BleTreadmillService`.
 
-> Pure desk work once unblocked. No hardware in the loop. The hardware speaks in
-> Phase 00's capture files; this track turns that hex into parsers provably correct
-> against it.
+> Desk work once unblocked. The treadmill's bytes come from Phase 00's capture files.
 
-### Understanding what you're building (read this before the tasks)
+### The idea
 
-**The problem.** The treadmill sends a stream of raw bytes over Bluetooth,
-meaningless without a decoder. A parser's job is translation: turn `"02 4B 00 A3
-01 ..."` into `SpeedKph = 6.5, DistanceMeters = 412`. That translation step is
-where almost every real bug in a BLE app lives. The "dictionary" you're
-translating against (the FTMS spec) is a *general* spec written for any fitness
-machine, and this specific treadmill (a FitShow module, not a native FTMS
-implementation) is already proven to deviate from it (see the `0x2ACC` finding
-above that the feature flags over-claim). The goal is what this one
-device actually does, verified against real captured bytes, not just the general
-spec on paper.
+The treadmill sends bytes. A parser turns `02 4B 00 A3 01 ...` into
+`speedKph = 6.5, distanceMeters = 412`. That's where most Bluetooth bugs live, and this
+treadmill is known to bend the spec, so every parser is tested against real captured
+bytes.
 
-**Why the parser can't be "read the bytes in order."** The naive, simplest-sounding
-approach (read byte 0 as speed, byte 1 as distance, and so on at fixed positions)
-is exactly what FTMS's flag-driven format forbids, and this isn't an arbitrary
-rule. Different treadmill sessions send *different sets* of fields depending on
-what the machine detected (a field is absent, not zero, when it's not being
-reported), so a fixed-offset reader silently reads the wrong field the moment the
-flag pattern changes. The correct approach (walk a cursor through the buffer,
-consulting the flags bitmask to know what's present at each step) is more code
-than fixed-offset reading, but it isn't optional complexity. It's the minimum
-correct approach for a format designed to be variable-length. Where a fixed
-format genuinely has no variability (like `0x2AD4`'s three-`uint16` speed range,
-task 1a.3), this project reads it as plain fixed offsets. No cursor needed there,
-because the extra machinery would buy nothing. The rule isn't "always parse
-defensively," it's "match the actual shape of the data you have."
+**Why you can't just read bytes at fixed positions.** Each packet starts with flags
+that say which fields follow. A missing field isn't sent at all (not sent as zero), so
+everything after it shifts. A fixed-position reader would silently read the wrong
+field. Instead, walk through the bytes with a cursor, checking the flags at each step.
+Where a format really is fixed (like `0x2AD4`, always three numbers), read fixed
+positions: no need for more.
 
-**The pattern, named plainly.** Length-validate-then-reject-malformed-input is an
-application of a much older idea: **fail loudly and immediately at the boundary,
-not silently deep inside the program** (sometimes called "fail fast"). The
-tradeoff is a few extra lines per parser (check the byte count before trusting
-any field), for a real payoff: a rejected packet shows up as one clear log line
-at the exact moment something's wrong, instead of a `TreadmillSample` with
-plausible-looking-but-wrong numbers silently corrupting a chart three screens
-later. Uncle Bob's framing applies directly here. This isn't a rule to follow
-blindly on every function; it's specifically valuable at a **trust boundary**
-(bytes arriving from outside your program's control), which is exactly what a BLE
-packet is.
+**Check the length first.** Before reading any field, work out from the flags how long
+the packet should be, and reject it if it isn't. A bad packet then shows up as one
+clear log line, instead of a wrong number on a chart later. This matters most at a
+*trust boundary*: data from outside your control, like a Bluetooth packet. `DataView`
+also throws if you read past the end, which is a second safety net.
 
-### Reference docs
+### Read first
 
-- The FTMS protocol reference below: `0x2ACC`, `0x2AD4`, `0x2ACD` and its three
-  traps, `0x2A37`, `0x2ADA`, `0x2AD3`. (Control point response format, `0x2AD9`,
-  lives in `../phase-05-treadmill-control/README.md` since that's the phase that
-  writes to it.)
-- `../phase-00-probe-app/PHASE-00-FINDINGS.md`: the measured truth
-- `../../captures/`: raw sessions
+- The FTMS reference below.
+- **`DataView`**: [DataView (MDN)](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/DataView).
+  `getUint8`, `getUint16(offset, true)`, `getInt16(offset, true)`. The `true` means
+  "little-endian" (low byte first). FTMS always needs it.
+- `PHASE-00-FINDINGS.md` and `../../captures/`.
 
 ---
 
 ## FTMS protocol reference
 
-> **Status: PARTIALLY VERIFIED.** Static reads are done (see
-> `../phase-00-probe-app/PHASE-00-FINDINGS.md`); the data stream and control
-> point are not yet fully captured. Source of the protocol facts below: Bluetooth
-> SIG *Fitness Machine Service* specification v1.0 and the GATT Specification
-> Supplement. Where this reference states a fact with a confidence qualifier,
-> that qualifier is meaningful — treat anything below "high" as needing
-> confirmation from `PHASE-00-FINDINGS.md`.
+> **Partly checked.** The reads are confirmed (see `PHASE-00-FINDINGS.md`); the data
+> stream and control point aren't fully captured yet. Source: the Bluetooth SIG
+> *Fitness Machine Service* spec v1.0. Where a fact has a confidence note, anything
+> below "high" still needs checking against captured bytes.
 
-### What this device actually is
+### What this device is
 
-The device advertises as **`FS-9F4235`**. `FS-` is FitShow (Xiamen) Information
-Technology, who manufacture transparent-UART BLE modules for treadmills, exercise
-bikes and rowers. This is confirmed by the presence of `FFE0` and `FFF0`, both
-common transparent-serial service UUIDs, alongside the FTMS service.
+It advertises as **`FS-9F4235`**. `FS-` means FitShow, who make Bluetooth chips for
+treadmills and bikes. That's confirmed by the `FFE0`/`FFF0` services alongside FTMS.
 
 ```
-treadmill motor board ←UART→ FitShow BLE module ←BLE→ phone
+treadmill motor board ←serial→ FitShow Bluetooth chip ←Bluetooth→ phone
                                    │
-                                   ├── FFE0 / FFF0   transparent serial
+                                   ├── FFE0 / FFF0   FitShow's own protocol
                                    │                  (what the FitShow app uses)
-                                   ├── 180D          standard Heart Rate Service
-                                   └── 1826          FTMS shim
+                                   ├── 180D          standard heart rate
+                                   └── 1826          FTMS (standard fitness machine)
 ```
 
-**FTMS here is a vendor shim, not a native implementation.** That has one practical
-consequence running through this entire reference: **verify against hex, trust nothing
-the device declares about itself.** The `0x2ACC` section below documents a concrete case
-where the device's own feature declaration is provably false.
+**FTMS here is a translation layer, not the chip's native language.** So: check
+everything against real bytes, and don't trust what the device says about itself.
 
-The FitShow UART protocol on `FFE0`/`FFF0` is undocumented and prior public attempts
-to decode it have not succeeded. It is **not** a fallback plan. It is recorded here
-for completeness only.
+FitShow's own protocol (`FFE0`/`FFF0`) is undocumented and nobody has decoded it
+publicly. It's **not** a backup plan; it's only recorded.
 
-### Reading this reference
+### How Bluetooth data works here
 
-FTMS is a **GATT profile**, not an HTTP API. There are no endpoints, no JSON on the
-wire, and no request bodies. Every interaction is one of:
+FTMS isn't a web API. There's no JSON and no requests. Everything is one of:
 
-| GATT operation | What it is |
+| Operation | What it is |
 |----------------|------------|
-| Read | Client reads a characteristic's current value (raw bytes) |
-| Write | Client writes raw bytes to a characteristic |
-| Notify | Server pushes raw bytes to the client, unacknowledged |
-| Indicate | Server pushes raw bytes to the client, acknowledged |
+| Read | The phone reads a value (raw bytes) |
+| Write | The phone writes raw bytes |
+| Notify | The treadmill sends bytes, no acknowledgement |
+| Indicate | The treadmill sends bytes, and the phone acknowledges |
 
-All multi-byte integers are **little-endian**.
+Every number longer than one byte is **little-endian**: low byte first.
 
-### Service and characteristics: VERIFIED
+### Services (confirmed)
 
-| UUID | Name | Used by this app |
+| UUID | Name | Used? |
 |------|------|------------------|
 | `1800` | Generic Access | No |
-| `180A` | Device Information | Optional — firmware version |
-| `180D` | **Heart Rate** | **Yes — preferred HR source, see below** |
-| `FFE0` | Vendor (FitShow transparent serial) | No — recorded only |
-| `FFF0` | Vendor (FitShow transparent serial) | No — recorded only |
-| `1826` | **Fitness Machine** | **Yes — primary** |
+| `180A` | Device Information | Optional: firmware version |
+| `180D` | **Heart Rate** | **Yes: preferred heart rate source** |
+| `FFE0` | FitShow's own | No: recorded only |
+| `FFF0` | FitShow's own | No: recorded only |
+| `1826` | **Fitness Machine** | **Yes: the main one** |
 
-### FTMS characteristics: VERIFIED PRESENT
+### FTMS characteristics (all present)
 
-| UUID | Name | Properties | Required by this app |
+| UUID | Name | Supports | Used for |
 |------|------|------------|----------------------|
-| `0x2ACC` | Fitness Machine Feature | Read | Advisory only — see below |
-| `0x2ACD` | Treadmill Data | Notify | Yes — the core data stream |
-| `0x2AD4` | Supported Speed Range | Read | Yes — drives all UI limits |
-| `0x2AD9` | Fitness Machine Control Point | Write + Indicate | Speed control — see `../phase-05-treadmill-control/README.md` |
-| `0x2ADA` | Fitness Machine Status | Notify | Yes — machine-initiated events |
-| `0x2AD3` | Training Status | Read + Notify | Optional — display only |
+| `0x2ACC` | Fitness Machine Feature | Read | Logged only: see below |
+| `0x2ACD` | Treadmill Data | Notify | The main data stream |
+| `0x2AD4` | Supported Speed Range | Read | All speed limits in the UI |
+| `0x2AD9` | Fitness Machine Control Point | Write + Indicate | Speed control: see Phase 05 |
+| `0x2ADA` | Fitness Machine Status | Notify | Things the treadmill did |
+| `0x2AD3` | Training Status | Read + Notify | Display only |
 
-All six are present. That is better than expected for a shim implementation, but
-**presence is not function.** `0x2AD9` exposing Write and Indicate says nothing about
-whether it honours commands — see the Phase 00 control-point verdict.
+All six exist, but **existing isn't the same as working**. `0x2AD9` accepting writes
+doesn't mean it obeys them; see Phase 00's control verdict.
 
-The app must still degrade gracefully: if the control point handshake fails, hide all
-speed controls. Never fall back to guessed limits if `0x2AD4` is unreadable.
+If the control handshake fails, hide all speed controls. If `0x2AD4` can't be read,
+never guess the speed limits.
 
 ### Fitness Machine Feature (`0x2ACC`): Read
 
-**8 bytes: two little-endian uint32 bitfields.**
+**8 bytes: two 32-bit bit fields, little-endian.**
 
 ```
-[0..3]  Fitness Machine Features   (uint32 LE)
-[4..7]  Target Setting Features    (uint32 LE)
+[0..3]  Machine features   (uint32 LE)
+[4..7]  Target settings    (uint32 LE)
 ```
 
-**Fitness Machine Features (bytes 0–3):**
+**Machine features (bytes 0–3):**
 
 | Bit | Meaning |
 |-----|---------|
-| 0 | Average Speed supported |
-| 1 | Cadence supported |
-| 2 | Total Distance supported |
-| 3 | Inclination supported |
-| 4 | Elevation Gain supported |
-| 5 | Pace supported |
-| 6 | Step Count supported |
-| 7 | Resistance Level supported |
-| 8 | Stride Count supported |
-| 9 | Expended Energy supported |
-| 10 | Heart Rate Measurement supported |
-| 11 | Metabolic Equivalent supported |
-| 12 | Elapsed Time supported |
-| 13 | Remaining Time supported |
-| 14 | Power Measurement supported |
-| 15 | Force on Belt and Power Output supported |
-| 16 | User Data Retention supported |
+| 0 | Average Speed |
+| 1 | Cadence |
+| 2 | Total Distance |
+| 3 | Inclination |
+| 4 | Elevation Gain |
+| 5 | Pace |
+| 6 | Step Count |
+| 7 | Resistance Level |
+| 8 | Stride Count |
+| 9 | Expended Energy |
+| 10 | Heart Rate Measurement |
+| 11 | Metabolic Equivalent |
+| 12 | Elapsed Time |
+| 13 | Remaining Time |
+| 14 | Power Measurement |
+| 15 | Force on Belt and Power Output |
+| 16 | User Data Retention |
 | 17–31 | Reserved |
 
-**Target Setting Features (bytes 4–7):**
+**Target settings (bytes 4–7):**
 
 | Bit | Meaning |
 |-----|---------|
-| 0 | **Speed Target Setting supported** ← the one that decides Phase 05 |
-| 1 | Inclination Target Setting supported |
-| 2 | Resistance Target Setting supported |
-| 3 | Power Target Setting supported |
-| 4 | Heart Rate Target Setting supported |
-| 5 | Targeted Expended Energy configuration supported |
-| 6 | Targeted Step Number configuration supported |
-| 7 | Targeted Stride Number configuration supported |
-| 8 | Targeted Distance configuration supported |
-| 9 | Targeted Training Time configuration supported |
-| 10–31 | Remaining bits are further targeted-value configurations and reserved |
+| 0 | **Speed target** ← the one that matters for Phase 05 |
+| 1 | Inclination target |
+| 2 | Resistance target |
+| 3 | Power target |
+| 4 | Heart rate target |
+| 5 | Targeted expended energy |
+| 6 | Targeted step number |
+| 7 | Targeted stride number |
+| 8 | Targeted distance |
+| 9 | Targeted training time |
+| 10–31 | Further targets and reserved |
 
-*Confidence: high on bits 0–13 of machine features and bits 0–4 of target settings;
-moderate on the higher bits, which this device almost certainly does not set anyway.*
+*Confidence: high on machine bits 0–13 and target bits 0–4; moderate on higher bits,
+which this device almost certainly doesn't set.*
 
-#### ⚠️ THIS DEVICE'S FEATURE FLAGS ARE UNRELIABLE. DO NOT GATE ON THEM
+#### ⚠️ This device's feature list is wrong. Never decide anything from it
 
-Decoded from the first capture:
+From the first capture, the device claims:
 
-**Machine features claimed:** Total Distance, Step Count, Resistance Level, Expended
-Energy, Heart Rate Measurement, Elapsed Time, Power Measurement
+**Machine features:** Total Distance, Step Count, Resistance Level, Expended Energy,
+Heart Rate, Elapsed Time, Power
 
-**Target features claimed:** Speed Target Setting, Inclination Target Setting,
-Resistance Target Setting, Power Target Setting
+**Targets:** Speed, Inclination, Resistance, Power
 
 Three of these are impossible:
 
 | Claim | Reality |
 |-------|---------|
-| Resistance Level supported | Treadmills have no resistance mechanism |
-| Power Measurement supported | This treadmill has no power meter |
-| **Inclination Target Setting supported** | **The machine has no incline at all** |
+| Resistance Level | Treadmills have no resistance |
+| Power Measurement | This treadmill has no power meter |
+| **Inclination target** | **This machine has no incline at all** |
 
-The last one is decisive: inclination is **absent** from the machine-features word but
-**present** in the target-settings word. A device cannot support setting a target for a
-capability it does not report having. This is internally contradictory, which means the
-bitmask is a stock value baked into FitShow module firmware rather than a description
-of this treadmill.
+The last one proves it: incline is missing from the machine features but present in the
+targets. You can't set a target for something you don't have. So the list is a default
+baked into FitShow's chip, not a description of this treadmill. (The four target bits
+are 0–3, i.e. `0x0000000F`: suspiciously "all of them".)
 
-Note also that the four claimed target bits are 0, 1, 2, 3 = `0x0000000F`, a
-suspiciously round "all of them" value.
+**What to do instead (Phases 01, 03 and 05):**
 
-**Required handling (implemented in this phase, Phase 03 and Phase 05):**
+- **Log `0x2ACC`; never branch on it.**
+- **Which fields to show** comes from which fields actually arrive in `0x2ACD` packets
+  during the first ~30 seconds.
+- **Whether speed control works** comes from actually trying it (Phase 05), not from
+  bit 0.
 
-- **Log `0x2ACC`, never branch on it.**
-- **Dashboard fields** derive from the union of `0x2ACD` flag bits observed over the
-  first ~30 seconds of a connection. A field is real if it arrives in packets.
-- **Speed control** derives from the live control point handshake
-  (`../phase-05-treadmill-control/README.md`), not from the Speed Target Setting bit,
-  which is set, but carries little weight given the above.
+*Confidence: high that the list over-claims.* The raw hex, once captured, goes in
+`PHASE-00-FINDINGS.md` and becomes test data.
 
-*Confidence: high that the bitmask over-claims. The incline contradiction is direct
-evidence.* Raw hex for `0x2ACC`, once captured, lives in
-`../phase-00-probe-app/PHASE-00-FINDINGS.md` — use it as a parser fixture and to
-confirm the decode above independently.
-
-**Note on heart rate:** the HR feature bit means the machine can *report* HR, not that
-a sensor is producing usable data. This treadmill has handgrip sensors, which only work
-while gripped and are noisy when they do. See `0x2A37` below for the preferred source
-and the decision rule.
+**About heart rate:** the heart rate bit only means the machine *can* report it. The
+handgrip sensors only work while held, and are noisy. See `0x2A37` below.
 
 ### Supported Speed Range (`0x2AD4`): Read
 
-**6 bytes, three uint16 LE values, all in units of 0.01 km/h.**
+**6 bytes: three 16-bit numbers, little-endian, in hundredths of km/h.**
 
 ```
-[0..1]  Minimum Speed      (uint16 LE, 0.01 km/h)
-[2..3]  Maximum Speed      (uint16 LE, 0.01 km/h)
-[4..5]  Minimum Increment  (uint16 LE, 0.01 km/h)
+[0..1]  Minimum speed
+[2..3]  Maximum speed
+[4..5]  Smallest step
 ```
 
-Example: `64 00 58 02 0A 00` → min 1.00 km/h, max 6.00 km/h, increment 0.10 km/h.
+Example: `64 00 58 02 0A 00` → min 1.00, max 6.00, step 0.10 km/h.
 
-**VERIFIED:**
+**Confirmed for this treadmill:** min 1.0, max 16.0, step 0.1 km/h. It's a full
+treadmill, not a walking pad.
 
-```
-Minimum:   1.0 km/h
-Maximum:  16.0 km/h
-Increment: 0.1 km/h
-```
-
-This is a full folding treadmill, not a walking pad.
-
-Still read this characteristic at runtime rather than hardcoding the values. `0x2AD4`
-is the only authoritative source, and it costs one read.
-
-Preset buttons should be generated from this range. Suggested set for 1.0–16.0:
-2, 4, 6, 8, 10, 12 km/h, generated rather than hardcoded so the code survives a
-firmware change or a different treadmill.
+Still read it every time instead of hardcoding it: it's the only reliable source and
+costs one read. Generate preset buttons from it (for 1.0–16.0: 2, 4, 6, 8, 10, 12
+km/h), so the code still works after a firmware change.
 
 ### Treadmill Data (`0x2ACD`): Notify
 
-The primary data stream. **This is the single most error-prone parse in the project.**
-
-**Structure:**
+The main data stream, and **the easiest thing in this project to decode wrong.**
 
 ```
 [0..1]  Flags (uint16 LE)
-[2..]   Fields, in the fixed order below, present only if their flag bit is set
+[2..]   Fields, in the order below, only if their flag bit says so
 ```
 
-**The three traps:**
+**Three traps:**
 
-**Trap 1: bit 0 is inverted.** The FTMS spec defines bit 0 as *More Data*.
-Instantaneous Speed is present when bit 0 is **`0`**, absent when it is `1`. This is
-the opposite of every other bit in the field. Decoding it as a normal presence bit
-shifts every subsequent field and corrupts the entire packet. This trips up most
-first-time FTMS implementations.
+**Trap 1: bit 0 is backwards.** Speed is present when bit 0 is **`0`**, and absent when
+it's `1`. Every other bit works the normal way. Get this wrong and every field after it
+is shifted. Most first-time FTMS code gets this wrong.
 
-**Trap 2: Total Distance is uint24.** Three bytes, little-endian. There is no
-`BitConverter` overload; assemble it manually:
+**Trap 2: distance is 3 bytes (24-bit), little-endian.** `DataView` has no 24-bit
+reader, so build it from two reads:
 
-```csharp
-uint distance = (uint)(data[i] | (data[i + 1] << 8) | (data[i + 2] << 16));
+```ts
+const distance = view.getUint16(i, true) | (view.getUint8(i + 2) << 16);
 i += 3;
 ```
 
-**Trap 3: Expended Energy is one flag bit but three fields**, 5 bytes total:
-Total Energy (uint16, kcal), Energy Per Hour (uint16, kcal), Energy Per Minute
-(uint8, kcal). Advancing 2 bytes instead of 5 misaligns everything after it.
+(`true` = little-endian. `DataView` defaults to the opposite, which is the easiest way
+to get every field in this file wrong.)
 
-**Field table.** Fields appear in this order. Skip any whose flag bit is clear.
+**Trap 3: energy is one flag bit but three fields**, 5 bytes: total (2 bytes, kcal), per
+hour (2 bytes, kcal), per minute (1 byte, kcal). Skip 2 bytes instead of 5 and
+everything after is shifted.
 
-| Flag bit | Field | Type | Bytes | Resolution | Unit |
-|----------|-------|------|-------|------------|------|
-| 0 == 0 | Instantaneous Speed | uint16 | 2 | 0.01 | km/h |
-| 1 | Average Speed | uint16 | 2 | 0.01 | km/h |
-| 2 | Total Distance | **uint24** | **3** | 1 | m |
-| 3 | Inclination | sint16 | 2 | 0.1 | % |
-| 3 | Ramp Angle Setting | sint16 | 2 | 0.1 | degree |
-| 4 | Positive Elevation Gain | uint16 | 2 | 0.1 | m |
-| 4 | Negative Elevation Gain | uint16 | 2 | 0.1 | m |
-| 5 | Instantaneous Pace | uint8 | 1 | 0.1 | km/min |
-| 6 | Average Pace | uint8 | 1 | 0.1 | km/min |
-| 7 | Total Energy | uint16 | 2 | 1 | kcal |
-| 7 | Energy Per Hour | uint16 | 2 | 1 | kcal |
-| 7 | Energy Per Minute | uint8 | 1 | 1 | kcal |
-| 8 | Heart Rate | uint8 | 1 | 1 | bpm |
-| 9 | Metabolic Equivalent | uint8 | 1 | 0.1 | — |
-| 10 | Elapsed Time | uint16 | 2 | 1 | s |
-| 11 | Remaining Time | uint16 | 2 | 1 | s |
-| 12–15 | Reserved | | | | |
+**Fields**, in this order. Skip any whose bit is off.
 
-Bits 3 and 4 each gate **two** fields (4 bytes each). Bit 7 gates three (5 bytes).
+| Bit | Field | Type | Bytes | Unit |
+|-----|-------|------|-------|------|
+| 0 == 0 | Speed | uint16 | 2 | 0.01 km/h |
+| 1 | Average Speed | uint16 | 2 | 0.01 km/h |
+| 2 | Total Distance | **uint24** | **3** | 1 m |
+| 3 | Inclination | sint16 | 2 | 0.1 % |
+| 3 | Ramp Angle | sint16 | 2 | 0.1 degree |
+| 4 | Positive Elevation Gain | uint16 | 2 | 0.1 m |
+| 4 | Negative Elevation Gain | uint16 | 2 | 0.1 m |
+| 5 | Pace | uint8 | 1 | 0.1 km/min |
+| 6 | Average Pace | uint8 | 1 | 0.1 km/min |
+| 7 | Total Energy | uint16 | 2 | 1 kcal |
+| 7 | Energy Per Hour | uint16 | 2 | 1 kcal |
+| 7 | Energy Per Minute | uint8 | 1 | 1 kcal |
+| 8 | Heart Rate | uint8 | 1 | 1 bpm |
+| 9 | Metabolic Equivalent | uint8 | 1 | 0.1 |
+| 10 | Elapsed Time | uint16 | 2 | 1 s |
+| 11 | Remaining Time | uint16 | 2 | 1 s |
+| 12–15 | Reserved | | | |
 
-*Confidence: high on bits 0, 1, 2, 7, 8, 10, these are the ones this device will
-actually use. Moderate on the pace resolution (bits 5–6) and metabolic equivalent;
-verify from `PHASE-00-FINDINGS.md` once captured.*
+Bits 3 and 4 each cover **two** fields (4 bytes). Bit 7 covers three (5 bytes).
 
-**Notification rate.** The FTMS specification states the server should notify
-**approximately once per second**, and the interval is not configurable by the
-client. If the measured rate (see `PHASE-00-FINDINGS.md`) is above 1 Hz, throttle UI
-binding updates to 4 Hz — Phase 03 already specifies this. The fixed-cadence sample
-storage this phase's schema uses is unaffected either way.
+*Confidence: high on bits 0, 1, 2, 7, 8, 10 (the ones this device will use); moderate
+on pace and metabolic equivalent.*
 
-**Range limits (no rollover risk in practice):**
+**How often.** The spec says about once a second. If Phase 00 measures faster, the
+dashboard limits itself to 4 updates a second (Phase 03). Saving is unaffected.
 
-| Field | Max value | Real-world limit |
-|-------|-----------|------------------|
-| Elapsed Time (uint16) | 65,535 s | 18.2 hours |
-| Total Distance (uint24) | 16,777,215 m | 16,777 km |
-| Total Energy (uint16) | 65,535 kcal | not reachable in a session |
+**Limits.** Time (uint16) goes up to 18 hours; distance (uint24) to 16,777 km. Neither
+rolls over in a workout. **They may reset or keep counting between sessions**: that's
+Finding V1, which Phase 06 depends on.
 
-None of these will roll over in a single workout. **They may roll over or reset
-across sessions** — see the counter reset semantics finding in
-`../phase-00-probe-app/PHASE-00-FINDINGS.md` V1, which Phase 06's recording depends
-on entirely.
+**Parser rules:**
 
-**Parser requirements:**
+- Walk a cursor, guided by the flags. Never fixed positions.
+- **Check the length first:** work out the expected length from the flags, and reject
+  the packet if it doesn't match. Log rejected packets with their hex.
+- Return a result instead of throwing for a bad packet. A bad packet is normal, and
+  `try`/`catch` around every packet would hide real errors. Use
+  `{ ok: true, value }` / `{ ok: false, reason, hex }`.
+- Every field can be `null`, because each packet can include a different set.
 
-- **Cursor-based and flag-driven. Never fixed-offset.**
-- **Validate length before parsing:** compute the expected byte count from the flags
-  and reject the packet if it doesn't match. Log rejected packets with their hex. Do
-  not read past the buffer.
-- Return a struct, not a heap allocation, on the hot path.
-- Treat every field as optional in the domain model (`double?`, `int?`), because
-  presence is per-packet, not per-device.
+### Heart Rate (`180D`): the preferred source
 
-### Heart Rate Service (`180D`): the preferred HR source
+The device has a standard Heart Rate service as well as the heart rate field in
+`0x2ACD`. Two sources for one value.
 
-The device exposes a **standard Heart Rate Service** in addition to the FTMS heart rate
-field. Two sources for the same value.
-
-**Characteristic `0x2A37`: Heart Rate Measurement, Notify**
+**`0x2A37`: Heart Rate Measurement, Notify**
 
 ```
 [0]     Flags (uint8)
-          bit 0:    0 = HR value is uint8, 1 = HR value is uint16
-          bits 1-2: sensor contact status
-          bit 3:    Energy Expended present
-          bit 4:    RR-Interval present
-[1..]   Heart Rate Measurement (uint8 or uint16 per bit 0)
-[..]    Energy Expended (uint16, kJ) if flagged
-[..]    RR-Intervals (uint16 each, 1/1024 s) if flagged
+          bit 0:    0 = value is 1 byte, 1 = value is 2 bytes
+          bits 1-2: sensor contact
+          bit 3:    energy field present
+          bit 4:    RR-interval fields present
+[1..]   Heart rate (1 or 2 bytes, per bit 0)
+[..]    Energy (uint16, kJ), if flagged
+[..]    RR intervals (uint16 each, 1/1024 s), if flagged
 ```
 
-For a treadmill handgrip sensor, expect flags `0x00` and a single uint8, the simplest
-possible case.
+For handgrips, expect flags `0x00` and one byte: the simplest case.
 
-**Sensor contact status (bits 1–2)** is directly useful here: it distinguishes "user is
-not gripping" from "reading is zero", which is exactly the ambiguity handgrip sensors
-create.
+**Bits 1–2 (contact)** tell "not holding the grips" apart from "reading is zero":
 
 | Value | Meaning |
 |-------|---------|
 | `0b00` / `0b01` | Contact detection not supported |
-| `0b10` | Contact detection supported, **contact not detected** |
-| `0b11` | Contact detection supported, contact detected |
+| `0b10` | Supported, **no contact** |
+| `0b11` | Supported, contact |
 
-*Confidence: high. This is a long-stable, widely-implemented standard service.*
+*Confidence: high. A long-standing, widely used standard.*
 
-**Why prefer this over the FTMS field.** A dedicated single-purpose characteristic is
-far less likely to be mangled by a vendor shim than a conditionally-present field
-buried inside a flag-driven FTMS record. If the shim gets any part of the `0x2ACD`
-layout wrong, HR is one of the later fields and therefore among the first to be
-corrupted.
+**Why prefer it.** A dedicated characteristic is less likely to be garbled than a field
+deep inside `0x2ACD`. Heart rate is one of the last fields there, so it's the first to
+break if the layout is off.
 
-**Rule:** use `0x2A37` if it produces usable data. Fall back to the FTMS field only if
-`180D` is dead.
+**Rule:** use `0x2A37` if it works. Use the `0x2ACD` field only if `180D` sends nothing.
 
-**Decision rule for whether HR ships at all.** Handgrip sensors only read while
-gripped, and are noisy when they do. **If the capture shows sparse, implausible, or
-wildly unstable values, cut heart rate from the dashboard and charts entirely.** A
-metric that is wrong half the time is worse than no metric: it will pollute the
-average and maximum HR columns in every stored workout. See the V3 verdict in
-`../phase-00-probe-app/PHASE-00-FINDINGS.md`. Recording the field in `WorkoutSample`
-while hiding it from the UI is a reasonable middle position if V3 said "marginal."
+**Whether heart rate ships at all:** handgrips only read while held, and they're noisy.
+**If the capture shows sparse, wrong or jumpy values, remove heart rate from the
+dashboard and charts.** A number that's wrong half the time ruins every saved average.
+See Finding V3. "Marginal" means: save it, don't show it.
 
 ### Fitness Machine Status (`0x2ADA`): Notify
 
-**This is an event stream, not a state string.** It reports *what just happened*,
-typically as a result of user action on the machine itself. The app maintains its own
-state; this feeds transitions into it.
+**These are events, not a status.** It reports what just happened, usually because
+someone pressed a button on the treadmill. The app keeps track of its own state.
 
 ```
-[0]     Op Code (uint8)
-[1..]   Parameters (op-code dependent, often absent)
+[0]     Op code (uint8)
+[1..]   Extra values (depends on the code, often none)
 ```
 
-| Op | Meaning | Parameters |
+| Code | Meaning | Extra |
 |----|---------|------------|
 | `0x01` | Reset | — |
-| `0x02` | Stopped or Paused by the user | uint8: `0x01` stop, `0x02` pause |
-| `0x03` | Stopped by safety key | — |
+| `0x02` | Stopped or paused by the user | `0x01` stop, `0x02` pause |
+| `0x03` | Stopped by the safety key | — |
 | `0x04` | Started or resumed by the user | — |
 | `0x05` | Target speed changed | uint16, 0.01 km/h |
 | `0x06` | Target incline changed | sint16, 0.1 % |
-| `0x07` | Target resistance level changed | — |
+| `0x07` | Target resistance changed | — |
 | `0x08` | Target power changed | — |
 | `0x09` | Target heart rate changed | — |
 | `0xFF` | Control permission lost | — |
 
-*Confidence: high on `0x01`–`0x05` and `0xFF`; moderate on `0x06`–`0x09`, which are
-not relevant to a treadmill without incline.*
+*Confidence: high on `0x01`–`0x05` and `0xFF`; moderate on `0x06`–`0x09`, which don't
+matter without an incline.*
 
-**`0xFF` (control permission lost) matters:** on receiving it, the app must disable
-speed controls and re-issue `Request Control` before re-enabling them — see
-`../phase-05-treadmill-control/README.md` task 5.2.
+**`0xFF` (control lost):** disable speed controls and send Request Control again before
+enabling them (Phase 05, task 5.2).
 
-**`0x03` (safety key) matters:** treat as an immediate hard stop. Do not attempt to
-restart the machine over BLE in response.
+**`0x03` (safety key):** treat as a hard stop. Never try to restart over Bluetooth.
 
-If the device emits nothing here, the app must infer machine state from `0x2ACD`
-speed values instead — workable, but less precise.
+If the device sends nothing here, work out the state from the speed in `0x2ACD`
+instead. That works, just less precisely.
 
 ### Training Status (`0x2AD3`): Read + Notify
 
-Distinct from both Machine Status and the app's workout state. Display-only.
+Separate from the machine status and the app's workout state. For display only.
 
 ```
 [0]     Flags (uint8)
-          bit 0: Training Status String present
-          bit 1: Extended String present
-[1]     Training Status (uint8)
-[2..]   Training Status String (UTF-8), if flagged
+          bit 0: status text present
+          bit 1: extended text present
+[1]     Status (uint8)
+[2..]   Status text (UTF-8), if flagged
 ```
 
 | Value | Meaning |
@@ -720,114 +547,111 @@ Distinct from both Machine Status and the app's workout state. Display-only.
 | `0x06` | Isometric |
 | `0x07` | Heart Rate Control |
 | `0x08` | Fitness Test |
-| `0x09` | Speed Outside of Control Region — Low |
-| `0x0A` | Speed Outside of Control Region — High |
+| `0x09` | Speed too low for control |
+| `0x0A` | Speed too high for control |
 | `0x0B` | Cool Down |
 | `0x0C` | Watt Control |
 | `0x0D` | Manual Mode |
 | `0x0E` | Pre-Workout |
 | `0x0F` | Post-Workout |
 
-**Observed on this device at rest: `Idle` (`0x01`).** That at least means the
-characteristic is populated rather than stubbed. Whether it transitions meaningfully
-during a session is unverified.
+**This device at rest: `Idle` (`0x01`).** So it's filled in, at least. Whether it
+changes during a workout is unknown.
 
-*Confidence: high on the enum; low on whether this device implements it usefully.
-Many budget machines report a single value permanently.*
+*Confidence: high on the list; low on whether this device uses it properly. Many cheap
+machines always report the same value.*
 
-**Do not drive the app's workout state machine from this characteristic.**
+**Never drive the workout state from this.**
 
-### Do not start until
+### Don't start until
 
 - [ ] Raw hex for `0x2ACC` and `0x2AD4` exists
-- [ ] At least four matched console-vs-hex pairs exist
-- [ ] V1 (counter semantics) has an answer
+- [ ] At least four console-vs-hex pairs exist
+- [ ] V1 (do counters reset?) has an answer
 
-Without these you are writing a parser you cannot test, which is the same as not
-having one. If you have treadmill access again before this is done, running
-`HUMAN-RUNBOOK.md` Part C is the highest-value fifteen minutes available.
+Without these you'd be writing a parser you can't test. If you get treadmill time
+before then, runbook Part C is the most valuable 15 minutes.
 
 ### Tasks (once unblocked)
 
-**1a.1: Extract fixtures from captures**
+**1a.1: Test data from the captures**
 
-Creates: `src/MyHi.Companion.Tests/Fixtures/*.json`. Pull every distinct packet out
-of `../../captures/` into named fixtures, each carrying its provenance (source file,
-timestamp, and, for `0x2ACD`, the paired console values). Include the ugly ones:
-short packets, unexpected lengths, anything the log flagged.
+Create `src/core/ftms/fixtures/*.json`. Copy every distinct packet out of
+`../../captures/` into named test cases, each noting where it came from (file, line
+`id`, time, and for `0x2ACD` the console values). Include the odd ones: short packets,
+strange lengths. Jest can import JSON files directly.
 
-**1a.2: `0x2ACD` Treadmill Data parser ← the one that matters**
+**1a.2: The `0x2ACD` parser (the important one)**
 
-Creates: `src/MyHi.Companion.Core/Ftms/TreadmillDataParser.cs`, same project and
-namespace as the existing `FtmsCommands`/`ControlPointResponseParser` from Phase 00,
-since this is pure byte-parsing with no MAUI dependency and needs the same kind of
-fixture-based xUnit tests they got. Cursor-based, flag-driven, never fixed-offset.
-The three traps (bit 0 inverted, uint24 distance, 5-byte expended energy) are
-documented in the "Treadmill Data" section of the FTMS protocol reference above,
-and in this project's Phase 00 `TASKS.md`.
-Read both before writing this parser; they cover the mistakes that otherwise get made
-here. Length validation is mandatory: reject and log anything that doesn't match its
-flags, never read past the buffer. Returns a `TreadmillSample` struct (from
-`ITreadmillService.cs`, moved into `Core` in 1b.1). No heap allocation on the hot
-path, every field nullable.
+Create `src/core/ftms/treadmillData.ts`, next to Phase 00's command builder. Use a
+cursor and the flags, check the length first, and watch for the three traps above.
 
-**1a.3: Remaining parsers**
+```ts
+export type ParseResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly reason: string; readonly hex: string };
 
-Creates: `src/MyHi.Companion.Core/Ftms/`: one file each for `0x2ACC` (decode +
-expose, never branch on it), `0x2AD4` (3× uint16 LE), `0x2ADA` (op code +
-parameters), `0x2AD3` (display only), `0x2A37` (heart rate, bit 0 selects
-uint8/uint16, bits 1–2 are sensor contact). The control point response decoder
-already exists here from Phase 00 (`FtmsControlPoint.cs`); reuse it, don't
-duplicate it.
+/** Decodes one 0x2ACD packet. Never throws. */
+export function parseTreadmillData(bytes: Uint8Array, receivedAtMs: number): ParseResult<TreadmillSample> {
+  // TODO: fewer than 2 bytes -> { ok: false }
+  // TODO: read the flags with a DataView (see the note below)
+  // TODO: work out the expected length from the flags; reject if different
+  // TODO: walk a cursor from byte 2, field by field, in table order
+  // TODO: return every field, with null for fields the flags say are missing
+}
+```
 
-**1a.4: Capability derivation**
+Create the `DataView` as `new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)`.
+A `Uint8Array` can be a window into a bigger block of memory, and forgetting the offset
+causes a bug that only shows up later.
 
-Creates: `src/MyHi.Companion.Core/Ftms/CapabilityTracker.cs`. `0x2ACC` is advisory:
-log it, never gate on it (see the "Capabilities (`0x2ACC`)" finding in
-`../phase-00-probe-app/PHASE-00-FINDINGS.md` for why). Instead, accumulate the
-union of observed `0x2ACD` flag bits over the first ~30 s after connecting; a
-field is real if it arrives in packets.
+**1a.3: The other parsers**
 
-**1a.5: `TreadmillService` (real implementation)**
+In `src/core/ftms/`, one file each:
+`fitnessMachineFeature.ts` (`0x2ACC`: decode and expose, never decide from it),
+`supportedSpeedRange.ts` (`0x2AD4`: three 16-bit numbers),
+`machineStatus.ts` (`0x2ADA`: returns a `MachineEvent`),
+`trainingStatus.ts` (`0x2AD3`: display only),
+`heartRateMeasurement.ts` (`0x2A37`: bit 0 picks 1 or 2 bytes, bits 1–2 are contact).
+The control-point reply decoder already exists from Phase 00; reuse it.
 
-Creates: `src/MyHi.Companion/Features/Treadmill/TreadmillService.cs`. This one
-*does* belong in the app project, not `Core`, because it depends on Plugin.BLE
-(`TreadmillConnection`, `ControlPointClient` from Phase 00), which only makes sense
-on a real platform. Implements `ITreadmillService` (from `Core`) using the parsers
-above. This is where 01b's fake gets a real sibling: same interface, same DI slot,
-swapped in `MauiProgram.cs` once this is done and reviewed.
+**1a.4: Which fields are real**
 
-**1a.6: Update the protocol reference**
+Create `src/core/ftms/capabilityTracker.ts`. Collect the flag bits seen in `0x2ACD`
+packets during the first ~30 seconds. A field is real if it actually arrives. Feed it
+`(flags, receivedAtMs)`; ask it `isFieldObserved('distance')`.
 
-Touches: the "FTMS protocol reference" section above, and
-`../phase-00-probe-app/PHASE-00-FINDINGS.md`. Replace every remaining blank in
-`PHASE-00-FINDINGS.md` with a measured value or an explicit "not supported by
-this device," and correct any confidence qualifier in the reference above that
-the real capture contradicts. Anything still genuinely unknown stays recorded in
-`PHASE-00-FINDINGS.md`'s "Still unresolved after this run" table, tagged with the
-phase it blocks.
+**1a.5: The real `BleTreadmillService`**
 
-### Tests — this is where the project's real automated test suite lives
+Create `src/features/treadmill/bleTreadmillService.ts`. It lives in `features/`
+because it uses the Bluetooth code from Phase 00. It implements `TreadmillService`
+using the parsers above. When it's done and reviewed, swap it in for the fake in the
+services file: one line.
 
-Everything else in this app is I/O and UI. These are the meaningful automated tests:
+**1a.6: Update the reference**
 
-- Every fixture decodes to its expected values.
-- Console-matched fixtures decode to the console's numbers, within rounding: the
-  test that proves correctness, not just non-crashing.
-- Malformed input (truncated packet, length/flags mismatch, empty buffer): rejected
-  and logged, never crashes, never reads out of bounds.
-- Bit 0 specifically: More-Data-set vs. not, asserting the speed field's presence
-  flips the way the spec says.
-- uint24 distance at boundary values (`0x00FFFF`, `0x010000`).
-- Expended Energy advancing exactly 5 bytes: assert a following field still lands
-  correctly.
-- `SpeedRange.Clamp` at min, max, below min, above max, mid-increment.
+Fill in every blank in `PHASE-00-FINDINGS.md` with a measured value or "not supported",
+and fix any confidence note above that the capture proves wrong. Anything still unknown
+goes in the findings' "Still unresolved" table, with the phase it blocks.
 
-### Acceptance
+### Tests (this is where most of the project's real tests are)
 
-- [ ] Every blank in `../phase-00-probe-app/PHASE-00-FINDINGS.md` resolved or marked unsupported
-- [ ] Console-matched fixtures decode to the console's values at all captured speeds
-- [ ] Malformed-input tests pass: nothing crashes, everything logs
-- [ ] `FakeTreadmillService` (from 01b) still produces a realistic stream and the
-      real `TreadmillService` can be swapped in without any consumer changing
-- [ ] Zero warnings; all Phase 00 tests still pass
+All in `src/core/ftms/*.test.ts`:
+
+- Every test case decodes to its expected values.
+- Console-matched cases decode to the console's numbers (`toBeCloseTo`). This proves
+  the decoder is right, not just that it doesn't crash.
+- Bad input (too short, length doesn't match flags, empty) returns `{ ok: false }` with
+  the hex. Never throws.
+- Bit 0: speed is present when bit 0 is 0, absent when it's 1.
+- Distance at the edges: `0x00FFFF` and `0x010000`.
+- Energy skips exactly 5 bytes: the field after it still decodes correctly.
+- A `Uint8Array` that's a window into a bigger buffer decodes the same as a fresh copy.
+
+### Done when
+
+- [ ] Every blank in `PHASE-00-FINDINGS.md` is filled or marked "not supported"
+- [ ] Console-matched cases decode to the console's values at every captured speed
+- [ ] Bad-input tests pass: nothing throws, everything is logged
+- [ ] The fake still works, and the real service swaps in without changing anything else
+- [ ] `tsc` and lint are clean; Phase 00's tests still pass

@@ -1,484 +1,339 @@
 # Phase 04 — Workout Engine
 
-**Hardware:** none for development · **Size:** M · **Blocked by:** Phases 01, 03
-**Hard dependency:** V1 counter semantics from `../phase-00-probe-app/PHASE-00-FINDINGS.md`
+**Treadmill needed:** no for building · **Size:** M · **Waits for:** Phases 01, 03
+**Also needs:** Finding V1 (do counters reset?) from `PHASE-00-FINDINGS.md`
 
-> See `../README.md` for the collaboration model. **This entire phase is logic**: a
-> state machine, some event handlers, one `[ObservableProperty]` on an existing
-> ViewModel. All of it follows the "you write it, the agent teaches" track. There
-> is no new XAML in this phase. It surfaces onto the dashboard Phase 03 already built,
-> through a ViewModel property, and ViewModels are explicitly on the "you write it"
-> side of the division of labour in `../README.md`, even though pages/XAML are not.
+> **This whole phase is logic**, so you write all of it: a state machine, some event
+> handlers, and one small hook. No new screen; it shows up on Phase 03's dashboard.
 
 ---
 
 ## Goal
 
-Workout lifecycle, **independent of connection lifecycle**.
+Track the workout (started, paused, finished) **separately from the connection**.
 
-### Understanding what you're building (read this before the tasks)
+### The idea
 
-**The everyday problem.** `WorkoutEngine` tracks two separate things at once: what
-stage the workout is at (warming up, mid-set, resting, done) and whether the app
-can currently see the treadmill over Bluetooth. Those are genuinely different
-facts. Losing the Bluetooth link for a few seconds doesn't cancel the workout, it
-just means the app can't currently confirm what's happening, so it waits a beat
-before assuming the session is over. And when a counter value comes in, the engine
-needs to know whether it's "this session" or "since the treadmill powered on":
-get that wrong and every number logged afterward is wrong, confidently and
-silently.
+`WorkoutEngine` keeps track of two different things:
 
-Its own state (`Idle`/`Active`/`Paused`/`Finished`) is deliberately a separate
-concept from `ITreadmillService.ConnectionStateChanged` (Phase 02's connection
-state: `Connecting`/`Discovering`/`Ready`/`Disconnected`). The engine subscribes
-to connection events but tracks its own state independently, bridging the two
-only through `WorkoutPauseReason.ConnectionLost`. The 60-second grace timer in
-task 4.2 is the "wait a beat before assuming it's over" instinct, coded as a
-cancellable `Task.Delay`. The counter-semantics block (task 4.3) is the "don't log
-a number whose units you don't know" problem, blocked by design on
-`PHASE-00-FINDINGS.md` V1.
+- **Where the workout is**: `idle`, `active`, `paused` or `finished`.
+- **Whether the phone can see the treadmill** (the connection, from Phase 02).
 
-**Why not simpler.** Three places here where a flatter design looks tempting, and
-each one is worth naming why it loses.
+They're different facts. Losing Bluetooth for a few seconds doesn't end your workout;
+the app just can't see what's happening for a moment. So it waits before deciding the
+workout is over.
 
-First: why not one combined enum instead of two state machines, say a single
-`WorkoutState` with a `Disconnected` value bolted on? Because connection state and
-workout state don't actually vary together: you can be `Idle`+`Ready` (connected,
-not started), `Active`+`Disconnected` (mid-workout, radio dropped), even
-`Finished`+`Ready` (done, still connected). Cramming five connection values
-against four workout values into one enum means naming and reasoning about a
-combinatorial grid, most of whose cells never happen. Two small, orthogonal
-machines with one explicit bridge field (`WorkoutPauseReason`) is less total
-surface than one bloated one.
+**Why two state machines instead of one?** Because they change independently. You can
+be `idle` and connected, `active` and disconnected, or `finished` and still connected.
+One combined list would need a value for every combination, most of which never
+happen. Two small ones, linked only by the pause reason `'connectionLost'`, are
+simpler.
 
-Second: why not skip the grace timer and end the workout the instant the
-connection drops? Because BLE drops transiently and often (walking past a
-microwave, the phone rotating in a pocket) for a second or two, not because the
-session is actually over. Ending the workout on every blip would make the app
-unreliable at the one thing it exists to do: keep a workout running while you walk
-on a treadmill. 60 seconds and one `CancellationTokenSource` is cheap for that
-much real-world tolerance.
+**Why wait 60 seconds before ending a workout?** Bluetooth drops for a second or two
+all the time (a microwave, the phone moving in a pocket). Ending the workout every time
+would make the app useless. A 60-second timer you can cancel costs very little.
 
-Third, and different in kind from the other two: the counter-semantics decision
-isn't a complexity tradeoff at all. There's no "simpler" version that's also
-correct. Guessing (say, defaulting to per-session because that's more common)
-doesn't fail loudly the way a malformed BLE packet does; it produces a plausible,
-wrong number that gets written to SQLite and stays wrong forever, because nothing
-about a wrong-but-plausible distance value looks broken. That's why task 4.3 says
-stop, not "guess and revisit." There's no cheap version of "guess correctly" to
-fall back to.
+**Why stop and check V1 instead of guessing?** Because a wrong guess doesn't crash. It
+quietly saves a wrong distance, which looks normal and stays wrong forever. There's no
+safe guess.
 
-**The pattern, named plainly.** Keeping the workout and connection state machines
-separate is an application of **separation of concerns** to state design
-specifically: each machine only has to be provably correct against its own small
-diagram (the tests in this phase check illegal `WorkoutState` transitions in
-isolation, never a connection concern), rather than one sprawling machine where a
-bug in connection-handling can corrupt workout logic that has nothing to do with
-it. The cost is real: two mental models running concurrently, and one bridging
-field (`WorkoutPauseReason`) that has to be kept honest by hand. It's worth it
-here because the two concerns fail independently in the real world (a workout can
-be perfectly fine while Bluetooth misbehaves, and the reverse isn't even
-meaningful). It would **not** be worth it for a feature with only one plausible
-failure mode. If this app only ever ran against a wired, unloseable connection,
-bolting a `Disconnected` value onto `WorkoutState` directly would be the more
-honest, simpler design, and splitting it in two would be exactly the kind of
-complexity Metz would push back on.
+**The name for this:** *separation of concerns*. Each state machine is small enough to
+be clearly correct on its own.
 
-## Learning goals
+## What you'll learn
 
-- Building a second state machine that runs concurrently with Phase 02's connection
-  state machine, and *why* they're kept separate rather than merged into one diagram.
-  A connection drop mid-workout can't be expressed cleanly as a single state.
-- Subscribing to an interface's events from a plain `Core` class that isn't a
-  ViewModel. `WorkoutEngine` subscribes to `ITreadmillService.SampleReceived`,
-  `MachineEventReceived`, and `ConnectionStateChanged` the same way
-  `FakeTreadmillService`'s eventual consumers will. The engine is just another
-  consumer of the seam.
-- A cancel-and-restart timer built on `CancellationTokenSource`. The grace window in
-  task 4.2 is the first place this project uses that pattern; Phase 05's tap-debounce
-  reuses the identical shape, so understanding it here pays off twice.
-- Designing methods that reject illegal calls by returning `false` instead of
-  throwing, the same philosophy `ITreadmillService`'s `ControlResult` return values
-  already use for control-point failures.
+- Running a second state machine next to Phase 02's, and why they're kept apart.
+- Listening to `TreadmillService` events from a plain class (not a hook). Like a hook,
+  it must keep its unsubscribe functions and call them in `dispose()`.
+- **A cancel-and-restart timer**: `clearTimeout(this.graceTimer)`, then a new
+  `setTimeout`. The timer handle is how you cancel it. Phase 05 uses the same trick.
+- **An exhaustive `switch`**: handle every `MachineEvent` kind, and have the compiler
+  complain if a new kind is ever added and missed.
+- Methods that return `false` for a call that's not allowed, instead of throwing.
 
-## Reference docs
+## Read first
 
-- `src/MyHi.Companion.Core/Treadmill/ITreadmillService.cs`: the events and types
-  this phase consumes (`SampleReceived`, `MachineEventReceived`,
-  `ConnectionStateChanged`, `MachineEventKind`, `TreadmillSample`)
-- `../phase-01-protocol-decode/README.md`'s FTMS protocol reference, "Fitness
-  Machine Status" section: `0x2ADA` op codes, which `MachineEventKind` decodes
-  them into
-- `../phase-06-recording-schema/README.md`: the `WorkoutSample` table, specifically the `Flags` bit-0
-  gap marker this phase's output feeds (Phase 06 does the actual SQLite write) and
-  the `DurationSeconds` "active time excludes pauses" rule
-- `../phase-00-probe-app/PHASE-00-FINDINGS.md` V1: counter semantics. **Read this
-  before writing any code in task 4.3.**
-- **C# events**: [Events (C# Programming Guide)](https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/events/).
-  Read this before touching `WorkoutEngine`'s event subscriptions if Phase 01b's
-  read of it didn't stick.
-- **`CancellationTokenSource`**: [CancellationTokenSource Class](https://learn.microsoft.com/en-us/dotnet/api/system.threading.cancellationtokensource),
-  the mechanism behind the grace timer in task 4.2
-- **`[ObservableProperty]` / `[RelayCommand]`**: [MVVM source generators overview](https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/generators/overview),
-  needed for task 4.6's ViewModel wiring
-- **xUnit**: https://xunit.net/docs/getting-started/netcore/cmdline
+- `src/core/treadmill/treadmillService.ts`: `onSample`, `onMachineEvent`,
+  `onConnectionStateChange`, `MachineEvent`, `TreadmillSample`
+- Phase 01's FTMS reference, "Fitness Machine Status": what each `0x2ADA` code means
+- Phase 06's `WorkoutSample` table: the gap marker (`Flags` bit 0), and "duration
+  doesn't count pauses"
+- `PHASE-00-FINDINGS.md` **V1. Read it before writing any code in task 4.3.**
+- **Narrowing and discriminated unions**: https://www.typescriptlang.org/docs/handbook/2/narrowing.html
+  (the "Exhaustiveness checking" section is task 4.4's trick)
+- **Jest fake timers**: https://jestjs.io/docs/timer-mocks
 
 ---
 
-## Workout state machine
+## Workout states
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle
-    Idle --> Active: start
-    Active --> Paused: pause (user or machine)
-    Paused --> Active: resume
-    Active --> Finished: stop
-    Paused --> Finished: stop / timeout
-    Finished --> Idle: reset / saved
+    [*] --> idle
+    idle --> active: start
+    active --> paused: pause (you or the treadmill)
+    paused --> active: resume
+    active --> finished: stop
+    paused --> finished: stop / timeout
+    finished --> idle: reset / saved
 ```
 
-Runs concurrently with the Phase 02 connection state machine. They are separate on
-purpose: one diagram cannot express "connection lost mid-workout", which is the
-failure most likely to actually happen.
+This runs at the same time as Phase 02's connection states, on purpose.
 
-### Task 4.1 — `WorkoutState` and the `WorkoutEngine` skeleton
+### Task 4.1 — Types and the engine outline
 
-Creates: `src/MyHi.Companion.Core/Workout/WorkoutState.cs`,
-`src/MyHi.Companion.Core/Workout/WorkoutEngine.cs`.
+Creates: `src/core/workout/workoutTypes.ts`, `src/core/workout/workoutEngine.ts`.
 
-Concrete steps:
+1. Create `src/core/workout/`. The engine only uses `TreadmillService` types, so it
+   belongs in `core/` and gets real tests.
+2. In `workoutTypes.ts`, write the types below.
+3. In `workoutEngine.ts`, write the class outline below. It starts listening to the
+   treadmill in the constructor and keeps the three unsubscribe functions.
+4. Write `tryStart`, `tryPause`, `tryResume`, `tryStop`, allowing only the arrows in the
+   diagram. Each checks the current state first and returns `false` (changing nothing)
+   if the call isn't allowed.
+5. Leave the three event handlers empty for now; tasks 4.2–4.4 fill them in.
 
-1. Create the folder `src/MyHi.Companion.Core/Workout/`. Same "does this reference
-   MAUI?" test from Phase 01b decides this: the engine only touches
-   `ITreadmillService` types, none of which are MAUI-flavoured, so it belongs in
-   `Core` and gets real xUnit tests.
-2. In `WorkoutState.cs`, define the four-value enum from the diagram above:
-   `Idle`, `Active`, `Paused`, `Finished`.
-3. In the same file, define `WorkoutPauseReason { UserRequested, MachineRequested,
-   ConnectionLost }`. You need to know *why* you're paused to decide later whether a
-   machine-initiated resume applies or a grace-timer expiry does.
-4. In `WorkoutEngine.cs`, write the class shape below. The constructor takes
-   `ITreadmillService` and subscribes to its three events immediately. That's the
-   same "subscribe in the constructor" pattern you'll see everywhere
-   `ITreadmillService` is consumed.
-5. Implement `TryStart` / `TryPause` / `TryResume` / `TryStop` for the **legal**
-   transitions only, straight from the diagram. Each checks `State` first and
-   returns `false` without changing anything if the call is illegal. This is exactly
-   what the "illegal transitions are rejected, not crashes" test in the Tests section
-   below is checking.
-6. Leave `OnConnectionStateChanged`, `OnMachineEventReceived`, and `OnSampleReceived`
-   as stubs for now; tasks 4.2, 4.3, and 4.4 fill them in one at a time.
+```ts
+// workoutTypes.ts
+export type WorkoutState = 'idle' | 'active' | 'paused' | 'finished';
 
-The shape, not the implementation:
+export type WorkoutPauseReason = 'userRequested' | 'machineRequested' | 'connectionLost';
 
-```csharp
-namespace MyHi.Companion.Core.Workout;
-
-public enum WorkoutState
-{
-    Idle,
-    Active,
-    Paused,
-    Finished
+/** One telemetry row, produced while active. Phase 06 saves these. */
+export interface WorkoutSampleRecord {
+  readonly elapsedActiveSeconds: number;
+  readonly speedKph: number | null;
+  readonly distanceMeters: number | null;
+  readonly calories: number | null;
+  readonly heartRate: number | null;
+  readonly isConnectionGap: boolean;
 }
-
-public enum WorkoutPauseReason
-{
-    UserRequested,
-    MachineRequested,
-    ConnectionLost
-}
-
-public sealed class WorkoutEngine
-{
-    private readonly ITreadmillService _treadmill;
-    private WorkoutPauseReason? _pauseReason;
-    private CancellationTokenSource? _graceTimerCts;
-
-    public WorkoutState State { get; private set; } = WorkoutState.Idle;
-
-    public event EventHandler<WorkoutState>? StateChanged;
-    public event EventHandler<WorkoutSampleRecord>? SampleRecorded;
-
-    public WorkoutEngine(ITreadmillService treadmill)
-    {
-        _treadmill = treadmill;
-        _treadmill.ConnectionStateChanged += OnConnectionStateChanged;
-        _treadmill.MachineEventReceived += OnMachineEventReceived;
-        _treadmill.SampleReceived += OnSampleReceived;
-    }
-
-    public bool TryStart()
-    {
-        // TODO: legal only from Idle. Set the workout-start baseline (task 4.3),
-        // transition to Active, raise StateChanged.
-        return false;
-    }
-
-    public bool TryPause(WorkoutPauseReason reason)
-    {
-        // TODO: legal only from Active.
-        return false;
-    }
-
-    public bool TryResume()
-    {
-        // TODO: legal only from Paused.
-        return false;
-    }
-
-    public bool TryStop()
-    {
-        // TODO: legal from Active or Paused. Cancel any running grace timer (4.2).
-        return false;
-    }
-
-    private void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
-    {
-        // TODO — task 4.2
-    }
-
-    private void OnMachineEventReceived(object? sender, MachineEvent e)
-    {
-        // TODO — task 4.4
-    }
-
-    private void OnSampleReceived(object? sender, TreadmillSample sample)
-    {
-        // TODO — tasks 4.3 and 4.5
-    }
-}
-
-/// <summary>
-/// One row of workout telemetry, produced while Active. Phase 06 buffers and
-/// flushes these into WorkoutSample.
-/// </summary>
-public sealed record WorkoutSampleRecord(
-    int ElapsedActiveSeconds,
-    double? SpeedKph,
-    double? DistanceMeters,
-    int? Calories,
-    int? HeartRate,
-    bool IsConnectionGap);
 ```
 
-7. Build `Core` to confirm it compiles so far:
-   ```powershell
-   dotnet build src/MyHi.Companion.Core/MyHi.Companion.Core.csproj
-   ```
+```ts
+// workoutEngine.ts
+export interface WorkoutEngineOptions {
+  /** How long a lost connection may stay lost before the workout ends. */
+  readonly graceMs?: number; // default 60_000; tests use something tiny
+}
+
+export class WorkoutEngine {
+  private state: WorkoutState = 'idle';
+  private pauseReason: WorkoutPauseReason | null = null;
+  private graceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly graceMs: number;
+
+  private readonly stateChanges = createEmitter<WorkoutState>();
+  private readonly recorded = createEmitter<WorkoutSampleRecord>();
+  private readonly unsubscribers: Unsubscribe[];
+
+  constructor(private readonly treadmill: TreadmillService, options: WorkoutEngineOptions = {}) {
+    this.graceMs = options.graceMs ?? 60_000;
+    this.unsubscribers = [
+      treadmill.onConnectionStateChange((c) => this.onConnectionStateChange(c)),
+      treadmill.onMachineEvent((e) => this.onMachineEvent(e)),
+      treadmill.onSample((s) => this.onSample(s)),
+    ];
+  }
+
+  getState(): WorkoutState { return this.state; }
+  onStateChange(listener: (state: WorkoutState) => void): Unsubscribe { return this.stateChanges.subscribe(listener); }
+  onSampleRecorded(listener: (r: WorkoutSampleRecord) => void): Unsubscribe { return this.recorded.subscribe(listener); }
+
+  tryStart(): boolean {
+    // TODO: only from 'idle'. Save the starting counter values (task 4.3), go to 'active'.
+    return false;
+  }
+
+  tryPause(reason: WorkoutPauseReason): boolean {
+    // TODO: only from 'active'
+    return false;
+  }
+
+  tryResume(): boolean {
+    // TODO: only from 'paused'
+    return false;
+  }
+
+  tryStop(): boolean {
+    // TODO: from 'active' or 'paused'. Cancel the grace timer (task 4.2).
+    return false;
+  }
+
+  dispose(): void {
+    // TODO: clear the grace timer, call every unsubscriber
+  }
+
+  private onConnectionStateChange(change: ConnectionStateChange): void {
+    // TODO: task 4.2
+  }
+
+  private onMachineEvent(event: MachineEvent): void {
+    // TODO: task 4.4
+  }
+
+  private onSample(sample: TreadmillSample): void {
+    // TODO: tasks 4.3 and 4.5
+  }
+}
+```
+
+6. `npx tsc --noEmit`.
 
 ---
 
-## Connection-loss policy
+## When the connection drops
 
-On connection loss during `Active`: transition to `Paused` and start a **60-second
-grace timer**. Restored within the window → resume. Not restored → `Finished`, saving
-whatever was recorded.
+During `active`: go to `paused` and start a **60-second timer**. Back in time → resume.
+Not back → `finished`, keeping what was recorded.
 
-**The gap must be represented explicitly in the sample series**: write a gap marker
-(`WorkoutSample.Flags` bit 0), do not interpolate across it. Charts must show a break
-rather than a fabricated straight line.
+**Show the gap in the data**: write a gap marker (`Flags` bit 0). Never fill it in. A
+chart must show a break, not a made-up straight line.
 
-### Task 4.2 — Grace timer
+### Task 4.2 — The grace timer
 
-Fill in `OnConnectionStateChanged`.
+Fill in `onConnectionStateChange`.
 
-Concrete steps:
+1. `disconnected` while `active`: `tryPause('connectionLost')`, then start the timer.
+2. Cancel and restart: clear any old timer first, then
+   `this.graceTimer = setTimeout(() => { ... }, this.graceMs)`.
+3. `ready` while paused for `'connectionLost'`: clear the timer, then `tryResume()`.
+4. If the timer fires (no reconnect in time): `tryStop()`.
+5. Set `this.graceTimer = null` whenever it's cleared or fires, so "is the timer
+   running?" is just `this.graceTimer !== null`.
+6. While paused for a lost connection, don't record anything for the missing seconds.
+   One gap marker is enough (task 4.5).
 
-1. On `e.State == ConnectionState.Disconnected` while `State == WorkoutState.Active`:
-   call `TryPause(WorkoutPauseReason.ConnectionLost)`, then start a 60-second timer.
-2. Use a `CancellationTokenSource` you can cancel early if the connection comes back.
-   That's the same cancel-and-restart shape Phase 05's tap debounce reuses, so it's
-   worth getting comfortable with it here first. Store the token source in a field so
-   a reconnect (or a second disconnect) can cancel the previous one.
-3. On `e.State == ConnectionState.Ready` while `_pauseReason == ConnectionLost`:
-   cancel the grace-timer token, then call `TryResume()`.
-4. If the delay completes **without** being cancelled (60 s passed with no
-   reconnect), call `TryStop()`. That's "expiry → `Finished`, saving whatever was
-   recorded" from the policy above.
-5. `Task.Delay` is the mechanism, the token source is the cancel-early handle:
-   ```csharp
-   private async void StartGraceTimer()
-   {
-       _graceTimerCts?.Cancel();
-       var cts = new CancellationTokenSource();
-       _graceTimerCts = cts;
-       try
-       {
-           await Task.Delay(TimeSpan.FromSeconds(60), cts.Token);
-           // TODO: not cancelled -> TryStop()
-       }
-       catch (TaskCanceledException)
-       {
-           // reconnect happened first — nothing to do
-       }
+Coming up in Phase 07: this is a `setTimeout`, so with the screen off it only fires if
+the keep-alive is running. Phase 07 starts the keep-alive at the start of every
+workout.
+
+---
+
+## Counters: read V1 before writing anything here
+
+| V1 says | The engine does |
+|------------|----------------------|
+| **Per session** | Record the values as they come |
+| **Cumulative** | Subtract the value from the start of the workout. If a value suddenly goes down, the counter reset mid-workout: handle it (step 4) |
+| **Mixed** | Each field as V1 says |
+
+**Don't guess.** A wrong guess makes every saved workout wrong, forever.
+
+Also: the saved duration is **active time only**, without pauses. If the treadmill's
+own timer counts paused time, count active time yourself.
+
+### Task 4.3 — Starting values and resets
+
+Fill in the counter part of `onSample`.
+
+1. Read V1. **If it's still blank, stop here.** Never invent a value.
+2. **Per session:** the record's distance and calories are the sample's, unchanged.
+3. **Cumulative:** in `tryStart`, save the current distance and calories as starting
+   values. Each recorded value is `sample.distanceMeters - startDistance`. If the raw
+   value is `null`, record `null`, not `0`.
+4. **A reset mid-workout:** if the raw distance goes *down*, the counter reset. Add the
+   last highest value to a running offset, so the recorded distance never goes
+   backwards.
+5. `elapsedActiveSeconds` is **not** `sample.elapsedSeconds`. Count it yourself: add one
+   per sample while `active`.
+
+---
+
+## Things the treadmill tells you
+
+React to `0x2ADA` events (if Phase 00 found the treadmill sends them):
+
+| Event | The engine does |
+|-------|-----------------|
+| `stoppedByUser` / `pausedByUser` | Finish or pause |
+| `startedByUser` | Resume from `paused` |
+| `stoppedBySafetyKey` | **Hard stop. Never try to restart over Bluetooth.** |
+| `controlPermissionLost` | Nothing here: Phase 05 handles it |
+
+If the treadmill sends nothing on `0x2ADA`, work out the state from the speed instead,
+and note that in the findings' "Still unresolved" table.
+
+**Never drive the workout from `0x2AD3` (Training Status).** Many cheap machines always
+send the same value.
+
+### Task 4.4 — Machine events
+
+Fill in `onMachineEvent`.
+
+1. `switch (event.kind)`, one `case` per kind.
+2. End with this, so the compiler checks you covered every kind:
+   ```ts
+   default: {
+     const unhandled: never = event;
+     return unhandled;
    }
    ```
-   (`async void` is normally avoided in this project. It's used here only because
-   this is a fire-and-forget timer with no caller waiting on it. Flag it at review if
-   it feels wrong; it's a narrow, deliberate exception.)
-6. While paused for `ConnectionLost`, don't try to emit a `SampleRecorded` for every
-   missed second. Phase 06 writing a single row with `IsConnectionGap = true` at the
-   elapsed second where the drop happened is enough to make the chart show a break.
-   Don't backfill.
+   Each `case` narrows `event`. If all kinds are handled, nothing is left, so `event`
+   is `never` here. Add a new kind one day and forget it, and this stops compiling.
+3. `stoppedBySafetyKey`: call `tryStop()` and nothing else. Never restart.
+4. `controlPermissionLost`: write `// handled in Phase 05` in that case, so it's clearly
+   on purpose. Decide `targetSpeedChanged`, `reset` and `unknown` too, even if the
+   answer is "nothing".
+5. If the treadmill never sends `0x2ADA` events, add a row to the findings' "Still
+   unresolved" table: phase 04, and the fallback (treat several zero-speed samples in a
+   row as paused).
+
+### Task 4.5 — Gap markers
+
+Add to `onSample`, next to task 4.3:
+
+1. While `active` (and not paused for a lost connection), send a record with
+   `isConnectionGap: false` for every sample.
+2. The **one** exception: right after a `connectionLost` pause ends (by resuming, or by
+   the timer stopping the workout), send exactly one record with
+   `isConnectionGap: true`, for the second the connection was lost. Phase 06 turns that
+   into the gap marker.
+3. That's all this phase owes Phase 06: a stream of records. Saving them is Phase 06's
+   job.
 
 ---
 
-## Counter semantics — read V1 before writing any code here
+## Task 4.6 — Show the workout state on the dashboard
 
-| V1 verdict | What the engine does |
-|------------|----------------------|
-| **Per-session** | Record reported values directly |
-| **Cumulative** | Every workout value is a delta against the value captured at workout start. The engine must detect a mid-workout counter reset (value decreases) and re-baseline |
-| **Mixed** | Per-field handling, exactly as recorded in V1 |
-
-**Do not guess.** Guessing wrong makes every stored workout wrong, silently, forever.
-
-Also note: `DurationSeconds` in the schema is **active** time, excluding pauses. If the
-treadmill's elapsed-time counter includes paused time, the app tracks active time
-itself.
-
-### Task 4.3 — Baseline and re-baselining
-
-Fill in the counter-handling part of `OnSampleReceived`.
-
-Concrete steps:
-
-1. Open `../phase-00-probe-app/PHASE-00-FINDINGS.md` and read the V1 verdict. If it's
-   still blank, **stop here**. This phase has a hard dependency on it: never invent
-   a value for an unmeasured field.
-2. If **per-session**: `WorkoutSampleRecord.DistanceMeters` / `Calories` are just
-   `sample.DistanceMeters` / `sample.Calories`, passed through unchanged.
-3. If **cumulative**: in `TryStart`, capture the current sample's raw distance and
-   calories into private baseline fields (e.g. `_distanceBaselineMeters`). Every
-   subsequent sample's recorded value becomes
-   `sample.DistanceMeters - _distanceBaselineMeters`.
-4. Re-baseline detection: if a new sample's **raw** distance is *less than* the
-   previous raw distance, the counter reset mid-session. Add the previous raw maximum
-   into a running offset before subtracting the new baseline, so the recorded value
-   stays monotonically increasing across the reset. It must never jump backward in
-   a stored workout.
-5. `ElapsedActiveSeconds` is **not** `sample.ElapsedSeconds`. Track active seconds
-   yourself (increment once per accepted sample while `State == Active`), per the
-   `DurationSeconds` note above: the treadmill's own elapsed-time counter may include
-   paused time, which this schema explicitly excludes.
-
----
-
-## Machine-initiated transitions
-
-Drive from `0x2ADA` events where Phase 00 proved the device emits them:
-
-| Event | Engine response |
-|-------|-----------------|
-| `StoppedByUser` / `PausedByUser` | Pause or finish accordingly |
-| `StartedByUser` | Resume from `Paused` |
-| `StoppedBySafetyKey` | **Hard stop. Never attempt to restart over BLE.** |
-| `ControlPermissionLost` | Disable controls, re-request control |
-
-If Phase 00 found the device emits nothing on `0x2ADA`, infer state from `0x2ACD`
-speed values instead. Workable but less precise. Record that in
-`../phase-00-probe-app/PHASE-00-FINDINGS.md`'s "Still unresolved after this run" table.
-
-**Do not drive workout state from `0x2AD3` Training Status.** Many budget machines
-report a single value permanently.
-
-### Task 4.4 — Wire `MachineEventReceived`
-
-Fill in `OnMachineEventReceived`.
-
-Concrete steps:
-
-1. `switch` on `e.Kind` against the table above.
-2. `StoppedBySafetyKey` is the one line in this whole phase that isn't a normal state
-   transition: call `TryStop()` and nothing else. Do not attempt any kind of
-   auto-restart in response. See `ITreadmillService.StartAsync`'s doc comment for
-   why ("never call this without a deliberate on-screen user action").
-3. `ControlPermissionLost` doesn't change `WorkoutState` at all. It's Phase 05's
-   concern (disable speed controls, re-request control). Leave a
-   `// handled in Phase 05` comment at this exact spot so it reads as a deliberate
-   boundary, not a gap.
-4. If Phase 00's findings show this device emits **nothing** on `0x2ADA` during a
-   session, add a row to `../phase-00-probe-app/PHASE-00-FINDINGS.md`'s "Still
-   unresolved after this run" table (with this phase's number, the effort to
-   resolve, and the fallback: infer `Active`/`Paused` from whether
-   `sample.SpeedKph` is zero for several consecutive samples) rather than silently
-   doing nothing.
-
-### Task 4.5 — Gap markers in the sample series
-
-Fold this into `OnSampleReceived` alongside task 4.3:
-
-1. While `State == Active` and not currently paused for a connection loss, raise
-   `SampleRecorded` with `IsConnectionGap = false` on every accepted sample.
-2. The **one** exception is the sample immediately after a `ConnectionLost` pause
-   resolves (either by resuming or by `TryStop()` at grace-timer expiry): raise
-   exactly one `WorkoutSampleRecord` with `IsConnectionGap = true` for the elapsed
-   second the drop was first detected, so Phase 06's persistence layer has something
-   concrete to set `WorkoutSample.Flags` bit 0 on.
-3. This is the whole of what this phase owes Phase 06: a stream of
-   `WorkoutSampleRecord`s. Phase 06 owns buffering and the actual SQLite write
-   (`../phase-06-recording-schema/README.md`'s "buffer, flush every 30–60 s" strategy). Don't build that
-   here.
-
----
-
-## Task 4.6 — Surface workout state on the dashboard
-
-This is the one place this phase touches something Phase 03 built, and it's still
-logic, not UI. See the note at the top of this file.
-
-Concrete steps:
-
-1. Open the dashboard ViewModel Phase 03 built (check `Features/Dashboard/` for its
-   actual file name; the phase list above calls it "Live Dashboard" but you may have
-   named the file differently).
-2. Add a constructor parameter `WorkoutEngine workoutEngine`, and register
-   `WorkoutEngine` as a singleton in `MauiProgram.cs`, same reasoning as
-   `TreadmillConnection`'s existing registration: one workout in progress at a time,
-   for the whole app.
-3. Add `[ObservableProperty] private WorkoutState workoutState;` and subscribe to
-   `workoutEngine.StateChanged` in the constructor, setting the property from the
-   handler.
-4. The actual XAML is a single line:
-   `<Label Text="{Binding WorkoutState}" Style="{StaticResource Caption}" />` added
-   to the dashboard page you already have. That's small enough not to warrant its own
-   task; flag it at the review checkpoint if you'd like the agent to place it
-   precisely rather than doing it yourself.
+1. Create the engine once in the services file:
+   `workout: new WorkoutEngine(treadmill)`. One workout at a time, for the whole app.
+   It keeps running whichever screen is open.
+2. Write `src/features/workout/useWorkoutState.ts`: the same two-line
+   `useSyncExternalStore` shape as Phase 02's `useConnectionState`, using
+   `workout.onStateChange` and `workout.getState`.
+3. On the dashboard, add `const workoutState = useWorkoutState();` and
+   `<Text variant="caption">{workoutState}</Text>` under the connection row. Ask the
+   agent to place it if you'd rather not.
 
 ---
 
 ## Tests
 
-Creates: `src/MyHi.Companion.Tests/Workout/WorkoutEngineTests.cs`.
+Create `src/core/workout/workoutEngine.test.ts`. Use `jest.useFakeTimers()` and the
+real `FakeTreadmillService` from Phase 01b.
 
-Concrete steps:
+1. A `test.each` table covering every arrow in the diagram, **and the ones that aren't
+   allowed**: e.g. `tryPause('userRequested')` from `idle` returns `false` and the state
+   stays `idle`.
+2. Start a workout, make the fake disconnect, expect `paused`; reconnect in time, expect
+   `active`. This is the first test that needs the fake to drop its connection, which
+   Phase 01b skipped: add `triggerDisconnect(durationMs)` to the fake now (send
+   `disconnected`, stop samples, then after `durationMs` send `ready` and resume).
+3. Same again, but let the timer run out. Create the engine with `{ graceMs: 1000 }`,
+   `await jest.advanceTimersByTimeAsync(1001)`, expect `finished`.
+4. Gap marker: disconnect, reconnect, collect all records, expect exactly one with
+   `isConnectionGap: true`.
+5. If V1 is cumulative: feed samples whose raw distance drops partway, expect the
+   recorded distance to keep going up.
+6. After `dispose()`, samples from the fake produce no records.
+7. `npm test`.
+8. Treadmill: press pause on the treadmill itself; the app shows it.
 
-1. One `[Theory]` (or several `[Fact]`s) covering every edge in the state diagram,
-   **including the illegal ones**: e.g. `TryPause()` called from `Idle` must return
-   `false` and leave `State == Idle` unchanged, not throw.
-2. Using `FakeTreadmillService` (Phase 01b): start a workout, fire a disconnect,
-   assert `State == Paused`; fire a reconnect within the 60 s window, assert
-   `State == Active` again.
-3. Same shape, but let the grace timer expire. Inject a shorter grace period for
-   tests (a constructor parameter defaulting to 60 s is the simplest way) rather than
-   actually waiting a minute per test run, and assert `State == Finished`.
-4. A gap-marker test: disconnect, reconnect, assert exactly one
-   `WorkoutSampleRecord` in the captured sequence has `IsConnectionGap == true` and
-   every other one has it `false`.
-5. If V1 was cumulative: feed a sample sequence with a decreasing raw counter
-   partway through, assert the recorded (baselined) distance is monotonically
-   increasing across it.
-6. Run everything, including regression:
-   ```powershell
-   dotnet test src/MyHi.Companion.Tests
-   ```
-7. `[HUMAN]` Press pause on the treadmill itself; the app reflects it via `0x2ADA`
-   (or via the `0x2ACD` speed-inference fallback, if that's what Phase 00 found).
+## Done when
 
-## Acceptance
-
-- [ ] No illegal state reachable
-- [ ] Connection loss never loses more than the grace window
-- [ ] Gaps appear as breaks, never as interpolated lines
+- [ ] No state can be reached that the diagram doesn't allow
+- [ ] A lost connection never loses more than the 60-second window
+- [ ] Gaps show as breaks, never as filled-in lines
+- [ ] The `switch` over `MachineEvent` is exhaustive (the `never` line compiles)

@@ -1,124 +1,246 @@
-# The monochrome theme
+# The gray theme
 
-> Implemented in [`src/MyHi.Companion/Resources/Styles/Colors.xaml`](../../src/MyHi.Companion/Resources/Styles/Colors.xaml)
-> and [`Styles.xaml`](../../src/MyHi.Companion/Resources/Styles/Styles.xaml). Already
-> built and building clean. You don't need to create this, only use it.
+> Built in `src/features/shared/theme/` during Phase 00 (task 0.1). You don't build it,
+> you just use it. This page lists its colors, sizes and components.
 
-Every phase from here on that touches UI (XAML pages, styles, widgets) gets the
-**actual code** written for you, see `../phases/README.md`'s collaboration model. This
-doc is what that code is built on: one neutral gray ramp, no hue anywhere, used
-consistently through semantic tokens so no phase has to invent colors again.
+The agent writes the code for every screen (see `../../phases/README.md`). This page is
+what that code is built from: one set of grays, no other colors, used through named
+tokens so no screen ever picks its own colors.
 
-## Why monochrome, and why "soft"
+## Two decisions
 
-Two decisions, both already made:
+1. **No colors, only grays.** No blue buttons, no red errors, no green "connected" dot.
+   This isn't a placeholder; it's the design. If something seems to need a color (say,
+   "Stop should look dangerous"), it gets a different weight, an outline, a dashed line
+   or a confirmation step instead. See "Showing state without color" below.
+2. **Soft, not harsh.** No pure black or pure white. The darkest gray is `#212123`, the
+   lightest `#F2F2F3`. Easier on the eyes for a screen you glance at while walking.
 
-1. **No hue.** No blue "primary" color, no red "error" color, no green "connected"
-   dot. One gray ramp, walked from both ends depending on light/dark theme. This
-   isn't a placeholder. It's the actual theme. If a phase's UI seems to need a
-   second color (e.g. "the Stop button should look dangerous"), it doesn't get one;
-   it gets weight, an outline, an icon, or a size difference instead. See "Conveying
-   state without color" below.
-2. **Soft, not stark.** The ramp never touches true black (`#000000`) or true white
-   (`#FFFFFF`). The darkest token is `#212123`, the lightest is `#F2F2F3`. This was
-   a deliberate choice over a harsher near-black/near-white theme, easier on the
-   eyes for a screen you're glancing at mid-walk, less "OLED contrast" starkness.
+**No UI library.** React Native's own `View`, `Text` and `Pressable`, plus about ten small
+components here, cover every screen. A UI kit (React Native Paper, Tamagui, NativeWind)
+would bring its own look to fight, its own upgrades, and far more than we need.
 
-## The gray ramp
+## The grays
 
-Defined once in `Colors.xaml`, 11 steps from `Gray050` (lightest) to `Gray950`
-(darkest):
+Defined once in `tokens.ts`, from `50` (lightest) to `950` (darkest):
 
 ```
-Gray050  #F2F2F3   Gray400  #9A9AA0   Gray800  #38383C
-Gray100  #E4E4E6   Gray500  #7D7D82   Gray900  #2A2A2D
-Gray200  #D6D6D9   Gray600  #626266   Gray950  #212123
-Gray300  #B8B8BC   Gray700  #4A4A4E
+50   #F2F2F3   400  #9A9AA0   800  #38383C
+100  #E4E4E6   500  #7D7D82   900  #2A2A2D
+200  #D6D6D9   600  #626266   950  #212123
+300  #B8B8BC   700  #4A4A4E
 ```
 
-**Never reference `GrayNNN` directly in a page.** It's there so the semantic tokens
-below have something to point at. Every style, every page, every phase's UI code
-uses the semantic names.
+**Never use `gray[...]` directly in a screen.** Screens use the named colors below,
+through `useTheme()`.
 
-## Semantic tokens (what you actually bind to)
+## Named colors (what screens use)
 
-Each of these is a *pair*: a `...Light` and `...Dark` color, combined via
-`AppThemeBinding` inside `Styles.xaml`'s built-in styles for `Label`, `Button`,
-`Border`, `Page`, `Shell`, etc. Existing controls (`<Label>`, `<Button>`, `<Border>`,
-`<Entry>`, ...) already pick these up automatically with **no `Style=` attribute
-needed**. That's the point of putting them in `Styles.xaml` as implicit
-(un-keyed) styles.
+Each has a light-mode and a dark-mode value. `useTheme()` gives you the right set for the
+current mode, and redraws when the mode changes, so no screen needs light/dark code.
 
-| Token pair | Used for | Light value | Dark value |
+| Name (`colors.*`) | Used for | Light | Dark |
 |---|---|---|---|
-| `ColorBackground*` | Page background | Gray050 | Gray950 |
-| `ColorSurface*` | Cards, `Border`, anything one step off the page | Gray100 | Gray900 |
-| `ColorBorder*` | Hairlines, dividers, unfocused outlines | Gray300 | Gray700 |
-| `ColorTextPrimary*` | Body text, values | Gray900 | Gray100 |
-| `ColorTextSecondary*` | Captions, placeholders, timestamps | Gray600 | Gray400 |
-| `ColorTextDisabled*` | Disabled text | Gray300 | Gray600 |
-| `ColorDisabledBackground*` | Disabled control background | Gray200 | Gray800 |
-| `ColorInteractiveBackground*` | Primary button fill | Gray800 | Gray200 |
-| `ColorInteractiveText*` | Text on a primary button | Gray050 | Gray950 |
-| `ColorContributionUnlit*` / `ColorContributionLit*` | Phase 03 contribution graph cells | Gray200 / Gray700 | Gray800 / Gray300 |
+| `background` | Screen background | 50 | 950 |
+| `surface` | Cards, anything one step off the background | 100 | 900 |
+| `border` | Lines, dividers, outlines, chart grid | 300 | 700 |
+| `textPrimary` | Normal text, numbers, the main chart line | 900 | 100 |
+| `textSecondary` | Captions, units, times, the second chart line | 600 | 400 |
+| `textDisabled` | Disabled text | 300 | 600 |
+| `disabledBackground` | Disabled button background | 200 | 800 |
+| `interactiveBackground` | Main button fill, selected option | 800 | 200 |
+| `interactiveText` | Text on a main button or selected option | 50 | 950 |
+| `contributionUnlit` / `contributionLit` | Phase 03's calendar squares | 200 / 700 | 800 / 300 |
 
-If a new phase needs a token that isn't here (e.g. a distinct "pressed" state), add
-it to `Colors.xaml` following the same `Color...Light` / `Color...Dark` naming and
-the same "one or two ramp steps off its neighbor" spacing. Don't invent a one-off
-hex value inline in a page.
+Need a new one (e.g. "pressed")? Add it to both sets in `tokens.ts`, one or two grays away
+from its neighbour. Never type a color code straight into a screen.
 
-## Reusable styles already defined (`Styles.xaml`)
+## `tokens.ts`
 
-Beyond the implicit per-control-type styles (every `Label`, `Button`, `Border`,
-etc. is already styled with no extra XAML), these **keyed** styles exist for
-recurring UI shapes across phases:
+```ts
+export const gray = {
+  50: '#F2F2F3', 100: '#E4E4E6', 200: '#D6D6D9', 300: '#B8B8BC',
+  400: '#9A9AA0', 500: '#7D7D82', 600: '#626266', 700: '#4A4A4E',
+  800: '#38383C', 900: '#2A2A2D', 950: '#212123',
+} as const;
 
-- **`SecondaryButton`** (`Style="{StaticResource SecondaryButton}"`): outline
-  button for the non-default action next to a primary `Button` (e.g. "Cancel" next
-  to "Confirm Stop").
-- **`Headline`** / **`SubHeadline`**: page-level titles.
-- **`Caption`**: small secondary text (timestamps, hints).
-- **`MetricValue`**: the large number on the dashboard (speed, distance, ...).
-  40pt bold, centered.
-- **`MetricLabel`**: the small unit caption under a `MetricValue` ("km/h", "kcal").
+export interface ThemeColors {
+  readonly background: string;
+  readonly surface: string;
+  readonly border: string;
+  readonly textPrimary: string;
+  readonly textSecondary: string;
+  readonly textDisabled: string;
+  readonly disabledBackground: string;
+  readonly interactiveBackground: string;
+  readonly interactiveText: string;
+  readonly contributionUnlit: string;
+  readonly contributionLit: string;
+}
 
-Example: a single dashboard metric tile, using only existing styles and tokens,
-no inline colors:
+export const lightColors: ThemeColors = {
+  background: gray[50], surface: gray[100], border: gray[300],
+  textPrimary: gray[900], textSecondary: gray[600], textDisabled: gray[300],
+  disabledBackground: gray[200], interactiveBackground: gray[800], interactiveText: gray[50],
+  contributionUnlit: gray[200], contributionLit: gray[700],
+};
 
-```xml
-<Border Padding="16,12">
-    <VerticalStackLayout Spacing="2">
-        <Label Text="{Binding SpeedKmh, StringFormat='{0:F1}'}" Style="{StaticResource MetricValue}" />
-        <Label Text="km/h" Style="{StaticResource MetricLabel}" />
-    </VerticalStackLayout>
-</Border>
+export const darkColors: ThemeColors = {
+  background: gray[950], surface: gray[900], border: gray[700],
+  textPrimary: gray[100], textSecondary: gray[400], textDisabled: gray[600],
+  disabledBackground: gray[800], interactiveBackground: gray[200], interactiveText: gray[950],
+  contributionUnlit: gray[800], contributionLit: gray[300],
+};
+
+/** Spacing scale. Every gap and padding comes from here. */
+export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
+
+export const radius = { sm: 6, md: 10, lg: 14 } as const;
+
+/** The type scale, smallest to largest. Phase 13 adds `body` (17/24). */
+export const typography = {
+  caption: { fontSize: 12, lineHeight: 16 },
+  metricLabel: { fontSize: 13, lineHeight: 18 },
+  default: { fontSize: 15, lineHeight: 21 },
+  subheadline: { fontSize: 22, lineHeight: 28, fontWeight: '600' },
+  headline: { fontSize: 28, lineHeight: 34, fontWeight: '700' },
+  metric: { fontSize: 40, lineHeight: 46, fontWeight: '700' },
+} as const;
+
+/** Android's accessibility guidance: interactive elements at least 48 x 48 dp. */
+export const minTouchTarget = 48;
 ```
 
-`Border`'s implicit style already gives it `ColorSurface*` background,
-`ColorBorder*` stroke, and rounded corners. Nothing above is a color, they're all
-inherited.
+`useTheme.ts`:
 
-## Conveying state without color
+```ts
+import { useColorScheme } from 'react-native';
 
-The dashboard needs to show "connected" vs. "disconnected", "lit" vs. "unlit" on
-the contribution graph, "recording" vs. "idle", all without a second hue. The
-pattern used throughout this project:
+import { darkColors, lightColors, type ThemeColors } from './tokens';
+
+export function useTheme(): { colors: ThemeColors; scheme: 'light' | 'dark' } {
+  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
+  return { colors: scheme === 'dark' ? darkColors : lightColors, scheme };
+}
+```
+
+`useColorScheme()` follows the phone's setting, and also Phase 08's dark mode setting
+if you wire that up.
+
+## The components
+
+Built in Phase 00, used by every screen. Each one gets its colors from `useTheme()`, so
+none takes a color option, and none should.
+
+| Component | Props | What it is |
+|---|---|---|
+| `Screen` | `children`, `style?` | Full-screen container: `background` color, safe-area padding, `flex: 1` |
+| `Text` | `variant?` (`caption`, `metricLabel`, `default`, `subheadline`, `headline`, `metric`; Phase 13 adds `body`), plus every React Native `Text` prop | Text in the type scale. `caption` and `metricLabel` use `textSecondary`; everything else `textPrimary` |
+| `Surface` | `children`, `style?`, plus `View` props | One step off the screen: `surface` background, `border` hairline, `radius.md` corners |
+| `Button` | `label`, `onPress`, `disabled?`, `accessibilityLabel?`, `accessibilityHint?`, `style?` | Primary action: `interactiveBackground` fill, `interactiveText` label, `minHeight: 48`, disabled uses `disabledBackground`/`textDisabled` |
+| `SecondaryButton` | same as `Button` | The non-default action next to a primary one: transparent fill, `border` outline, `textPrimary` label, `minHeight: 48` |
+| `MetricTile` | `value`, `unit`, `size?` (`large` default, `compact`; Phase 11), `style?` | The dashboard's big number: a `Surface` with the value in `metric` (or `subheadline` when compact), centred, and the unit in `metricLabel` under it |
+| `ConnectionDot` | `connected` | 12 dp circle: filled `textPrimary` when connected, `border`-outlined and empty when not |
+| `SegmentedControl` | `options`, `value`, `onChange`, `label`, `accessibilityLabel` | Added in Phase 08: pick one of a few; selected segment is filled `interactiveBackground` and bold |
+| `EmptyState`, `LoadingOverlay` | see Phase 13 | Added in Phase 13 |
+
+Two of them in full, as examples of how the rest are built:
+
+```tsx
+// Button.tsx
+import { Pressable, type StyleProp, type ViewStyle } from 'react-native';
+
+import { Text } from './Text';
+import { minTouchTarget, radius, spacing } from './tokens';
+import { useTheme } from './useTheme';
+
+export interface ButtonProps {
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly disabled?: boolean;
+  readonly accessibilityLabel?: string;
+  readonly accessibilityHint?: string;
+  readonly style?: StyleProp<ViewStyle>;
+}
+
+export function Button({ label, onPress, disabled = false, accessibilityLabel, accessibilityHint, style }: ButtonProps) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => [
+        {
+          minHeight: minTouchTarget,
+          minWidth: minTouchTarget,
+          paddingHorizontal: spacing.lg,
+          borderRadius: radius.md,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: disabled ? colors.disabledBackground : colors.interactiveBackground,
+          opacity: pressed ? 0.8 : 1,
+        },
+        style,
+      ]}
+    >
+      <Text style={{ color: disabled ? colors.textDisabled : colors.interactiveText, fontWeight: '600' }}>{label}</Text>
+    </Pressable>
+  );
+}
+```
+
+```tsx
+// ConnectionDot.tsx
+import { View } from 'react-native';
+
+import { useTheme } from './useTheme';
+
+export function ConnectionDot({ connected }: { connected: boolean }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        width: 12,
+        height: 12,
+        borderRadius: 6,
+        borderWidth: 1.5,
+        borderColor: connected ? colors.textPrimary : colors.border,
+        backgroundColor: connected ? colors.textPrimary : 'transparent',
+      }}
+    />
+  );
+}
+```
+
+Example: one dashboard number, using only existing pieces, no colors typed in:
+
+```tsx
+<MetricTile value={formatOneDecimal(speedKph)} unit="km/h" />
+```
+
+`MetricTile` already brings the card background, the border, the rounded corners, the big
+number and the small unit.
+
+## Showing state without color
 
 | Instead of... | Use |
 |---|---|
-| Green dot = connected, red = disconnected | Filled circle (`Ellipse Fill="{StaticResource ColorTextPrimary...}"`) = connected; outline-only circle (`Fill="Transparent" Stroke="{StaticResource ColorBorder...}"`) = disconnected |
-| Colored badge for FTMS-supported fields | `FontAttributes="Bold"` + full opacity for present fields, the field simply absent (not shown) otherwise — see Phase 03/04's "hidden not `--`" rule |
-| Red "Stop" button | Same `Button` style as everything else, plus a **confirmation step** (see Phase 05's safety section, task 5.4) — the friction communicates weight, not the color |
-| Colored lit/unlit contribution cells | `ColorContributionLit*` (a darker/lighter gray step) vs. `ColorContributionUnlit*` — already distinct enough in a monochrome palette because it's 5 ramp steps apart |
+| Green dot = connected, red = not | `ConnectionDot`: filled = connected, empty outline = not |
+| A colored badge for fields the treadmill sends | Fields it doesn't send just aren't shown (Phase 03) |
+| A red Stop button | The same button as everything else, plus a **confirmation** (Phase 05): the extra tap carries the weight |
+| Colored calendar squares | `contributionLit` vs. `contributionUnlit`: five grays apart, clearly different |
+| A second chart line in another color | The same gray family, **dashed** (Phase 10) |
+| A highlighted choice | Filled with `interactiveBackground`, plus bold text (`SegmentedControl`) |
 
-If a phase's design genuinely seems to need a color to be legible (contrast
-between two states is too subtle), the fix is to widen the ramp-step gap between
-the two tokens, or add an icon/weight difference, not a hue. Flag it at
-the review checkpoint if this happens.
+If two states look too similar, move their grays further apart, or add an outline,
+weight or dash difference. Not a color. Mention it at the review if it comes up.
 
-## Where this fits in a phase
+## How this fits a phase
 
-Every phase README from 02 onward has a "UI code" section for any task that
-produces XAML. That code is written using only the tokens and styles above:
-you paste it in, adjust bindings to match your ViewModel's actual property names,
-and build. See `../phases/README.md` for the exact division of labour.
+Every phase from 02 on includes the full code for its screens, built only from the
+tokens and components above. You paste it in, adjust it to your hook, and run it. See
+`../../phases/README.md`.

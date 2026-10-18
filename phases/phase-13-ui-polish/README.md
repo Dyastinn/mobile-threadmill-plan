@@ -1,617 +1,397 @@
-# Phase 13 — UI Polish
+# Phase 13 — Polish
 
-**Hardware:** none · **Size:** M · **Blocked by:** Phase 12
+**Treadmill needed:** no · **Size:** M · **Waits for:** Phase 12
 
 ---
 
 ## Goal
 
-This phase is a **polish pass across every screen built in Phases 03/05/08/10/11**,
-not a new screen of its own. It doesn't rewrite any of those screens. Instead it
-delivers a small set of **reusable building blocks** (an empty-state view, a
-loading overlay, a typography scale, a haptics call, accessibility examples) that
-get dropped into each existing screen at the review checkpoint, once those phases'
-real code exists to drop them into.
+A **polish pass over every screen** from Phases 03–11. No new screens, and no rewrites.
+Instead, a few **shared pieces** (an empty-state message, a loading cover, a body text
+size, one vibration, accessibility fixes) that get added to each existing screen at the
+review.
 
-Per `../README.md`'s collaboration model, **this entire phase is UI/XAML**. The
-agent writes the actual code below, you paste it in and wire the bindings to your
-ViewModels' real property names. See `../../docs/learning/04-Monochrome-Theme.md`
-for the token vocabulary everything below is built from. Every snippet here uses
-only tokens and styles that already exist in `Colors.xaml`/`Styles.xaml`, or is
-explicitly flagged as something to add there.
+**Almost all of this phase is UI, which the agent writes.** You paste it in and connect
+it to your hooks. Everything uses the existing theme
+([`04-Monochrome-Theme.md`](../../docs/learning/04-Monochrome-Theme.md)), or says
+clearly what to add to it. Two small pieces are logic, and yours: the vibration hook-up
+and the developer setting.
 
-### Understanding what you're building (read this before the tasks)
+### The idea
 
-**Why one shared component instead of four separate ones.** Building each
-screen's empty/loading UI inline, one screen at a time, produces four slightly
-different versions of the same thing. A fix to one doesn't fix the others.
+**One shared component instead of several copies.** Several screens each need "nothing
+here yet" (no workouts, not connected) and "working on it" (exporting, loading). Writing
+those separately on each screen gives slightly different versions, and a fix to one
+doesn't fix the others. So now they become two shared components, `EmptyState` and
+`LoadingOverlay`.
 
-Phases 03, 08, 09, and 10 each built a
-real screen, and each of those screens independently needs to say "there's
-nothing here yet" (no workouts, no saved devices, an empty search result) and
-"this is working on it" (`IsBusy` while connecting, while loading history).
-Phase 13 doesn't go back and redesign those screens. It notices that the same
-two needs showed up four separate times, and only now, with four real examples
-in hand, builds `EmptyStateView` and `LoadingOverlay` as reusable `ContentView`s
-with `BindableProperty`s (`Icon`, `Title`, `Message`, `ActionCommand`;
-`IsRunning`, `Message`) that get dropped into each of those four screens' `Grid`
-at the review checkpoint.
+**Why now, and not back in Phase 03?** Because only now are there several real screens
+to learn from. Building it earlier would have meant guessing which options it needs (a
+retry button? a screen-reader label?). Now the repetition is proven and the shape is
+clear.
 
-**Why not just polish each screen as you build it.** The simpler-sounding plan
-(and the one this project actually followed through Phase 10) is to write each
-screen's empty/loading markup inline, right there in that screen's XAML, when
-that screen gets built. That's not wrong; it's what happened, and it's why this
-phase exists now rather than in Phase 03. The cost of continuing that way past
-this point is concrete: four (soon more) separate copies of near-identical
-`VerticalStackLayout` + `ActivityIndicator` markup, each free to drift. One
-screen's spinner ends up a different size, another is missing the
-`SemanticProperties.Description="Loading"` the others have. When the
-touch-target fix (44→48) or a contrast fix needs to land, it has to land N times
-instead of once, and nothing stops the Nth copy from being subtly wrong.
-Building `EmptyStateView`/`LoadingOverlay` *before* Phase 03, on the other hand,
-would have been guessing: the actual set of properties it needs
-(`ActionCommand` for a retry button, `IconDescription` for accessibility) only
-became knowable by having real screens with real "nothing to show" reasons to
-look at. Phase 13 sits at exactly the point where the repetition is proven and
-the shape is known, not before.
+**The name for this:** *DRY*, "don't repeat yourself", by pulling out a shared
+component. Only worth it once the same thing has actually shown up several times.
 
-**The pattern, named plainly.** This is "Don't Repeat Yourself" (DRY) via
-extract-shared-component. MAUI's mechanism for it, `BindableProperty`, is
-real, measurable cost: each property is roughly five lines of ceremony (the
-static field, the getter/setter, sometimes a `propertyChanged` callback),
-multiplied by five properties on `EmptyStateView` alone. That cost buys a
-specific payoff for this project: a fix to how "no workouts" looks (spacing,
-wording tone, the icon) happens in one file and appears correctly on every
-screen that uses it, including screens Phase 14+ hasn't built yet. It would
-*not* be worth it for a screen with a genuinely one-off empty condition unlike
-any other screen's. The win here comes specifically from the same
-icon/title/message/action shape recurring across four-plus real screens, which
-is the concrete, already-observed repetition Metz's "wait for the second or
-third occurrence" rule asks for before you extract anything.
+## What you'll learn
 
-## Learning goals
+- **Components with props**: a reusable piece is just a function that takes options.
+- **Covering a screen**: `StyleSheet.absoluteFill` makes the loading cover fill its
+  parent exactly, without a popup.
+- **Accessibility props**: `accessibilityLabel` (what a screen reader says),
+  `accessibilityHint` (what happens if you activate it), `accessibilityRole` (button,
+  header...), `accessibilityState` (disabled, selected), and when *not* to add a label.
+- **`expo-haptics`**: vibration, and why only one moment in this app gets it.
+- **48 dp touch targets**: Android's minimum size for anything tappable, and `hitSlop`
+  for small things that should still be easy to hit.
+- **Font scaling**: text grows with the phone's font size setting, and what that does
+  to a big number at 200%.
 
-- **`ContentView` vs. `ContentPage`**: a `ContentView` is a reusable *piece* of UI
-  (like the empty-state and loading-overlay views below) that gets embedded inside
-  a page, as opposed to `ContentPage`, which *is* a full screen. Both are declared
-  the same XAML+code-behind way.
-- **`BindableProperty`**: how a custom `ContentView` exposes its own bindable
-  properties (`Icon`, `Title`, `IsRunning`, ...) so a page embedding it can bind to
-  them exactly like any built-in control's properties. This is the mechanism that
-  makes `EmptyStateView`/`LoadingOverlay` below reusable rather than copy-pasted
-  per screen.
-- **Layering views in a `Grid`**: MAUI stacks children of the same `Grid` cell in
-  declaration order (later children on top), which is how the loading-overlay
-  pattern below sits *over* a page's normal content without a separate popup/modal
-  mechanism.
-- **`SemanticProperties.Description`/`.Hint`**: the .NET MAUI accessibility API
-  (superseding the older `AutomationProperties.Name`/`HelpText`, which are
-  deprecated as of .NET 8) that tells a screen reader what to say for a control
-  with no readable text of its own (an icon-only button, an image).
-- **`HapticFeedback`**: the platform-abstracted vibration API, and the Android
-  manifest permission it needs.
-- **44pt vs. 48dp**: Apple's Human Interface Guidelines recommend a 44×44 point
-  minimum touch target; Android's own accessibility guidance
-  (`developer.android.com`) recommends 48×48 dp. This project is Android-only, so
-  the Android figure is the one that should govern; see the flagged discrepancy
-  in `Styles.xaml` below.
+## Read first
 
-## Reference docs
-
-| Topic | URL |
+| Topic | Link |
 |---|---|
-| Add an app icon to a .NET MAUI app project | https://learn.microsoft.com/en-us/dotnet/maui/user-interface/images/app-icons?view=net-maui-10.0 |
-| Add a splash screen to a .NET MAUI app project | https://learn.microsoft.com/en-us/dotnet/maui/user-interface/images/splashscreen?view=net-maui-10.0 |
-| Build accessible apps with semantic properties | https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/accessibility?view=net-maui-10.0 |
-| Haptic Feedback — .NET MAUI | https://learn.microsoft.com/en-us/dotnet/maui/platform-integration/device/haptic-feedback?view=net-maui-10.0 |
-| Android: make apps more accessible (48dp touch target guidance) | https://developer.android.com/guide/topics/ui/accessibility/apps |
-| Android: test your app's accessibility (TalkBack pass) | https://developer.android.com/guide/topics/ui/accessibility/testing |
-| Apple Human Interface Guidelines (44pt figure, for the discrepancy note below) | https://developer.apple.com/design/human-interface-guidelines/ |
-| Theming (light/dark, `AppThemeBinding`) — already in `docs/learning/03-Doc-Links.md` | https://learn.microsoft.com/en-us/dotnet/maui/user-interface/theming |
-| Style apps using XAML — already in `docs/learning/03-Doc-Links.md` | https://learn.microsoft.com/en-us/dotnet/maui/user-interface/styles/xaml |
+| App icons (incl. Android adaptive and monochrome) | https://docs.expo.dev/develop/user-interface/app-icons/ |
+| `expo-splash-screen` (light and dark) | https://docs.expo.dev/versions/latest/sdk/splash-screen/ |
+| React Native accessibility | https://reactnative.dev/docs/accessibility |
+| `expo-haptics` | https://docs.expo.dev/versions/latest/sdk/haptics/ |
+| `expo-keep-awake` | https://docs.expo.dev/versions/latest/sdk/keep-awake/ |
+| Android: 48 dp touch targets | https://developer.android.com/guide/topics/ui/accessibility/apps |
+| Android: testing with TalkBack | https://developer.android.com/guide/topics/ui/accessibility/testing |
+| `StyleSheet` (`absoluteFill`) | https://reactnative.dev/docs/stylesheet |
 
 ---
 
-## Reusable building blocks
+## Shared pieces
 
-These live under `Features/Shared/` alongside the existing `BaseViewModel.cs` and
-`Converters.cs` (see `docs/learning/00-What-Is-Maui.md`'s project-structure
-section). Full working code: paste it in as-is, then wire it into each real
-screen at the review checkpoint.
+These go in `src/features/shared/theme/`, next to Phase 00's components. Paste them in
+as they are, then add them to each screen at the review.
 
-### 1. Typography scale
+### 1. Text sizes
 
-`Styles.xaml` already has `Headline` (32pt), `SubHeadline` (24pt), `Caption`
-(12pt), `MetricValue` (40pt), and `MetricLabel` (13pt), plus an implicit `Label`
-default of 14pt. One gap: there's no named style for ordinary paragraph/body
-text sized a step above the 14pt default: an error-message body, a settings
-description, empty-state message text. Add this to `Styles.xaml` (**you add this,
-not the agent**; this phase doesn't touch `src/` directly, see the note at the
-top of this doc):
+The theme's `Text` already has `caption` (12), `metricLabel` (13), `default` (15),
+`subheadline` (22), `headline` (28) and `metric` (40). Missing: a size for normal
+paragraphs (error messages, empty-state messages). Add `body` to `typography` in
+`tokens.ts`:
 
-```xml
-<!-- Body: readable paragraph text — error messages, settings descriptions,
-     empty-state copy. One step above the implicit Label default (14) so it's a
-     deliberate choice, not just "whatever a bare Label happens to be." -->
-<Style TargetType="Label" x:Key="Body">
-    <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource ColorTextPrimaryLight}, Dark={StaticResource ColorTextPrimaryDark}}" />
-    <Setter Property="FontSize" Value="16" />
-    <Setter Property="LineHeight" Value="1.3" />
-</Style>
+```ts
+body: { fontSize: 17, lineHeight: 24 },
 ```
 
-The resulting scale, smallest to largest: `Caption` (12) → `MetricLabel` (13) →
-implicit `Label` (14) → `Body` (16) → `SubHeadline` (24) → `Headline` (32) →
-`MetricValue` (40).
+and to the `variant` list in `Text.tsx`. Smallest to largest: `caption` (12) →
+`metricLabel` (13) → `default` (15) → `body` (17) → `subheadline` (22) → `headline`
+(28) → `metric` (40).
 
-**Consistent spacing.** There's no equivalent named-token system for spacing in
-this project (colors have `Colors.xaml`; spacing doesn't have a `Sizes.xaml`).
-Rather than invent one speculatively, the convention going forward is: pick
-`Spacing`/`Padding` values from **4, 8, 12, 16, 24, 32** (multiples of 4, which
-is already what the existing `Button`/`SecondaryButton` styles use;
-`Padding="14,10"` is the one existing exception, already in the codebase from
-Phase 00). If this convention starts feeling unwieldy across many screens, a
-`Resources/Styles/Sizes.xaml` of named `double`/`Thickness` constants is a
-reasonable future addition. Flag it at a review checkpoint rather than adding it
-speculatively now.
+**Spacing** already comes from `spacing.xs` to `spacing.xxl` (4, 8, 12, 16, 24, 32). Keep
+using those. Any other number in a `style` should have a reason. (The one existing
+exception: `14` padding inside settings rows.)
 
-### 2. Empty state — `EmptyStateView`
+### 2. "Nothing here yet" — `EmptyState`
 
-For any screen that can legitimately have nothing to show yet (no workouts, no
-saved devices, no history): icon/glyph, title, message, and an optional action
-button.
+For screens that can have nothing to show yet: a symbol, a title, a message, and an
+optional button.
 
-**`src/MyHi.Companion/Features/Shared/EmptyStateView.xaml`:**
+`src/features/shared/theme/EmptyState.tsx`:
 
-```xml
-<?xml version="1.0" encoding="UTF-8" ?>
-<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="MyHi.Companion.Features.Shared.EmptyStateView"
-             x:Name="Root">
-    <VerticalStackLayout Spacing="12"
-                          Padding="32"
-                          VerticalOptions="Center"
-                          HorizontalOptions="Center"
-                          MaximumWidthRequest="320">
+```tsx
+import { View } from 'react-native';
 
-        <!-- Placeholder glyph, not an icon font — this project has no icon font
-             set up yet. Swap for a real icon/image later; flag that decision at
-             a review checkpoint rather than pulling in an icon library now for
-             one glyph. -->
-        <Label Text="{Binding Icon, Source={x:Reference Root}}"
-               FontSize="40"
-               HorizontalOptions="Center"
-               TextColor="{AppThemeBinding Light={StaticResource ColorTextSecondaryLight}, Dark={StaticResource ColorTextSecondaryDark}}"
-               SemanticProperties.Description="{Binding IconDescription, Source={x:Reference Root}}" />
+import { SecondaryButton } from './SecondaryButton';
+import { Text } from './Text';
+import { spacing } from './tokens';
+import { useTheme } from './useTheme';
 
-        <Label Text="{Binding Title, Source={x:Reference Root}}"
-               Style="{StaticResource SubHeadline}" />
+interface Props {
+  /** A plain text symbol (there's no icon set yet). */
+  readonly glyph?: string;
+  readonly glyphLabel?: string;
+  readonly title: string;
+  readonly message: string;
+  readonly actionLabel?: string;
+  readonly onAction?: () => void;
+}
 
-        <Label Text="{Binding Message, Source={x:Reference Root}}"
-               Style="{StaticResource Body}"
-               HorizontalTextAlignment="Center"
-               TextColor="{AppThemeBinding Light={StaticResource ColorTextSecondaryLight}, Dark={StaticResource ColorTextSecondaryDark}}" />
-
-        <Button Text="{Binding ActionText, Source={x:Reference Root}}"
-                Command="{Binding ActionCommand, Source={x:Reference Root}}"
-                Style="{StaticResource SecondaryButton}"
-                IsVisible="{Binding HasAction, Source={x:Reference Root}}"
-                Margin="0,8,0,0" />
-
-    </VerticalStackLayout>
-</ContentView>
-```
-
-**`src/MyHi.Companion/Features/Shared/EmptyStateView.xaml.cs`:**
-
-```csharp
-using System.Windows.Input;
-
-namespace MyHi.Companion.Features.Shared;
-
-public partial class EmptyStateView : ContentView
-{
-    public EmptyStateView()
-    {
-        InitializeComponent();
-    }
-
-    public static readonly BindableProperty IconProperty =
-        BindableProperty.Create(nameof(Icon), typeof(string), typeof(EmptyStateView), "○");
-
-    public string Icon
-    {
-        get => (string)GetValue(IconProperty);
-        set => SetValue(IconProperty, value);
-    }
-
-    public static readonly BindableProperty IconDescriptionProperty =
-        BindableProperty.Create(nameof(IconDescription), typeof(string), typeof(EmptyStateView), string.Empty);
-
-    public string IconDescription
-    {
-        get => (string)GetValue(IconDescriptionProperty);
-        set => SetValue(IconDescriptionProperty, value);
-    }
-
-    public static readonly BindableProperty TitleProperty =
-        BindableProperty.Create(nameof(Title), typeof(string), typeof(EmptyStateView), string.Empty);
-
-    public string Title
-    {
-        get => (string)GetValue(TitleProperty);
-        set => SetValue(TitleProperty, value);
-    }
-
-    public static readonly BindableProperty MessageProperty =
-        BindableProperty.Create(nameof(Message), typeof(string), typeof(EmptyStateView), string.Empty);
-
-    public string Message
-    {
-        get => (string)GetValue(MessageProperty);
-        set => SetValue(MessageProperty, value);
-    }
-
-    public static readonly BindableProperty ActionTextProperty =
-        BindableProperty.Create(nameof(ActionText), typeof(string), typeof(EmptyStateView), string.Empty);
-
-    public string ActionText
-    {
-        get => (string)GetValue(ActionTextProperty);
-        set => SetValue(ActionTextProperty, value);
-    }
-
-    public static readonly BindableProperty ActionCommandProperty =
-        BindableProperty.Create(
-            nameof(ActionCommand),
-            typeof(ICommand),
-            typeof(EmptyStateView),
-            propertyChanged: (bindable, _, _) => ((EmptyStateView)bindable).OnPropertyChanged(nameof(HasAction)));
-
-    public ICommand? ActionCommand
-    {
-        get => (ICommand?)GetValue(ActionCommandProperty);
-        set => SetValue(ActionCommandProperty, value);
-    }
-
-    public bool HasAction => ActionCommand is not null;
+export function EmptyState({ glyph = '○', glyphLabel, title, message, actionLabel, onAction }: Props) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ alignItems: 'center', gap: spacing.md, padding: spacing.xxl, maxWidth: 320, alignSelf: 'center' }}>
+      <Text
+        style={{ fontSize: 40, color: colors.textSecondary }}
+        accessibilityLabel={glyphLabel}
+        importantForAccessibility={glyphLabel ? 'yes' : 'no-hide-descendants'}
+      >
+        {glyph}
+      </Text>
+      <Text variant="subheadline" accessibilityRole="header" style={{ textAlign: 'center' }}>
+        {title}
+      </Text>
+      <Text variant="body" style={{ textAlign: 'center', color: colors.textSecondary }}>
+        {message}
+      </Text>
+      {actionLabel !== undefined && onAction !== undefined && (
+        <SecondaryButton label={actionLabel} onPress={onAction} style={{ marginTop: spacing.sm }} />
+      )}
+    </View>
+  );
 }
 ```
 
-**Usage example** (e.g. Phase 10's workout history list when there are zero
-workouts):
+The symbol is a plain `○`, because there's no icon set yet. Real icons
+(`@expo/vector-icons` comes with Expo) are a possible later step; decide at a review
+rather than adding a library for one symbol. A decorative symbol is hidden from screen
+readers; pass `glyphLabel` only if it means something.
 
-```xml
-<shared:EmptyStateView
-    Icon="&#x25CB;"
-    IconDescription="No workouts"
-    Title="No workouts yet"
-    Message="Connect to the treadmill and start a workout to see it here."
-    IsVisible="{Binding HasNoWorkouts}" />
+**Example** (the history list with no workouts), using `FlatList`'s empty slot:
+
+```tsx
+<FlatList
+  // ...data and renderItem as before
+  ListEmptyComponent={
+    <EmptyState title="No workouts yet" message="Connect to the treadmill and start a workout to see it here." />
+  }
+/>
 ```
 
-(`xmlns:shared="clr-namespace:MyHi.Companion.Features.Shared"` at the top of
-whichever page uses it.)
+### 3. "Working on it" — `LoadingOverlay`
 
-### 3. Loading overlay — `LoadingOverlay`
+A dimmed cover with a spinner, on top of the screen while something runs.
 
-A dimmed `ActivityIndicator` overlay that sits on top of a page's normal content
-inside a `Grid`, instead of every screen writing its own `IsBusy`-triggered
-show/hide logic from scratch.
+`src/features/shared/theme/LoadingOverlay.tsx`:
 
-**`src/MyHi.Companion/Features/Shared/LoadingOverlay.xaml`:**
+```tsx
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-```xml
-<?xml version="1.0" encoding="UTF-8" ?>
-<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="MyHi.Companion.Features.Shared.LoadingOverlay"
-             x:Name="Root"
-             InputTransparent="False"
-             IsVisible="{Binding IsRunning, Source={x:Reference Root}}">
-    <Grid BackgroundColor="{AppThemeBinding Light={StaticResource ColorBackgroundLight}, Dark={StaticResource ColorBackgroundDark}}"
-          Opacity="0.9">
-        <VerticalStackLayout Spacing="8"
-                              VerticalOptions="Center"
-                              HorizontalOptions="Center">
-            <ActivityIndicator IsRunning="{Binding IsRunning, Source={x:Reference Root}}"
-                                WidthRequest="36"
-                                HeightRequest="36"
-                                SemanticProperties.Description="Loading" />
-            <Label Text="{Binding Message, Source={x:Reference Root}}"
-                   Style="{StaticResource Caption}"
-                   IsVisible="{Binding HasMessage, Source={x:Reference Root}}" />
-        </VerticalStackLayout>
-    </Grid>
-</ContentView>
-```
+import { Text } from './Text';
+import { spacing } from './tokens';
+import { useTheme } from './useTheme';
 
-**`src/MyHi.Companion/Features/Shared/LoadingOverlay.xaml.cs`:**
-
-```csharp
-namespace MyHi.Companion.Features.Shared;
-
-public partial class LoadingOverlay : ContentView
-{
-    public LoadingOverlay()
-    {
-        InitializeComponent();
-    }
-
-    public static readonly BindableProperty IsRunningProperty =
-        BindableProperty.Create(nameof(IsRunning), typeof(bool), typeof(LoadingOverlay), false);
-
-    public bool IsRunning
-    {
-        get => (bool)GetValue(IsRunningProperty);
-        set => SetValue(IsRunningProperty, value);
-    }
-
-    public static readonly BindableProperty MessageProperty =
-        BindableProperty.Create(
-            nameof(Message),
-            typeof(string),
-            typeof(LoadingOverlay),
-            string.Empty,
-            propertyChanged: (bindable, _, _) => ((LoadingOverlay)bindable).OnPropertyChanged(nameof(HasMessage)));
-
-    public string Message
-    {
-        get => (string)GetValue(MessageProperty);
-        set => SetValue(MessageProperty, value);
-    }
-
-    public bool HasMessage => !string.IsNullOrWhiteSpace(Message);
+export function LoadingOverlay({ visible, message }: { visible: boolean; message?: string }) {
+  const { colors } = useTheme();
+  if (!visible) return null;
+  return (
+    <View
+      style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, opacity: 0.9, alignItems: 'center', justifyContent: 'center', gap: spacing.sm }]}
+      accessibilityViewIsModal
+      accessibilityLiveRegion="polite"
+    >
+      <ActivityIndicator size="large" color={colors.textPrimary} accessibilityLabel="Loading" />
+      {message !== undefined && message !== '' && <Text variant="caption">{message}</Text>}
+    </View>
+  );
 }
 ```
 
-**Usage example, showing the layering pattern:** page content in the `Grid`'s first
-child, the overlay as a later child so it paints on top:
+**How to use it:** put it *last* inside the screen, so it's drawn on top.
+`StyleSheet.absoluteFill` stretches it to the screen's edges, and while it's showing, taps
+can't reach what's underneath.
 
-```xml
-<Grid>
-    <!-- normal page content, e.g. the dashboard from Phase 03 -->
-    <VerticalStackLayout Spacing="16">
-        ...
-    </VerticalStackLayout>
-
-    <shared:EmptyStateView
-        IsVisible="{Binding HasNoWorkouts}"
-        Title="No workouts yet"
-        Message="Connect to the treadmill and start a workout to see it here." />
-
-    <shared:LoadingOverlay
-        IsRunning="{Binding IsBusy}"
-        Message="Connecting..." />
-</Grid>
+```tsx
+<Screen>
+  <ScrollView>{/* the normal screen */}</ScrollView>
+  <LoadingOverlay visible={b.busy} message={b.progressStage ?? undefined} />
+</Screen>
 ```
 
-`IsBusy` here is the property every ViewModel already has from `BaseViewModel`
-(see `docs/learning/00-What-Is-Maui.md`). No new ViewModel plumbing needed, just
-bind to what's already there.
+`accessibilityLiveRegion="polite"` makes TalkBack read the message when it appears,
+without interrupting.
 
-### 4. Haptics on speed-change confirmation
+### 4. A vibration when a speed change is confirmed (yours)
 
-Verified against the current `HapticFeedback` API (`Microsoft.Maui.Devices`):
-the method is `HapticFeedback.Default.Perform(HapticFeedbackType)`, not
-`Vibrate()` or anything similarly guessable.
+`expo-haptics` (`npx expo install expo-haptics`) gives `Haptics.selectionAsync()`, a
+light tick.
 
-**Android setup.** Add to `Platforms/Android/AndroidManifest.xml` (**you add
-this, not the agent**; outside this phase's scope to touch `src/` directly):
+It belongs to the moment the treadmill **confirms** a new speed, not every tap. That
+moment is inside `SpeedController` (Phase 05), in `core/`, which can't import
+`expo-haptics`. So pass it in, like Phase 06's GUID maker:
 
-```xml
-<uses-permission android:name="android.permission.VIBRATE" />
+1. Give `SpeedController` an optional `onSpeedConfirmed?: () => void`, and call it when
+   `setSpeed()` succeeds. Never on failure: a vibration after a failed command would feel
+   like a confirmation.
+2. In the services file, pass `() => void Haptics.selectionAsync()`.
+3. Test: with a fake that accepts the command, the callback runs once; with one that
+   rejects it, never.
+
+Nothing else in the app vibrates. Don't add it to every button.
+
+### 5. Accessibility examples
+
+**A button whose text doesn't say enough** (Phase 05's − and + already do this):
+
+```tsx
+<Button label={'−'} onPress={...} accessibilityLabel="Decrease speed" />
 ```
 
-**Call site.** Wherever the speed-change *confirmation* actually lands (e.g. in
-Phase 05's control ViewModel, right after `SetSpeedAsync` returns a successful
-`ControlResult`, not on every debounced tap):
+**A button that needs extra context** (Stop):
 
-```csharp
-using Microsoft.Maui.Devices;
-
-private async Task ConfirmSpeedChangeAsync(double newSpeedKmh)
-{
-    var result = await _treadmillService.SetSpeedAsync(newSpeedKmh);
-
-    if (result.Succeeded)
-    {
-        HapticFeedback.Default.Perform(HapticFeedbackType.Click);
-    }
-    // on failure: surface the plain-language error (per the existing
-    // "error messages that say what to do" task below) — no haptic, since a
-    // vibration on a *failed* command would read as confirmation of the wrong
-    // thing.
-}
+```tsx
+<Button
+  label="Stop"
+  onPress={confirmStop}
+  accessibilityHint="Asks first, then sends a Bluetooth stop command. The physical safety key is the emergency stop."
+/>
 ```
 
-`HapticFeedbackType` has two values: `Click` (short tap, used above, for a
-confirmation, not a warning) and `LongPress`. Nothing else needs a haptic in this
-app per the monochrome theme's "convey state without a second signal channel
-unless it earns it" philosophy. Resist the urge to add one to every button tap.
+**Several things read as one** (the dot plus the word):
 
-### 5. Accessibility — concrete examples
-
-**Icon-only button** (e.g. the Stop control from Phase 05: an `ImageButton` has
-no text of its own for a screen reader to announce):
-
-```xml
-<ImageButton Source="stop_icon.png"
-             Command="{Binding StopCommand}"
-             SemanticProperties.Description="Stop treadmill"
-             SemanticProperties.Hint="Requests the treadmill to stop the belt. The physical safety key is the emergency stop." />
+```tsx
+<View accessible accessibilityLabel={`Treadmill ${state}`}>
+  <ConnectionDot connected={state === 'ready'} />
+  <Text variant="caption">{state}</Text>
+</View>
 ```
 
-**Image** (a purely illustrative image still needs a description if it carries
-meaning, e.g. a treadmill diagram on an empty/onboarding state):
+Two rules:
 
-```xml
-<Image Source="treadmill_illustration.png"
-       SemanticProperties.Description="Illustration of a treadmill" />
-```
+- **Don't add `accessibilityLabel` to text that already says the right thing.** The label
+  *replaces* the text for screen readers; it doesn't add to it.
+- **Text inputs keep a visible placeholder or label.** Use `accessibilityHint` for extra
+  detail; don't hide what the field is for.
 
-Two things worth knowing before applying this everywhere, straight from the
-current Microsoft docs (not obvious from the API signature):
+### 6. Touch targets: check, and fix the small links
 
-- **Never set `SemanticProperties.Description` on a `Label`.** It replaces the
-  spoken text with the description instead of adding to it. Since a `Label`
-  already has readable `Text`, this makes things worse, not better.
-- **Never set it on an `Entry`/`Editor` on Android.** It breaks TalkBack's
-  editing actions. Use `Placeholder` or `SemanticProperties.Hint` instead for
-  input fields.
-
-### 6. Touch target size — flag, don't fix here
-
-`Styles.xaml` sets `MinimumHeightRequest="44"` / `MinimumWidthRequest="44"` on
-`Button`, `SecondaryButton`, `CheckBox`, `Editor`, `Entry`, `ImageButton`,
-`Picker`, `RadioButton`, `SearchBar`, and `TimePicker`. **44 is Apple's Human
-Interface Guidelines figure, not Android's.** Android's own accessibility
-guidance (`developer.android.com/guide/topics/ui/accessibility/apps`) recommends
-a minimum touch target of **48×48 dp**. This app is Android-only, so 44 is the
-wrong platform's number, carried over from a generic MAUI-template default rather
-than chosen deliberately.
-
-**This phase does not change `Styles.xaml`.** That's out of scope here (see the
-top of this doc). Bring `44` → `48` as a one-line, ten-value find/replace to the
-review checkpoint for this phase; it's a real correctness fix, just not one to
-make silently outside the file's own review.
+The theme's `Button`, `SecondaryButton` and `SegmentedControl` are already at least
+**48 dp** tall (Android's guidance). The small text links on the dashboard ("History",
+"Settings"...) aren't: they're maybe 16 dp tall. Give each one
+`hitSlop={{ top: 16, bottom: 16, left: 8, right: 8 }}` (via the `Link`'s `asChild` and a
+`Pressable`), or some padding, so the tappable area reaches 48 dp without changing how it
+looks.
 
 ---
 
 ## Tasks
 
-### App icon, splash
+### App icon and splash screen
 
-Concrete steps:
-1. Replace the two files the MAUI template already provides:
-   `Resources/AppIcon/appicon.svg` (background layer) and
-   `Resources/AppIcon/appiconfg.svg` (foreground layer); see
-   [Add an app icon to a .NET MAUI app project](https://learn.microsoft.com/en-us/dotnet/maui/user-interface/images/app-icons?view=net-maui-10.0)
-   for exactly what "adaptive icon" background/foreground layering means on
-   Android and why two files, not one.
-2. Same replacement pattern for `Resources/Splash/splash.svg`; see
-   [Add a splash screen to a .NET MAUI app project](https://learn.microsoft.com/en-us/dotnet/maui/user-interface/images/splashscreen?view=net-maui-10.0).
-3. **Deliberate choice needed:** the `<MauiSplashScreen>` MSBuild item's `Color`
-   attribute takes one static hex value. It does **not** support an
-   `AppThemeBinding`-style light/dark pair, because the OS paints the splash
-   before your app's XAML resources are even loaded. Recommendation: use the
-   monochrome theme's light background, `#F2F2F3` (`Gray050`/`ColorBackgroundLight`
-   from `Colors.xaml`), since Android 12+'s system splash-screen API already
-   layers the OS's own day/night handling around your icon. Read the "Platform
-   notes" section of the splashscreen doc above before assuming otherwise.
-4. Build and check the launcher icon and the first-frame splash on the device.
-   This is one of the few things you genuinely cannot verify from the XAML alone.
+1. Make the images: a 1024×1024 `icon.png`, a foreground layer for Android's adaptive
+   icon (`adaptive-icon.png`, with the picture inside the central safe area), and a
+   one-color `monochrome-icon.png` for Android's themed icons. The app icons doc explains
+   why there are several files.
+2. In `app.json`:
+   ```json
+   "icon": "./assets/images/icon.png",
+   "android": {
+     "adaptiveIcon": {
+       "foregroundImage": "./assets/images/adaptive-icon.png",
+       "monochromeImage": "./assets/images/monochrome-icon.png",
+       "backgroundColor": "#F2F2F3"
+     }
+   }
+   ```
+   and the splash screen through its plugin, which allows a separate dark background:
+   ```json
+   ["expo-splash-screen", {
+     "image": "./assets/images/splash-icon.png",
+     "imageWidth": 160,
+     "backgroundColor": "#F2F2F3",
+     "dark": { "backgroundColor": "#212123" }
+   }]
+   ```
+   Those are the theme's lightest and darkest grays, so the splash matches the app.
+3. `npx expo prebuild --clean` and rebuild: icons and splash are native files.
+4. Check the icon (also with themed icons on) and the splash in light and dark mode, on
+   the phone. You can't check this from the code.
 
-### Typography scale, consistent spacing
+### Text sizes and spacing
 
-Already covered in full above under "Reusable building blocks → 1. Typography
-scale." Apply `Body` (once added to `Styles.xaml`) to any Label currently relying
-on the bare 14pt implicit default for actual paragraph copy: settings
-descriptions, empty-state messages, error explanations.
+Covered above. Use `body` for any paragraph text that currently uses the default size:
+setting descriptions, empty-state messages, error explanations.
 
-### Loading and empty states for **every** screen
+### Loading and empty states on **every** screen
 
-Concrete steps, repeated once per screen from Phases 03/05/08/10/11:
-1. Identify the screen's "nothing to show yet" condition (no workouts, no saved
-   devices, not yet connected, empty search results) and its existing `IsBusy`
-   property (already present via `BaseViewModel`).
-2. Wrap the screen's root content in a `Grid` if it isn't already (most single-
-   child `ContentPage`s already are, per Phase 00/03's layout conventions).
-3. Add `EmptyStateView` and `LoadingOverlay` as later `Grid` children per the
-   usage example above, with `IsVisible` bound to that screen's actual empty
-   condition and `IsBusy`.
-4. Confirm at the review checkpoint: does the empty state read correctly for
-   *that* screen's specific nothing-to-show reason (a fresh install has no
-   workouts; a mid-scan devices list is empty but not "wrong")?
+For each screen from Phases 03–11:
+1. What does "nothing to show yet" mean on this screen (no workouts, not connected,
+   empty history)? Does it have a busy flag?
+2. Add `EmptyState` (as `ListEmptyComponent`, or shown conditionally) and
+   `LoadingOverlay` (last thing in the screen), as in the examples.
+3. At the review: does the message fit *this* screen? (A fresh install has no workouts;
+   a disconnected dashboard isn't "empty", it's "not connected yet".)
 
-### Error messages that say what to do, not what failed
+### Error messages that say what to do
 
-**"Couldn't reach the treadmill — check it's powered on and try again"** beats
-"GATT error 133," though the code still belongs in the log. Concrete steps:
-1. Audit every user-facing error surface across Phases 02/05/07 (connection
-   failures, control-point rejections, foreground-service issues); list the raw
-   codes/exceptions currently shown, if any.
-2. For each, write a short plain-language sentence describing the *next action*
-   the user can take, not the failure mechanism.
-3. Log the original code/exception alongside the friendly message (both, always:
-   the friendly message is for the user, the code is for you debugging later).
-4. The `LoadingOverlay`/`EmptyStateView` pair above double as an error surface.
-   An `EmptyStateView` with an `ActionText="Try again"` bound to a retry command
-   is a natural fit for a connection failure, not just a genuinely-empty list.
+**"Couldn't reach the treadmill. Check it's switched on and try again"** beats
+"GATT error 133" (the code still goes in the log).
+1. List every error the user can see in Phases 02, 05, 07 and 09 (connection failures,
+   rejected commands, background service and permission problems, backup errors).
+2. For each, write one plain sentence saying what the user can *do next*.
+3. Log the original code next to the friendly message. Always both.
+4. `EmptyState` works for errors too: `actionLabel="Try again"` with a retry is a good fit
+   for a connection failure.
 
-### Accessibility: content descriptions, minimum touch targets, contrast check
+### Accessibility: labels, touch targets, contrast
 
-Concrete steps:
-1. Apply `SemanticProperties.Description`/`.Hint` per the "Accessibility —
-   concrete examples" section above to every icon-only control across the real
-   screens (dashboard connection indicator, control buttons, any `ImageButton`).
-2. Bring the 44→48 touch-target fix (flagged above) to the review checkpoint.
-3. Contrast check: the monochrome ramp's darkest/lightest steps
-   (`ColorTextPrimary*` on `ColorBackground*`/`ColorSurface*`) were chosen to
-   already clear WCAG AA at normal text size. Spot-check with a contrast
-   checker if a screen introduces a *new* pairing not already in
-   `04-Monochrome-Theme.md`'s token table (e.g. `ColorTextSecondary*` on
-   `ColorSurface*`, used in dimmer/disabled contexts, is the pairing most worth
-   double-checking since it's the smallest gap in the ramp).
+1. Add labels, hints and roles (examples above) wherever the visible text isn't enough:
+   the connection row, the control buttons, the calendar, the charts.
+2. Apply the `hitSlop` fix to every small link.
+3. Contrast: the theme's main text colors were chosen to be readable (WCAG AA). If a
+   screen uses a *new* pairing, check it with a contrast checker. `textSecondary` on
+   `surface` (captions inside cards) is the closest pair, so check that one.
 
-### Haptics on speed change confirmation
+### Vibration on speed confirmation
 
-Covered in full above under "Reusable building blocks → 4."
+Covered above, in "Shared pieces → 4".
 
-### The diagnostic screens from Phase 00 stay, behind a developer toggle
+### Keep the screen on during a workout
 
-They are how the next firmware surprise gets diagnosed. Do not delete them.
-Concrete steps:
-1. Reuse Phase 08's `Preferences`-backed settings pattern to add one new boolean,
-   e.g. `ShowDeveloperOptions` (default `false`), exposed from a `SettingsService`
-   or equivalent the way every other Phase 08 setting already is.
-2. In `AppShell.xaml`, bind whichever `FlyoutItem`/`TabBar` entry currently
-   exposes Phase 00's diagnostic screens (`ScanPage`, `ControlConsolePage`, etc.)
-   to that flag, e.g. `IsVisible="{Binding ShowDeveloperOptions}"`. The exact
-   property/binding-context names depend on how `AppShell.xaml` currently wires
-   its `BindingContext`, so treat the shape above as the pattern and adjust to
-   match what Phase 00 actually produced.
-3. Leave the routes themselves registered unconditionally in
-   `AppShell.xaml.cs`. Only the flyout/tab *entry point* is gated, so a
-   developer can still `GoToAsync("scan")` directly if needed even with the
-   toggle off.
-4. Add the toggle itself to the Settings screen from Phase 08, off by default.
+Phase 08 saves a "Keep screen awake" setting that nothing uses yet. Make it work:
+`npx expo install expo-keep-awake`, then a tiny component shown on the dashboard while a
+workout is `active` and the setting is on:
+
+```tsx
+import { useKeepAwake } from 'expo-keep-awake';
+
+/** Keeps the screen on while it's shown. Removing it lets the screen sleep again. */
+export function KeepAwakeWhileWorkout() {
+  useKeepAwake();
+  return null;
+}
+```
+
+```tsx
+// in DashboardScreen, with the other hooks: const { snapshot: settings } = useSettings();
+{settings.keepScreenAwake && workoutState === 'active' && <KeepAwakeWhileWorkout />}
+```
+
+(The "Voice announcements" setting stays unused for now. `expo-speech` is the tool for it
+when you want it; it's a feature, not polish.)
+
+### Keep the test screens, behind a developer setting (yours)
+
+They're how the next firmware surprise gets investigated. Don't delete them.
+1. Add `showDeveloperOptions` (default `false`) to Phase 08's `AppSettings`, like the
+   other switches, with a test for its default.
+2. Show the dashboard's "Diagnostics" link only when it's on.
+3. Leave the screens themselves in `src/app/diagnostics/`. Only the link is hidden, so
+   you can still open them directly
+   (`adb shell am start -a android.intent.action.VIEW -d "<your-scheme>://diagnostics"`;
+   the scheme is in `app.json`).
+4. Add the switch at the bottom of the Settings screen, under "Developer", off by default.
 
 ---
 
 ## Tests
 
-- Every screen reviewed in light and dark, at 33% and full width
-- TalkBack pass over the dashboard and controls
-- Font scale at 200% does not break layouts
+- Every screen in light and dark mode, at 33% and full width
+- A TalkBack pass over the dashboard and controls
+- Font size at maximum doesn't break any layout
 
-### How to actually run each of these
+### How to run each one
 
-1. **Light/dark:** toggle the phone's system theme (**Settings → Display → Dark
-   theme**) and revisit every screen. The monochrome theme's `AppThemeBinding`
-   pairs should make this automatic with zero code changes; if a screen looks
-   wrong in one mode, it's almost always a raw hex value that snuck in instead of
-   a semantic token (see `04-Monochrome-Theme.md`'s "never invent a hex color"
-   rule).
-2. **33% / full width:** use Phase 11's split-screen support to resize the app to
-   its narrowest supported size and check every screen (particularly the
-   `EmptyStateView`'s `MaximumWidthRequest="320"`: confirm it doesn't overflow at
-   33% on a small phone) and again at full width.
-3. **TalkBack pass:** enable TalkBack (**Settings → Accessibility → TalkBack →
-   Use TalkBack**, per the
-   [Android accessibility testing guide](https://developer.android.com/guide/topics/ui/accessibility/testing)),
-   then navigate the dashboard and controls using only swipe-to-move-focus and
-   double-tap-to-activate, no direct touch. Every control that does something
-   should announce something meaningful; anything silent or announcing only "Button"
-   is missing a `SemanticProperties.Description`.
-4. **Font scale 200%:** **Settings → Display → Font size**, set to maximum, and
-   revisit the dashboard and any screen with dense text (settings, statistics).
-   Layouts using `Auto`/`*` `Grid` rows and `VerticalStackLayout` (already the
-   project's convention per `docs/learning/00-What-Is-Maui.md`) should reflow
-   correctly; a layout that clips or overlaps at 200% has a hardcoded
-   `HeightRequest` somewhere that needs to become `Auto`.
+1. **Light/dark:** switch the phone's dark theme (**Settings → Display → Dark theme**)
+   and look at every screen, then set the app's own Dark mode to Light and to Dark. All
+   colors come from `useTheme()`, so it should just work. If a screen looks wrong in one
+   mode, there's almost always a raw color code in it that should be a theme color.
+2. **33% / full width:** use split screen to make the app as narrow as possible, check
+   every screen (especially that `EmptyState` fits at 33%), then check full width.
+3. **TalkBack:** turn it on (**Settings → Accessibility → TalkBack**), then use the
+   dashboard and controls with only swipe-to-move and double-tap-to-press. Everything
+   that does something should say something useful. Silent, or just "button", means a
+   missing `accessibilityLabel`.
+4. **Font size at maximum:** **Settings → Display → Font size**, all the way up, then
+   check the dashboard, settings and statistics. Flexible layouts adjust; anything that
+   gets cut off or overlaps has a fixed `height` that should go. One exception: the big
+   numbers can get wider than their tile. Limit just those with
+   `maxFontSizeMultiplier={1.5}` (still large, just not huge).
 
-## Acceptance
+## Done when
 
-- [ ] Release candidate
+- [ ] Ready to release
