@@ -1,163 +1,147 @@
 # Glossary
 
-> Growing list. Add a term here the first time it comes up in a phase, so it's never
-> just "explained once in chat and gone."
+> Add a word here the first time it comes up in a phase, so it isn't explained once in
+> chat and then lost.
 
 ### Expo and React Native
 
-- **Expo Go**: Expo's prebuilt app from the Play Store, containing a fixed set of
-  native modules. Can't run this project, because `react-native-ble-manager` isn't one
-  of them. See `00-Expo-And-React-Native.md`.
-- **Development build**: your own version of the app, compiled with your native
-  modules inside plus a developer menu; it loads JavaScript from Metro, so TypeScript
-  edits still update instantly. Built with `npx expo run:android --device`.
-- **Release build**: the optimised app with its JavaScript bundled inside; no Metro,
-  no dev tools. The only build to measure performance or test screen-off behaviour on.
-- **Metro**: the bundler that turns `src/**/*.ts(x)` into one JavaScript bundle and
-  serves it to a development build.
-- **Fast Refresh**: Metro pushing an edited file into the running app without a full
-  reload, keeping component state where it can.
-- **Continuous Native Generation (CNG) / prebuild**: generating the `android/` project
-  from `app.json` and config plugins (`npx expo prebuild`) instead of editing it by
-  hand. `src/android/` is never edited and never committed.
-- **Config plugin**: a JavaScript function that modifies the generated native project
-  during prebuild (e.g. Phase 11's `withResizeableActivity`). Libraries ship them too.
-- **Local Expo module**: Kotlin (and TypeScript) source in `src/modules/<name>/`,
-  exposed to JavaScript through the **Expo Modules API** (`Function(...)`,
-  `Events(...)`). Phase 00/07's foreground service.
-- **Native module**: Java/Kotlin code callable from JavaScript. ble-manager,
-  expo-sqlite and expo-file-system are native modules.
-- **JavaScript thread**: the single thread all of the app's TypeScript runs on.
-  Nothing to marshal between, and nothing else runs while your code is busy.
-- **Hermes**: the JavaScript engine React Native runs your code in.
-- **New Architecture / JSI / TurboModule**: React Native's current internals. JSI lets
-  JavaScript call native code directly; a TurboModule is a native module built on it.
-  Always on from Expo SDK 55.
-- **Headless JS task**: JavaScript React Native runs without a screen, started from
-  native code (`HeadlessJsTaskService`). While one is running, JS timers keep firing in
-  the background. This project's keep-alive is a headless task that deliberately never
-  finishes until the workout ends.
-- **Expo Router / route file**: file-based navigation. `src/app/settings.tsx` *is* the
-  `/settings` screen; `src/app/history/[workoutId].tsx` is a dynamic route.
-- **`app.json`**: the Expo project config: name, package, permissions, plugins, icons.
+- **Expo Go**: Expo's ready-made app from the Play Store. It only includes certain
+  libraries, and the Bluetooth library isn't one, so it can't run this app.
+- **Development build**: your own version of Expo Go, with your libraries inside. Your
+  code still comes from the PC and updates when you save. Built with
+  `npx expo run:android --device`.
+- **Release build**: the finished app, with your code inside. No PC needed. Use it for
+  speed, battery and screen-off tests.
+- **Metro**: the tool that bundles your code and sends it to the development build.
+- **Fast Refresh**: the app updating on the phone when you save a file.
+- **Prebuild / generated `android/` folder**: Expo creates the Android project from
+  `app.json` on every build. You never edit `src/android/` and never commit it.
+- **Config plugin**: a small JavaScript file that changes a setting in the generated
+  Android files (Phase 11 has one). Libraries can include their own.
+- **Local Expo module**: Kotlin code in `src/modules/<name>/` that TypeScript can call.
+  Phase 00/07's background service.
+- **Native module**: Java or Kotlin code your TypeScript can call, like the Bluetooth
+  library or `expo-sqlite`.
+- **JavaScript thread**: the one thread all your code runs on. While your code is busy,
+  nothing else in your code runs.
+- **Hermes**: the JavaScript engine on the phone.
+- **New Architecture**: how current React Native connects JavaScript to native code.
+  Always on since Expo 55; nothing to set up.
+- **Headless JS task**: JavaScript that React Native runs with no screen showing. While
+  one is running, timers keep working in the background. This app's keep-alive is a task
+  that deliberately never ends until the workout does.
+- **Expo Router / route file**: screens as files. `src/app/settings.tsx` is the
+  `/settings` screen. `src/app/history/[workoutId].tsx` is a screen with a parameter.
+- **`app.json`**: the Expo settings file: name, package, permissions, plugins, icons.
 
 ### React
 
-- **Component**: a function that returns a description of UI. React calls it again on
-  every render.
-- **Props**: a component's inputs, passed by its parent.
-- **State** (`useState`): a value whose change re-renders the component.
-- **Effect** (`useEffect`): code that synchronises a component with something outside
-  React (a subscription, a timer), run after rendering.
-- **Cleanup**: the function an effect returns; undoes what the effect did (unsubscribe,
-  clear a timer). Runs before the effect re-runs and on unmount.
-- **Ref** (`useRef`): a `{ current }` box React keeps across renders without
-  re-rendering when it changes.
-- **Hook**: a function starting with `use` that calls other hooks. In this project, a
-  screen's hook (`useDashboard`) plays the ViewModel role.
-- **`useSyncExternalStore`**: React's hook for reading a value owned outside React and
-  re-rendering when it changes. Needs a stable `subscribe` and a `getSnapshot` that
-  returns the same object until something changes.
-- **Context** (`createContext`, `useContext`): passing a value to every component below
-  a provider without threading props. `useServices()` is built on it.
-- **Strict Mode**: a development-only wrapper that mounts, unmounts and remounts
-  components to expose missing effect cleanups.
-- **`key`**: the identity React uses to match list items across renders.
-- **Controlled input**: an input whose value comes from state and whose change handler
-  writes state back (`<Switch value={...} onValueChange={...} />`).
-- **`FlatList`**: a virtualised list that only renders the rows on screen. For long or
-  growing lists; short fixed ones just use `.map()`.
-- **Stale closure**: a callback still seeing values from the render it was created in.
+- **Component**: a function that returns what the screen should show. React calls it
+  again on every redraw.
+- **Props**: a component's inputs, given by its parent.
+- **State** (`useState`): a value that redraws the component when it changes.
+- **Effect** (`useEffect`): code that connects a component to something outside React
+  (a listener, a timer). Runs after the screen updates.
+- **Cleanup**: the function an effect returns. It undoes the effect (stop listening,
+  clear a timer). Runs before the effect runs again, and when the component goes away.
+- **Ref** (`useRef`): a box that keeps a value between redraws without causing one.
+- **Hook**: a function whose name starts with `use`. Here, each screen has one
+  (`useDashboard`) that holds its state and logic.
+- **`useSyncExternalStore`**: React's hook for showing a value that lives outside React.
+  Its `getSnapshot` must return the same object until something changes.
+- **Context**: a way to give a value to every component below a provider.
+  `useServices()` uses it.
+- **Strict Mode**: a development-only setting that starts, removes and restarts each
+  component, to show up effects that forget their cleanup.
+- **`key`**: how React tells list items apart between redraws.
+- **Controlled input**: an input whose value comes from state, and whose change handler
+  updates that state (`<Switch value={...} onValueChange={...} />`).
+- **`FlatList`**: a list that only draws the rows on screen. For long or growing lists.
+- **Stale value**: a function still seeing a value from an older redraw.
 
 ### TypeScript
 
-- **String-literal union**: `'idle' | 'active' | 'paused' | 'finished'`, this
-  project's "enum."
-- **Discriminated union**: a union of object types sharing a tag field (`kind`, `ok`);
-  checking the tag narrows the type.
-- **Narrowing**: TypeScript refining a variable's type after a check (`if`, `switch`,
-  a type guard).
-- **Type guard**: a function returning `value is T`, teaching the compiler what a
-  check proved.
-- **Exhaustiveness check**: `const unhandled: never = x` at the end of a `switch`;
-  stops compiling if a union member isn't handled.
-- **`as const`**: keep literal types (`'dark'`, `0x01`) instead of widening them;
-  combined with `typeof`, derives a type from a value.
-- **Structural typing**: TypeScript compares shapes, not names. Any object with the
-  right members satisfies an interface.
-- **`noUncheckedIndexedAccess`**: compiler option making `array[i]` possibly
-  `undefined`. On in this project, for safe byte parsing.
+- **String union**: `'idle' | 'active' | 'paused' | 'finished'`. This project's version
+  of an enum.
+- **Union with a `kind` field** (discriminated union): several object types that share a
+  field like `kind` or `ok`. Checking it tells TypeScript which type you have.
+- **Narrowing**: TypeScript working out a more exact type after an `if` or `switch`.
+- **Type guard**: a function returning `value is T`, telling the compiler what a check
+  proved.
+- **Exhaustive check**: `const unhandled: never = x` at the end of a `switch`. It stops
+  compiling if a case is missing.
+- **`as const`**: keep the exact values (`'dark'`, `0x01`) instead of widening them to
+  `string` or `number`.
+- **Shapes, not names** (structural typing): any object with the right properties
+  counts as that type.
+- **`noUncheckedIndexedAccess`**: a setting that makes `array[i]` possibly `undefined`,
+  so you can't forget to check lengths.
 
 ### Android
 
-- **Process**: the running app. Lives as long as Android lets it; the JavaScript
-  runtime lives inside it.
-- **Activity**: the screen container Android shows. Can be destroyed and recreated
-  (rotation, resize) while the process lives on.
-- **`configChanges`**: the configuration changes an activity handles itself instead of
-  being recreated for. Expo's template already declares the split-screen ones.
-- **`resizeableActivity`**: whether an activity may run in split screen.
-- **Service / foreground service**: an Android component for work without a screen. A
-  foreground service shows a notification and in return isn't killed for being in the
-  background.
-- **Foreground service type**: the declared kind of work (`connectedDevice` here),
-  required since Android 14; it needs its own permission.
-- **Wake lock (partial)**: keeps the CPU running with the screen off.
-- **Doze**: Android's deep idle mode on a still, unplugged phone with the screen off;
-  defers timers, network and jobs. Never happens while charging.
-- **`PendingIntent`**: a token handing an action (e.g. a notification button) to the
-  OS, to be delivered back to the app later.
-- **Runtime permission**: one the user grants in a dialog at runtime
-  (`BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`), requested with
-  `PermissionsAndroid`.
-- **`adb`**: the Android Debug Bridge: install, logs (`adb logcat`), shell, `dumpsys`.
-- **`dumpsys`**: Android's system state dump (`meminfo`, `batterystats`, `activity
-  services`).
-- **HyperOS controls**: Xiaomi's Autostart, Battery saver, Recents-lock settings,
-  separate from Android's battery optimisation. Effectively mandatory for this app.
+- **App process**: the running app. Your JavaScript lives inside it.
+- **Activity**: the window Android shows. It can be rebuilt (on rotation or resize)
+  while the app keeps running.
+- **`configChanges`**: the changes an activity handles itself instead of being rebuilt.
+  Expo already lists the split-screen ones.
+- **`resizeableActivity`**: whether the app may run in split screen.
+- **Foreground service**: background work with a visible notification. In return,
+  Android doesn't close the app for being in the background.
+- **Service type**: what kind of work the service does (`connectedDevice` here).
+  Required since Android 14, with its own permission.
+- **Wake lock**: keeps the CPU awake with the screen off.
+- **Doze**: Android's deep sleep on a still, unplugged phone with the screen off. It
+  delays timers and background work. Never happens while charging.
+- **`PendingIntent`**: a way for a notification button to reach your app later.
+- **Runtime permission**: one the user grants in a popup (`BLUETOOTH_SCAN`,
+  `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`).
+- **`adb`**: the tool for talking to the phone from the PC: install, logs
+  (`adb logcat`), commands, `dumpsys`.
+- **`dumpsys`**: prints the phone's state (`meminfo`, `batterystats`,
+  `activity services`).
+- **HyperOS settings**: Xiaomi's Autostart, Battery saver and Recents lock, separate from
+  Android's battery optimisation. Effectively required for this app.
 
-### Bluetooth / ble-manager
+### Bluetooth
 
-- **GATT**: Generic Attribute Profile, the data model BLE devices expose: services,
-  each containing characteristics, each optionally having descriptors.
-- **Service / Characteristic / Descriptor**: see "Reading this reference" in
-  `phases/phase-01-protocol-decode/README.md`'s FTMS protocol reference for the
-  read/write/notify/indicate operations available on each.
-- **Indication vs. Notification**: both are "the device pushes data without being
-  asked"; an indication is acknowledged by the receiver, a notification isn't. The
-  control point (`0x2AD9`) uses indications specifically so the app can be sure a
-  command was received.
-- **CCCD (`0x2902`)**: the descriptor a client writes to turn notifications (`0x0001`)
-  or indications (`0x0002`) on. `BleManager.startNotification` writes it for you.
-- **MTU**: the maximum packet size negotiated after connecting. Default 23 bytes (20 of
-  payload); this app requests 517.
-- **GATT 133**: Android's catch-all GATT error status. Generic, common, and treated as
-  empirical in this project (Phase 02).
-- **RSSI**: received signal strength in dBm. −49 dBm at the walking position is strong.
-- **Peripheral id**: ble-manager's name for a device; on Android, its MAC address.
-- **`retrieveServices`**: ble-manager's service discovery call.
+- **GATT**: how a Bluetooth device organises its data: services, which contain
+  characteristics, which can have descriptors.
+- **Service / characteristic / descriptor**: see "How Bluetooth data works here" in
+  Phase 01's protocol reference.
+- **Read / write / notify / indicate**: the four things you can do with a
+  characteristic. Notify and indicate both mean "the device sends data by itself";
+  indicate means the phone confirms it got it. The control point uses indicate, so the
+  app knows a command arrived.
+- **CCCD (`0x2902`)**: the setting you write to turn on notify (`0x0001`) or indicate
+  (`0x0002`). `BleManager.startNotification` does it for you.
+- **MTU**: the biggest packet size, agreed after connecting. 20 bytes by default; this
+  app asks for 517.
+- **GATT 133**: Android's catch-all Bluetooth error. Common, vague, and fixed by testing
+  (Phase 02).
+- **RSSI**: signal strength, in dBm. −49 dBm at the treadmill is strong.
+- **Peripheral id**: the library's name for a device. On Android, its MAC address.
+- **`retrieveServices`**: the library's call for finding a device's services.
+- **Little-endian**: numbers stored low byte first. Every FTMS number is.
 
-### This project's architecture
+### This project
 
-- **`core/` vs. `features/`**: `src/core/` is plain TypeScript with no React, React
-  Native or Expo imports (lint-enforced), tested in Node; `src/features/` is the React
-  side and the adapters to native modules. See `00-Expo-And-React-Native.md`.
-- **Composition root**: `src/features/services.tsx`, the one place long-lived objects
-  are created, and the one place a fake is swapped for a real implementation.
-- **Seam / Fake pattern**: an interface (e.g. `TreadmillService`) with a real
-  implementation and a `Fake...` one that simulates realistic behaviour. Used for
-  `TreadmillService` (Phase 01b), `WorkoutHistoryProvider` (03), `PreferencesStore`
-  (08) and `StatisticsProvider` (10).
-- **Subscribe-returns-unsubscribe**: this project's event pattern: `onSample(listener)`
-  returns the function that removes the listener.
-- **Inject what `core/` can't import**: passing a capability (UUID generator, clock,
-  byte sink, haptic) into a `core/` class from `features/`.
-- **Exponential backoff**: retrying with growing delays (1, 2, 4, 8, 16, then 30 s
-  steady). Phase 02.
-- **Throttle vs. debounce**: throttle fires at a bounded rate while a stream keeps
-  going (dashboard updates, Phase 03); debounce waits for the stream to go quiet (speed
-  taps, Phase 05).
-- **`AbortController` / `AbortSignal`**: the standard JavaScript way to cancel async
-  work. Phase 02's backoff loop.
-- **Keep-alive**: the foreground service + never-finishing headless task that keeps the
-  process and JS timers alive during a workout. Phase 00 spike, Phase 07 product.
+- **`core/` vs. `features/`**: `src/core/` is plain TypeScript with no phone-specific
+  imports (lint checks), tested on the PC. `src/features/` is the React side and the code
+  that uses phone features.
+- **Services file**: `src/features/services.tsx`, where long-lived objects are created
+  once, and where a fake is swapped for the real thing.
+- **Interface + fake** (seam): an interface like `TreadmillService` with a real version
+  and a fake one, so everything above it can be built without the real thing. Used for
+  the treadmill (01b), workout history (03), settings storage (08), statistics (10).
+- **Subscribe returns unsubscribe**: this project's event pattern. `onSample(listener)`
+  returns the function that stops listening.
+- **Passing in what `core/` can't import**: giving a `core/` class a phone feature (a GUID
+  maker, the clock, a file, a vibration) from `features/`.
+- **Exponential backoff**: waiting longer after each failed try (1, 2, 4, 8, 16, then 30
+  seconds). Phase 02.
+- **Throttle vs. debounce**: throttle = update at a limited rate while data keeps coming
+  (the dashboard, Phase 03). Debounce = wait until it stops, then act once (speed taps,
+  Phase 05).
+- **`AbortController` / `AbortSignal`**: the standard way to cancel async work. Phase 02.
+- **Keep-alive**: the background service plus the never-ending headless task that keep
+  the app and its timers running during a workout. Tested in Phase 00, finished in Phase 07.

@@ -1,170 +1,121 @@
 # Phase 08 — Settings
 
-**Hardware:** none · **Size:** S · **Blocked by:** Phase 07
+**Treadmill needed:** no · **Size:** S · **Waits for:** Phase 07
 
 ---
 
 ## Goal
 
-User preferences, persisted.
+Settings that are saved and remembered.
 
-### Understanding what you're building (read this before the tasks)
+### The idea
 
-**Why two storage mechanisms.** Six settings ("dark mode: on", "units: metric") are
-single values that only ever get overwritten in place, not unlike a house key on a
-hook by the door. Saved Devices is a growing list of Bluetooth devices, each with its
-own name, MAC address, last-seen time, and preferred flag, individually added,
-removed, and queried; more of a filing cabinet than a hook. This phase stores the
-first group in a **key/value store** (`expo-sqlite/kv-store`: flat, synchronous,
-strings in and strings out) and leaves the second group exactly where Phase 06
-already put it: the SQLite `Device` table.
+**Two kinds of saved data, two places.** The six settings ("dark mode", "units") are
+single values that just get replaced. Saved devices are a list of records that each get
+added, changed and removed. So settings go in a simple key/value store
+(`expo-sqlite/kv-store`), and devices stay in the database's `Device` table from Phase 06.
 
-**Why not put everything in one place.** The simplest-sounding rule would be "this
-app already has SQLite, so put every persisted thing in a table": one mechanism, one
-thing to learn. Concretely, that means a `Settings` table, a schema migration every
-time a new toggle is added, and an async database round trip every time a switch
-flips or a screen wants to read a boolean during render. Real latency and real
-ceremony for data that's fundamentally just "hold six named values." The opposite
-naive rule, keeping Saved Devices in the key/value store too as one JSON blob under a
-single key, is wrong in the other direction. Adding one device means parsing the whole
-blob, appending, and re-serialising everything back; there's no way to update just one
-device's `LastSeenUtc` without touching every other device's data, and two writes
-racing (auto-reconnect updating `LastSeenUtc` while the settings screen happens to be
-open) can silently clobber each other. SQLite exists specifically to make per-row
-updates and concurrent access safe; a hand-rolled JSON blob just reinvents a worse
-version of exactly that. Splitting the two isn't extra complexity for its own sake.
-Each half is genuinely simpler than forcing the other mechanism onto it would be.
+**Why not put everything in the database?** Then each new setting needs a migration, and
+reading a switch's value needs an async database call. Too much ceremony for six values.
 
-**The pattern, named plainly.** `PreferencesStore` (task 8.1) is the same **seam**
-you already built in Phase 01b for `TreadmillService`: a small interface standing
-between logic (`AppSettings`) and a real platform API (the kv-store) that `core/`
-isn't allowed to import. The cost is the same kind, just smaller in this phase: one
-interface, one thin wrapper (`kvPreferencesStore.ts`), one in-memory fake for tests, a
-handful of extra lines for two method signatures. The payoff is the same shape too:
-`appSettings.test.ts` (task 8.4) can assert "an unrecognized theme string falls back
-to `system`, never throws" without a phone anywhere in the loop. Notice where this
-project *doesn't* draw the same line: it doesn't build a matching seam over SQLite for
-Saved Devices in this phase. The `Device` table already goes through the `Db`
-interface from Phase 00, its own seam, built when it was actually needed. A seam earns
-its keep only where something on the other side of it genuinely needs to be swapped
-or faked for a test, not as a default habit applied to every dependency in the app.
+**Why not put the devices in the key/value store too, as one JSON list?** Then changing
+one device means rewriting the whole list, and two changes at the same time can
+overwrite each other. That's exactly what a database exists to prevent.
 
-## Learning goals
+**The interface again.** `core/` can't import the key/value store, so the settings
+logic talks to a tiny `PreferencesStore` interface (task 8.1), the same trick as
+`TreadmillService`. That lets the logic ("a garbage value falls back to the default,
+never crashes") be tested on the PC. It costs one interface and one small wrapper.
 
-- The **seam pattern again, one layer down**: the kv-store (an Expo module) can't be
-  imported from `src/core/`, same rule you already hit with everything else. This
-  phase draws the seam as a tiny `PreferencesStore` interface, so the actual setting
-  logic (defaults, parsing, "never throw on a corrupted value") lives in `core/` and
-  gets a real Jest test against a fake store. `features/` supplies the one file that
-  wraps the real store.
-- **Controlled inputs**: a `Switch`'s `value` comes from state and its
-  `onValueChange` writes the new value back. Nothing changes on screen until your code
-  says so. That's React's model for every input, and it's why "write straight through
-  to storage" is two lines here.
-- **String-literal unions as setting values**, and parsing an unknown string into one
-  safely (a type guard), which is what "fall back, never throw" actually looks like in
+There's no such interface for the `Device` table in this phase, because it already goes
+through the `Db` interface. Only add an interface where something actually needs to be
+swapped or faked.
+
+## What you'll learn
+
+- **The interface trick again**, one level down.
+- **Controlled inputs**: a `Switch` shows the value from your state, and its
+  `onValueChange` saves the new one. Nothing changes on screen until your code says so.
+  That's how every input works in React, and why "save as soon as it changes" is two
+  lines here.
+- **Settings as fixed lists of strings**, and safely checking that a saved string is one
+  of them (a "type guard"). That's what "fall back, never crash" looks like in
   TypeScript.
-- Writing straight through to storage the instant the user flips a switch (no
-  separate "Save" button): a deliberate choice worth noticing, not an accident.
+- Saving the moment you flip a switch, with no "Save" button. On purpose.
 
 ## Technology decision: `expo-sqlite/kv-store` for settings
 
-**What problem does it solve?** A handful of single values (toggles, a theme choice, a
-unit choice) need to survive an app restart and be readable *synchronously*, during
-render, with no loading state.
+**Problem.** A few single values need to survive restarts, and be readable instantly
+while a screen is drawing, with no loading state.
 
-**Why are we using it?** It ships inside `expo-sqlite`, which this app already depends
-on, so it costs zero new dependencies. It has a synchronous API (`getItemSync`,
-`setItemSync`), so a settings read during render is a plain function call, and it
-stores its data in its own SQLite file, separate from `myhi.db`, so a settings write
-never touches workout data or the schema. Phase 00 (probe checklist) and Phase 02
-(last device) already use it.
+**Why this.** It's part of `expo-sqlite`, which the app already has, so nothing new to
+install. It has instant (synchronous) reads and writes, and it keeps its data separate
+from the workout database. Phase 00 and Phase 02 already use it.
 
-**Alternatives considered:**
+**Alternatives.**
 
-1. **`react-native-mmkv`.** Pros: the fastest key/value store for React Native,
-   synchronous, typed getters (`getBoolean`). Cons: another third-party native module
-   to keep compatible across SDK upgrades, for six values that are read a few times a
-   minute; its speed advantage is invisible at this scale. Learning curve: low. The
-   better choice for an app doing thousands of reads per second (caches, feature flags
-   read in hot loops).
-2. **`@react-native-async-storage/async-storage`.** Pros: the long-standing community
-   standard, huge usage. Cons: async only, so every settings read needs a loading
-   state or a startup preload, which is exactly the ceremony this phase is avoiding.
-   Learning curve: low. The better choice when you're already async everywhere and
-   don't need render-time reads.
-3. **A `Settings` table in `myhi.db`.** Pros: one storage mechanism for everything.
-   Cons: a migration per new toggle, async reads, and settings writes now share a
-   connection and a queue with the workout recorder. Learning curve: none. The better
-   choice if settings ever need to be queried relationally, which they won't.
+1. **`react-native-mmkv`.** Good: the fastest option, with typed getters. Bad: another
+   native library to keep working across upgrades, for six values read a few times a
+   minute. Better for apps reading values thousands of times a second.
+2. **AsyncStorage.** Good: the long-time standard. Bad: async only, so every read needs a
+   loading state, which is the ceremony we're avoiding. Better when everything is async
+   anyway.
+3. **A `Settings` table in the database.** Good: one storage system. Bad: a migration per
+   setting, and async reads. Better if settings ever needed searching, which they won't.
 
-**Why not the alternatives?** MMKV and AsyncStorage both add a dependency to replace
-something already installed; AsyncStorage also adds async ceremony. A table couples
-six toggles to the schema.
+**Why not those.** The first two add a library to replace one we already have. The table
+ties six switches to the database.
 
-**Long-term considerations.** First-party, versioned with `expo-sqlite`. The
-`PreferencesStore` seam means swapping to MMKV later is one new wrapper file.
+**Long term.** Maintained by Expo. Because of the interface, switching to MMKV later is
+one new file.
 
-**Practical example:** `src/features/settings/kvPreferencesStore.ts`, this phase.
+**In the code:** `src/features/settings/kvPreferencesStore.ts`.
 
-## Storage decision
+## The settings
 
-| Setting | Store | Default |
+| Setting | Saved in | Default |
 |---------|-------|---------|
-| Auto-reconnect | kv-store | true |
-| Keep screen awake during workout | kv-store | true |
-| Dark mode | kv-store | system |
+| Auto-reconnect | kv-store | on |
+| Keep screen awake during a workout | kv-store | on |
+| Dark mode | kv-store | follow the phone |
 | Units (metric / imperial) | kv-store | metric |
 | Voice announcements | kv-store | off |
-| Dashboard layout | kv-store (string) | "default" |
-| Saved devices | SQLite (`Device` table) | — |
+| Dashboard layout | kv-store | "default" |
+| Saved devices | database (`Device` table) | — |
 
-**Saved Devices** is a collection with a lifecycle and lives in SQLite (the `Device`
-table from `../phase-06-recording-schema/README.md`, owned by the Phase 02/06
-connection flow). It does **not** get a control on the Settings screen built in this
-phase. There's nothing here to manage yet (no "forget this device" UI is in scope), so
-it's listed in the table above for completeness only.
+Saved devices don't get anything on the Settings screen in this phase; they're listed
+for completeness.
 
 ## The one rule that matters
 
-**Store metric always; convert at display time only.** The `units` setting built in
-this phase is only ever a *preference token*. Whichever screen renders a distance
-reads `settings.getUnits()` and converts the number it displays; it never writes a
-converted value back to the kv-store or to the database. An imperial toggle that writes
-converted values corrupts the dataset permanently and there is no way back. See
-`../phase-06-recording-schema/README.md`'s "All measurements are metric" section.
+**Always save metric. Convert only on screen.** The units setting is only a preference.
+A screen showing distance reads it and converts the number it shows. It never saves a
+converted value anywhere. An imperial setting that saved converted values would ruin
+the data for good.
 
 ---
 
-## Reference docs
+## Read first
 
-- **`expo-sqlite/kv-store`**: the "Key-value storage" section of
-  https://docs.expo.dev/versions/latest/sdk/sqlite/. Read this before task 8.3; note
-  that values are strings only, which is why `PreferencesStore` below only has string
-  methods.
-- **`Switch`**: https://reactnative.dev/docs/switch. `value` + `onValueChange`, the
-  controlled-input pair task 8.6 uses.
-- **`useSyncExternalStore`**: https://react.dev/reference/react/useSyncExternalStore,
-  same as Phases 02 and 05; task 8.5's hook is that shape again.
-- **Narrowing**: https://www.typescriptlang.org/docs/handbook/2/narrowing.html. The
-  "Using type predicates" section is the `isThemePreference` guard in task 8.2.
-- **Color themes in Expo**: https://docs.expo.dev/develop/user-interface/color-themes/
-  and **`Appearance`**: https://reactnative.dev/docs/appearance. Only needed for the
-  optional bonus in task 8.5 that actually flips the app's light/dark theme live; not
-  required for this phase's acceptance criteria.
-- **`docs/learning/04-Monochrome-Theme.md`**: the token/component reference for task
-  8.6's UI. Every color on that screen comes from here; nothing is invented.
+- **kv-store**: the "Key-value storage" section of
+  https://docs.expo.dev/versions/latest/sdk/sqlite/. Values are strings only, which is
+  why the interface below only has string methods.
+- **`Switch`**: https://reactnative.dev/docs/switch (`value` + `onValueChange`)
+- **`useSyncExternalStore`**: https://react.dev/reference/react/useSyncExternalStore
+- **Type guards**: the "Using type predicates" section of
+  https://www.typescriptlang.org/docs/handbook/2/narrowing.html
+- **Light/dark themes**: https://docs.expo.dev/develop/user-interface/color-themes/ and
+  https://reactnative.dev/docs/appearance (only for the optional extra in task 8.5)
+- [`04-Monochrome-Theme.md`](../../docs/learning/04-Monochrome-Theme.md): every color
+  on the screen comes from here
 
 ---
 
-## Walkthrough
+## Tasks
 
-### 8.1 — The seam: `PreferencesStore`
+### 8.1 — The interface: `PreferencesStore`
 
-Creates: `src/core/settings/preferencesStore.ts`.
-
-A tiny interface so the setting logic in 8.2 can be unit-tested without the real
-store, same reasoning as `TreadmillService` in Phase 01b, just much smaller.
+Create `src/core/settings/preferencesStore.ts`. Small enough to type in as is:
 
 ```ts
 export interface PreferencesStore {
@@ -172,7 +123,7 @@ export interface PreferencesStore {
   setString(key: string, value: string): void;
 }
 
-/** In-memory implementation for tests. */
+/** In-memory version, for tests. */
 export class MemoryPreferencesStore implements PreferencesStore {
   private readonly values = new Map<string, string>();
   getString(key: string): string | null {
@@ -184,14 +135,9 @@ export class MemoryPreferencesStore implements PreferencesStore {
 }
 ```
 
-This is small enough to type in directly rather than being handed a skeleton. There's
-no design decision left to make.
+### 8.2 — `AppSettings` (yours)
 
-### 8.2 — `AppSettings` (the logic — you write this)
-
-Creates: `src/core/settings/appSettings.ts`.
-
-The shape, not the implementation:
+Create `src/core/settings/appSettings.ts`:
 
 ```ts
 export const THEME_PREFERENCES = ['system', 'light', 'dark'] as const;
@@ -212,9 +158,9 @@ const KEYS = {
   dashboardLayout: 'settings.dashboardLayout',
 } as const;
 
+/** true if `value` is one of THEME_PREFERENCES. After this check, TypeScript knows its type. */
 export function isThemePreference(value: string | null): value is ThemePreference {
-  // TODO: true if value is one of THEME_PREFERENCES. `value is ThemePreference` makes
-  // this a type guard: after `if (isThemePreference(x))`, TypeScript knows x's type.
+  // TODO
 }
 
 export interface SettingsSnapshot {
@@ -242,20 +188,19 @@ export class AppSettings {
     this.refresh();
   }
 
-  // TODO: setKeepScreenAwake, setVoiceAnnouncements: same shape
-  // TODO: setTheme(value: ThemePreference), setUnits, setDashboardLayout: same shape
+  // TODO: setKeepScreenAwake, setVoiceAnnouncements (same as above)
+  // TODO: setTheme, setUnits, setDashboardLayout (same, with a string)
 
   private read(): SettingsSnapshot {
     return {
       autoReconnect: this.readBool(KEYS.autoReconnect, true),
-      // TODO: the other five. theme: read the string, isThemePreference(...) ? it :
-      // 'system'. A future app version could store a value this version doesn't
-      // recognize; never throw on that, just fall back. Same for units and layout.
+      // TODO: the other five. For theme: if isThemePreference(saved), use it,
+      // otherwise 'system'. Same idea for units and layout.
     };
   }
 
   private readBool(key: string, fallback: boolean): boolean {
-    // TODO: 'true' -> true, 'false' -> false, anything else (including null) -> fallback
+    // TODO: 'true' -> true, 'false' -> false, anything else -> fallback
   }
 
   private refresh(): void {
@@ -265,20 +210,16 @@ export class AppSettings {
 }
 ```
 
-The `as const` array plus `(typeof X)[number]` is the trick that gives you both a
-runtime list (for the segmented control's options, and for the type guard) and a type
-(`'system' | 'light' | 'dark'`) from one declaration, so they can never drift apart.
+`as const` plus `(typeof X)[number]` gives you a list you can show on screen *and* a
+type (`'system' | 'light' | 'dark'`) from one line. They can never get out of sync.
 
-Concrete steps:
-1. Fill in the `TODO`s, following the pattern `setAutoReconnect` and `readBool` show.
+1. Fill in the TODOs, following `setAutoReconnect` and `readBool`.
 2. `npx tsc --noEmit` and `npx expo lint`.
 
-### 8.3 — `kvPreferencesStore` (the wrapper — you write this)
+### 8.3 — The real store (yours)
 
-Creates: `src/features/settings/kvPreferencesStore.ts`.
-
-This one imports an Expo module, so it lives in `features/`, not `core/`. It's mostly
-boilerplate, no new decisions:
+Create `src/features/settings/kvPreferencesStore.ts`. It imports an Expo library, so it's
+in `features/`:
 
 ```ts
 import Storage from 'expo-sqlite/kv-store';
@@ -287,65 +228,42 @@ import type { PreferencesStore } from '@/core/settings/preferencesStore';
 
 export const kvPreferencesStore: PreferencesStore = {
   getString: (key) => Storage.getItemSync(key),
-  // TODO: setString: one-line delegation to Storage.setItemSync
+  // TODO: setString, one line, using Storage.setItemSync
 };
 ```
 
-### 8.4 — Unit tests for `AppSettings`
+### 8.4 — Tests
 
-Creates: `src/core/settings/appSettings.test.ts`.
+Create `src/core/settings/appSettings.test.ts`:
 
-This is the phase's real automated coverage. The manual "change every setting,
-force-stop, relaunch" test below still matters, but it can't run without the phone.
+1. A new `AppSettings` with an empty `MemoryPreferencesStore` returns every default.
+2. `setUnits('imperial')`, read it back → `'imperial'`; back to `'metric'` → `'metric'`.
+3. Put a junk value straight into the store (`store.setString('settings.theme', 'purple')`),
+   make a *new* `AppSettings` with the same store, and expect `theme` to be `'system'`,
+   not a crash. A future version might save values this version doesn't know.
+4. `getSnapshot()` returns the same object until a setter runs, then a new one; a
+   listener is called once per setter call.
+5. `npm test`.
 
-Concrete steps:
-1. A fresh `AppSettings` over an empty `MemoryPreferencesStore` returns every
-   documented default (`autoReconnect` true, `theme` `'system'`, `units` `'metric'`,
-   etc.).
-2. `setUnits('imperial')` then reading it back returns `'imperial'`; setting it back
-   to `'metric'` and reading again returns `'metric'`. This is the "round-trip through
-   imperial and back" test from the table below, proved against the *setting itself*
-   rather than against workout data.
-3. Write an unrecognized string directly into the store under the theme key
-   (`store.setString('settings.theme', 'purple')`), then construct a *new*
-   `AppSettings` over the same store and expect `theme` to be `'system'`, not an
-   exception. This is what "fall back, never throw" in task 8.2 is actually protecting
-   against: a future version writing a value this one won't recognize.
-4. `getSnapshot()` returns the identical object until a setter runs, then a new one,
-   and a subscribed listener is called exactly once per setter call.
-5. `npm test`: all green, including every prior phase's tests (regression).
+### 8.5 — `useSettings` (yours)
 
-### 8.5 — `useSettings` (the hook — you write this)
+Create `src/features/settings/useSettings.ts`.
 
-Creates: `src/features/settings/useSettings.ts`.
+1. Add `settings: new AppSettings(kvPreferencesStore)` to the services file.
+2. The hook returns `useSyncExternalStore(settings.subscribe, settings.getSnapshot)` as
+   `snapshot`, plus `settings` itself, so a screen can read values and call setters.
+3. Make Phase 02's `ReconnectionManager` respect "auto-reconnect": check
+   `settings.getSnapshot().autoReconnect` before starting a retry loop.
+4. Optional: switch the app's light/dark mode live. React Native's
+   `Appearance.setColorScheme('light' | 'dark')` overrides the phone's setting, and the
+   theme follows it automatically. Check the `Appearance` doc for the value that means
+   "follow the phone again". Call it from a small effect in the root layout that watches
+   `snapshot.theme`. Doing it or not are both fine; just decide.
 
-1. Create `AppSettings` once in `services.tsx`, over `kvPreferencesStore`.
-2. The hook returns `useSyncExternalStore(settings.subscribe, settings.getSnapshot)`
-   plus the `settings` object, so a screen can read values and call setters. Same
-   shape as Phase 05's `useSpeedControl`.
-3. Wire `autoReconnect` into Phase 02's `ReconnectionManager`: it should read
-   `settings.getSnapshot().autoReconnect` before starting a backoff loop. Pass
-   `settings` into its constructor in `services.tsx`.
-4. Optional bonus, not required for this phase's acceptance: actually flip the running
-   app's theme live. React Native's `Appearance.setColorScheme('light' | 'dark')`
-   overrides the system setting app-wide, and the theme's `useTheme()` (which reads
-   `useColorScheme()`) follows it automatically. Check the `Appearance` doc linked
-   above for the value that means "follow the system again" in your React Native
-   version. Call it from a small effect in the root layout that watches
-   `snapshot.theme`. Either answer is fine; just make it deliberate.
+### 8.6 — The settings screen (given)
 
-### 8.6 — UI: the settings screen (agent-authored)
-
-Per the collaboration model in `../README.md`, this is UI. The full TSX is below,
-ready to paste in. It uses only tokens and components from
-`docs/learning/04-Monochrome-Theme.md`, plus one new small component,
-`SegmentedControl`, added to the theme here because three settings need "pick one of
-a few" and React Native has no built-in picker.
-
-Creates: `src/features/shared/theme/SegmentedControl.tsx`,
-`src/features/settings/SettingsScreen.tsx`, `src/app/settings.tsx`.
-
-**`SegmentedControl.tsx`:**
+New component for the theme, `src/features/shared/theme/SegmentedControl.tsx`, because
+three settings are "pick one of a few" and React Native has no built-in picker:
 
 ```tsx
 import { Pressable, View } from 'react-native';
@@ -396,22 +314,17 @@ export function SegmentedControl<T extends string>({ options, value, onChange, l
 }
 ```
 
-Selected state is carried by fill *and* weight, never a hue, per the theme's
-"conveying state without color" rule. `accessibilityRole="radio"` plus
-`accessibilityState={{ selected }}` is what makes TalkBack announce "selected".
+The selected option is filled and bold, never a different color. The accessibility
+props make screen readers say "selected".
 
-**`SettingsScreen.tsx`:**
+`src/features/settings/SettingsScreen.tsx`:
 
 ```tsx
 import type { ReactNode } from 'react';
 import { ScrollView, Switch, View } from 'react-native';
 
 import { useSettings } from './useSettings';
-import {
-  DASHBOARD_LAYOUTS,
-  MEASUREMENT_UNITS,
-  THEME_PREFERENCES,
-} from '@/core/settings/appSettings';
+import { DASHBOARD_LAYOUTS, MEASUREMENT_UNITS, THEME_PREFERENCES } from '@/core/settings/appSettings';
 import { Screen } from '@/features/shared/theme/Screen';
 import { SegmentedControl } from '@/features/shared/theme/SegmentedControl';
 import { Surface } from '@/features/shared/theme/Surface';
@@ -456,37 +369,19 @@ export function SettingsScreen() {
         <Row title="Auto-reconnect" caption="Reconnect automatically after a dropped connection">
           <SettingSwitch value={s.autoReconnect} onChange={(v) => settings.setAutoReconnect(v)} label="Auto-reconnect" />
         </Row>
-        <Row title="Keep screen awake" caption="Prevent the screen from locking during a workout">
+        <Row title="Keep screen awake" caption="Keep the screen on during a workout">
           <SettingSwitch value={s.keepScreenAwake} onChange={(v) => settings.setKeepScreenAwake(v)} label="Keep screen awake" />
         </Row>
 
         <Text variant="subheadline" style={{ marginTop: spacing.md }}>Appearance</Text>
         <Row title="Dark mode">
-          <SegmentedControl
-            options={THEME_PREFERENCES}
-            value={s.theme}
-            onChange={(v) => settings.setTheme(v)}
-            label={titleCase}
-            accessibilityLabel="Dark mode"
-          />
+          <SegmentedControl options={THEME_PREFERENCES} value={s.theme} onChange={(v) => settings.setTheme(v)} label={titleCase} accessibilityLabel="Dark mode" />
         </Row>
         <Row title="Units">
-          <SegmentedControl
-            options={MEASUREMENT_UNITS}
-            value={s.units}
-            onChange={(v) => settings.setUnits(v)}
-            label={titleCase}
-            accessibilityLabel="Units"
-          />
+          <SegmentedControl options={MEASUREMENT_UNITS} value={s.units} onChange={(v) => settings.setUnits(v)} label={titleCase} accessibilityLabel="Units" />
         </Row>
-        <Row title="Dashboard layout" caption="Phase 11 decides what Compact means">
-          <SegmentedControl
-            options={DASHBOARD_LAYOUTS}
-            value={s.dashboardLayout}
-            onChange={(v) => settings.setDashboardLayout(v)}
-            label={titleCase}
-            accessibilityLabel="Dashboard layout"
-          />
+        <Row title="Dashboard layout" caption="Phase 11 decides what Compact looks like">
+          <SegmentedControl options={DASHBOARD_LAYOUTS} value={s.dashboardLayout} onChange={(v) => settings.setDashboardLayout(v)} label={titleCase} accessibilityLabel="Dashboard layout" />
         </Row>
 
         <Text variant="subheadline" style={{ marginTop: spacing.md }}>Workout</Text>
@@ -499,7 +394,7 @@ export function SettingsScreen() {
 }
 ```
 
-**`src/app/settings.tsx`**, the route, same one-line pattern as the dashboard:
+`src/app/settings.tsx`, the route:
 
 ```tsx
 import { SettingsScreen } from '@/features/settings/SettingsScreen';
@@ -507,47 +402,34 @@ import { SettingsScreen } from '@/features/settings/SettingsScreen';
 export default SettingsScreen;
 ```
 
-Things worth understanding, even though you didn't write this:
-- `value={s.autoReconnect}` + `onValueChange={...}` is a **controlled** input: the
-  switch shows what the snapshot says, and flipping it calls your setter, which writes
-  the store, which updates the snapshot, which re-renders the switch. If the setter
-  did nothing, the switch would snap back. That loop is the whole of React's input
-  model.
-- `SegmentedControl` is generic (`<T extends string>`), so passing `THEME_PREFERENCES`
-  makes `onChange` receive a `ThemePreference`, not a plain `string`. A typo'd option
-  can't reach your setter.
-- "Dark mode" offering `System / Light / Dark` rather than an on/off switch is
-  deliberate: "follow the phone" is the default and needs to be choosable again after
-  you've picked one.
+Worth knowing:
+- The switch shows what the settings say; flipping it calls your setter, which saves
+  and updates, which redraws the switch. If the setter did nothing, the switch would
+  jump back. That loop is how every input works in React.
+- `SegmentedControl` is generic, so with `THEME_PREFERENCES` its `onChange` receives a
+  `ThemePreference`, not just any string. A typo can't reach your setter.
+- Dark mode offers System / Light / Dark rather than on/off, so you can always go back
+  to "follow the phone".
 
-### 8.7 — Wire it up
+### 8.7 — Hook it up
 
-Touches: `src/features/services.tsx`, `src/features/dashboard/DashboardScreen.tsx`.
-
-Concrete steps:
-1. `services.tsx`: `settings: new AppSettings(kvPreferencesStore)` (task 8.5 step 1).
-   `AppSettings` is a single instance: it holds no per-screen state, and the store
-   underneath is global anyway.
-2. Expo Router already registered the route: `src/app/settings.tsx` *is* `/settings`.
-   Add a link to it on the dashboard next to "Diagnostics":
-   `<Link href="/settings"><Text variant="caption">Settings</Text></Link>`.
-3. Run it, open Settings, flip every toggle, force-stop the app (Settings → Apps →
-   MyHi Companion → Force stop, or `adb shell am force-stop com.myhi.companion`), and
-   relaunch to confirm persistence by eye before calling the phase done.
+1. `AppSettings` goes in the services file (8.5). One copy for the whole app.
+2. The route already exists: `src/app/settings.tsx` *is* `/settings`. Add a link on the
+   dashboard next to "Diagnostics": `<Link href="/settings"><Text variant="caption">Settings</Text></Link>`.
+3. Run it, flip every setting, force-stop the app
+   (`adb shell am force-stop com.myhi.companion`), reopen, and check everything stuck.
 
 ---
 
 ## Tests
 
-- `appSettings.test.ts` (task 8.4): defaults, round-trip, corrupt-value fallback,
-  snapshot identity. Automated.
-- Change every setting, force-stop, relaunch: all persist. **`[HUMAN]`**, on-device.
-- Units toggle round-trips through the setting (covered by 8.4's test 2) without
-  touching the database. There is no database write path from the settings code at
-  all in this phase, which is itself the proof.
+- `appSettings.test.ts` (8.4): defaults, round trip, junk values, snapshot. Automated.
+- Change every setting, force-stop, reopen: all kept. On the phone.
+- Units round-trip without touching the database. There's no database code in the
+  settings at all, which proves it.
 
-## Acceptance
+## Done when
 
-- [ ] All settings survive force-stop
+- [ ] Every setting survives a force-stop
 - [ ] No unit conversion ever touches the database
-- [ ] `appSettings.test.ts` and every prior phase's tests pass; `tsc` and lint clean
+- [ ] All tests pass; `tsc` and lint are clean

@@ -1,136 +1,97 @@
-# Phase 13 — UI Polish
+# Phase 13 — Polish
 
-**Hardware:** none · **Size:** M · **Blocked by:** Phase 12
+**Treadmill needed:** no · **Size:** M · **Waits for:** Phase 12
 
 ---
 
 ## Goal
 
-This phase is a **polish pass across every screen built in Phases 03/05/08/09/10/11**,
-not a new screen of its own. It doesn't rewrite any of those screens. Instead it
-delivers a small set of **reusable building blocks** (an empty-state view, a loading
-overlay, a body text style, a haptic on speed confirmation, accessibility fixes) that
-get dropped into each existing screen at the review checkpoint, once those phases'
-real code exists to drop them into.
+A **polish pass over every screen** from Phases 03–11. No new screens, and no rewrites.
+Instead, a few **shared pieces** (an empty-state message, a loading cover, a body text
+size, one vibration, accessibility fixes) that get added to each existing screen at the
+review.
 
-Per `../README.md`'s collaboration model, **almost this entire phase is UI**. The
-agent writes the actual code below, you paste it in and wire it to your hooks' real
-return values. See `../../docs/learning/04-Monochrome-Theme.md` for the token
-vocabulary everything below is built from. Every snippet here uses only tokens and
-components that already exist in `src/features/shared/theme/`, or is explicitly
-flagged as something to add there. The two small pieces of logic (the haptic hook-up
-and the developer toggle) are yours.
+**Almost all of this phase is UI, which the agent writes.** You paste it in and connect
+it to your hooks. Everything uses the existing theme
+([`04-Monochrome-Theme.md`](../../docs/learning/04-Monochrome-Theme.md)), or says
+clearly what to add to it. Two small pieces are logic, and yours: the vibration hook-up
+and the developer setting.
 
-### Understanding what you're building (read this before the tasks)
+### The idea
 
-**Why one shared component instead of four separate ones.** Building each screen's
-empty/loading UI inline, one screen at a time, produces four slightly different
-versions of the same thing. A fix to one doesn't fix the others.
+**One shared component instead of several copies.** Several screens each need "nothing
+here yet" (no workouts, not connected) and "working on it" (exporting, loading). Writing
+those separately on each screen gives slightly different versions, and a fix to one
+doesn't fix the others. So now they become two shared components, `EmptyState` and
+`LoadingOverlay`.
 
-Phases 03, 09, and 10 each built a real screen, and each of those screens
-independently needs to say "there's nothing here yet" (no workouts, no history yet,
-not connected) and "this is working on it" (busy while exporting, while loading
-history). Phase 13 doesn't go back and redesign those screens. It notices that the
-same two needs showed up several separate times, and only now, with real examples in
-hand, builds `EmptyState` and `LoadingOverlay` as reusable components with props
-(`glyph`, `title`, `message`, `actionLabel`/`onAction`; `visible`, `message`) that get
-dropped into each of those screens at the review checkpoint.
+**Why now, and not back in Phase 03?** Because only now are there several real screens
+to learn from. Building it earlier would have meant guessing which options it needs (a
+retry button? a screen-reader label?). Now the repetition is proven and the shape is
+clear.
 
-**Why not just polish each screen as you build it.** The simpler-sounding plan (and
-the one this project actually followed through Phase 12) is to write each screen's
-empty/loading markup inline, right there in that screen's TSX, when that screen gets
-built. That's not wrong; it's what happened, and it's why this phase exists now rather
-than in Phase 03. The cost of continuing that way past this point is concrete: several
-separate copies of near-identical `ActivityIndicator` + caption markup, each free to
-drift. One screen's spinner ends up a different size, another is missing the
-`accessibilityLabel` the others have. When a contrast fix needs to land, it has to
-land N times instead of once, and nothing stops the Nth copy from being subtly wrong.
-Building `EmptyState`/`LoadingOverlay` *before* Phase 03, on the other hand, would
-have been guessing: the actual set of props it needs (`onAction` for a retry button,
-`glyphLabel` for accessibility) only became knowable by having real screens with real
-"nothing to show" reasons to look at. Phase 13 sits at exactly the point where the
-repetition is proven and the shape is known, not before.
+**The name for this:** *DRY*, "don't repeat yourself", by pulling out a shared
+component. Only worth it once the same thing has actually shown up several times.
 
-**The pattern, named plainly.** This is "Don't Repeat Yourself" (DRY) via
-extract-shared-component. In React the mechanism is just a function component with
-props, which is cheap: no registration, no boilerplate per property. The cost that
-remains is the *decision* of what the props are, and getting that wrong means every
-caller works around it. That cost buys a specific payoff for this project: a fix to
-how "no workouts" looks (spacing, wording tone, the glyph) happens in one file and
-appears correctly on every screen that uses it, including screens Phase 14+ hasn't
-built yet. It would *not* be worth it for a screen with a genuinely one-off empty
-condition unlike any other screen's. The win here comes specifically from the same
-glyph/title/message/action shape recurring across several real screens, which is the
-concrete, already-observed repetition Metz's "wait for the second or third
-occurrence" rule asks for before you extract anything.
+## What you'll learn
 
-## Learning goals
+- **Components with props**: a reusable piece is just a function that takes options.
+- **Covering a screen**: `StyleSheet.absoluteFill` makes the loading cover fill its
+  parent exactly, without a popup.
+- **Accessibility props**: `accessibilityLabel` (what a screen reader says),
+  `accessibilityHint` (what happens if you activate it), `accessibilityRole` (button,
+  header...), `accessibilityState` (disabled, selected), and when *not* to add a label.
+- **`expo-haptics`**: vibration, and why only one moment in this app gets it.
+- **48 dp touch targets**: Android's minimum size for anything tappable, and `hitSlop`
+  for small things that should still be easy to hit.
+- **Font scaling**: text grows with the phone's font size setting, and what that does
+  to a big number at 200%.
 
-- **Composition with `children` and props**: a reusable component is a function that
-  takes props; layering one over another is just rendering it later in the same
-  parent with `position: 'absolute'`.
-- **Absolute positioning for overlays**: `StyleSheet.absoluteFill` makes the loading
-  overlay cover exactly its parent, without a modal or a portal.
-- **React Native's accessibility props**: `accessibilityLabel` (what a screen reader
-  says), `accessibilityHint` (what happens if you activate it), `accessibilityRole`
-  (button, header, image...), `accessibilityState` (disabled, selected), and when
-  *not* to set a label.
-- **`expo-haptics`**: the platform vibration API, and why only one moment in this app
-  earns a haptic.
-- **48 dp touch targets**: Android's accessibility guidance (48×48 dp minimum) and
-  `hitSlop` for a small element that should still be easy to hit.
-- **Font scaling**: React Native text grows with the system font size by default,
-  and what that does to a 40-point metric number at 200%.
+## Read first
 
-## Reference docs
-
-| Topic | URL |
+| Topic | Link |
 |---|---|
-| App icons (Expo, incl. Android adaptive and monochrome icons) | https://docs.expo.dev/develop/user-interface/app-icons/ |
-| `expo-splash-screen` (config plugin, light and dark backgrounds) | https://docs.expo.dev/versions/latest/sdk/splash-screen/ |
+| App icons (incl. Android adaptive and monochrome) | https://docs.expo.dev/develop/user-interface/app-icons/ |
+| `expo-splash-screen` (light and dark) | https://docs.expo.dev/versions/latest/sdk/splash-screen/ |
 | React Native accessibility | https://reactnative.dev/docs/accessibility |
 | `expo-haptics` | https://docs.expo.dev/versions/latest/sdk/haptics/ |
 | `expo-keep-awake` | https://docs.expo.dev/versions/latest/sdk/keep-awake/ |
-| Android: make apps more accessible (48 dp touch target guidance) | https://developer.android.com/guide/topics/ui/accessibility/apps |
-| Android: test your app's accessibility (TalkBack pass) | https://developer.android.com/guide/topics/ui/accessibility/testing |
+| Android: 48 dp touch targets | https://developer.android.com/guide/topics/ui/accessibility/apps |
+| Android: testing with TalkBack | https://developer.android.com/guide/topics/ui/accessibility/testing |
 | `StyleSheet` (`absoluteFill`) | https://reactnative.dev/docs/stylesheet |
 
 ---
 
-## Reusable building blocks
+## Shared pieces
 
-These live under `src/features/shared/theme/` alongside the components from Phase 00.
-Full working code: paste it in as-is, then wire it into each real screen at the review
-checkpoint.
+These go in `src/features/shared/theme/`, next to Phase 00's components. Paste them in
+as they are, then add them to each screen at the review.
 
-### 1. Typography scale
+### 1. Text sizes
 
-The theme's `Text` component already has the variants `caption` (12), `metricLabel`
-(13), `default` (15), `subheadline` (22), `headline` (28) and `metric` (40). One gap:
-there's no variant for ordinary paragraph text sized a step above the default: an
-error-message body, an empty-state message. Add `body` to the `typography` token in
+The theme's `Text` already has `caption` (12), `metricLabel` (13), `default` (15),
+`subheadline` (22), `headline` (28) and `metric` (40). Missing: a size for normal
+paragraphs (error messages, empty-state messages). Add `body` to `typography` in
 `tokens.ts`:
 
 ```ts
 body: { fontSize: 17, lineHeight: 24 },
 ```
 
-and to the `variant` union in `Text.tsx`. The resulting scale, smallest to largest:
-`caption` (12) → `metricLabel` (13) → `default` (15) → `body` (17) → `subheadline` (22)
-→ `headline` (28) → `metric` (40).
+and to the `variant` list in `Text.tsx`. Smallest to largest: `caption` (12) →
+`metricLabel` (13) → `default` (15) → `body` (17) → `subheadline` (22) → `headline`
+(28) → `metric` (40).
 
-**Consistent spacing** is already a token: `spacing.xs` through `spacing.xxl` (4, 8, 12,
-16, 24, 32) from Phase 00. The convention going forward is the same as it's been: pick
-from those, and treat any raw number in a `style` as something to justify at review.
-The one standing exception is `14` horizontal padding inside `Surface` rows, already
-used since Phase 08.
+**Spacing** already comes from `spacing.xs` to `spacing.xxl` (4, 8, 12, 16, 24, 32). Keep
+using those. Any other number in a `style` should have a reason. (The one existing
+exception: `14` padding inside settings rows.)
 
-### 2. Empty state — `EmptyState`
+### 2. "Nothing here yet" — `EmptyState`
 
-For any screen that can legitimately have nothing to show yet (no workouts, no
-history, not connected): a glyph, title, message, and an optional action button.
+For screens that can have nothing to show yet: a symbol, a title, a message, and an
+optional button.
 
-**`src/features/shared/theme/EmptyState.tsx`:**
+`src/features/shared/theme/EmptyState.tsx`:
 
 ```tsx
 import { View } from 'react-native';
@@ -141,7 +102,7 @@ import { spacing } from './tokens';
 import { useTheme } from './useTheme';
 
 interface Props {
-  /** A plain text glyph. No icon font in this project yet; see the note below. */
+  /** A plain text symbol (there's no icon set yet). */
   readonly glyph?: string;
   readonly glyphLabel?: string;
   readonly title: string;
@@ -175,33 +136,27 @@ export function EmptyState({ glyph = '○', glyphLabel, title, message, actionLa
 }
 ```
 
-The glyph is a plain character (`○`) rather than an icon, because this project has no
-icon set yet. Swapping in real icons (e.g. `@expo/vector-icons`, which ships with
-Expo) is a reasonable follow-up; flag that decision at a review checkpoint rather than
-pulling a library in now for one glyph. A purely decorative glyph is hidden from the
-screen reader (`no-hide-descendants`); pass `glyphLabel` only if it carries meaning.
+The symbol is a plain `○`, because there's no icon set yet. Real icons
+(`@expo/vector-icons` comes with Expo) are a possible later step; decide at a review
+rather than adding a library for one symbol. A decorative symbol is hidden from screen
+readers; pass `glyphLabel` only if it means something.
 
-**Usage example** (Phase 10's history list when there are zero workouts), passed to
-`FlatList` so it shows only when the list is empty:
+**Example** (the history list with no workouts), using `FlatList`'s empty slot:
 
 ```tsx
 <FlatList
-  // ...data, renderItem as before
+  // ...data and renderItem as before
   ListEmptyComponent={
-    <EmptyState
-      title="No workouts yet"
-      message="Connect to the treadmill and start a workout to see it here."
-    />
+    <EmptyState title="No workouts yet" message="Connect to the treadmill and start a workout to see it here." />
   }
 />
 ```
 
-### 3. Loading overlay — `LoadingOverlay`
+### 3. "Working on it" — `LoadingOverlay`
 
-A dimmed `ActivityIndicator` that covers a screen's normal content while something
-runs, instead of every screen writing its own busy markup from scratch.
+A dimmed cover with a spinner, on top of the screen while something runs.
 
-**`src/features/shared/theme/LoadingOverlay.tsx`:**
+`src/features/shared/theme/LoadingOverlay.tsx`:
 
 ```tsx
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
@@ -226,63 +181,57 @@ export function LoadingOverlay({ visible, message }: { visible: boolean; message
 }
 ```
 
-**Usage, showing the layering pattern:** the overlay is rendered *last* inside the
-screen's root, so it paints on top of everything before it. `StyleSheet.absoluteFill`
-pins it to all four edges of that parent. The parent's touches are blocked while it's
-visible, because the overlay is a real view sitting in front of them.
+**How to use it:** put it *last* inside the screen, so it's drawn on top.
+`StyleSheet.absoluteFill` stretches it to the screen's edges, and while it's showing, taps
+can't reach what's underneath.
 
 ```tsx
 <Screen>
-  <ScrollView>{/* normal screen content */}</ScrollView>
+  <ScrollView>{/* the normal screen */}</ScrollView>
   <LoadingOverlay visible={b.busy} message={b.progressStage ?? undefined} />
 </Screen>
 ```
 
-`accessibilityLiveRegion="polite"` makes TalkBack announce the message when it
-appears, without interrupting.
+`accessibilityLiveRegion="polite"` makes TalkBack read the message when it appears,
+without interrupting.
 
-### 4. Haptic on speed-change confirmation (logic: yours)
+### 4. A vibration when a speed change is confirmed (yours)
 
-`expo-haptics` (`npx expo install expo-haptics`) gives `Haptics.selectionAsync()` (a
-light tick) and `Haptics.impactAsync(...)`.
+`expo-haptics` (`npx expo install expo-haptics`) gives `Haptics.selectionAsync()`, a
+light tick.
 
-The haptic belongs to the moment the treadmill **confirms** a new speed, not to every
-debounced tap. That moment lives inside `SpeedController` (Phase 05), which is in
-`core/` and can't import `expo-haptics`. So inject it, the same way Phase 06 injected
-the UUID generator:
+It belongs to the moment the treadmill **confirms** a new speed, not every tap. That
+moment is inside `SpeedController` (Phase 05), in `core/`, which can't import
+`expo-haptics`. So pass it in, like Phase 06's GUID maker:
 
-1. Give `SpeedController`'s constructor an optional
-   `onSpeedConfirmed?: () => void` and call it right after `setSpeed()` resolves with
-   `success: true`. Never on failure: a vibration on a *failed* command would read as
-   confirmation of the wrong thing.
-2. In `services.tsx`, pass `() => void Haptics.selectionAsync()`.
-3. A test: with a fake treadmill that accepts the command, the callback runs once;
-   with one that rejects it, zero times.
+1. Give `SpeedController` an optional `onSpeedConfirmed?: () => void`, and call it when
+   `setSpeed()` succeeds. Never on failure: a vibration after a failed command would feel
+   like a confirmation.
+2. In the services file, pass `() => void Haptics.selectionAsync()`.
+3. Test: with a fake that accepts the command, the callback runs once; with one that
+   rejects it, never.
 
-Nothing else in this app gets a haptic, per the monochrome theme's "convey state
-without a second signal channel unless it earns it" philosophy. Resist the urge to add
-one to every button tap.
+Nothing else in the app vibrates. Don't add it to every button.
 
-### 5. Accessibility — concrete examples
+### 5. Accessibility examples
 
-**A control whose visible text doesn't say enough** (the `−`/`+` buttons from Phase
-05 already have this):
+**A button whose text doesn't say enough** (Phase 05's − and + already do this):
 
 ```tsx
 <Button label={'−'} onPress={...} accessibilityLabel="Decrease speed" />
 ```
 
-**A control that needs more context than its label** (the Stop button):
+**A button that needs extra context** (Stop):
 
 ```tsx
 <Button
   label="Stop"
   onPress={confirmStop}
-  accessibilityHint="Asks for confirmation, then sends a Bluetooth stop command. The physical safety key is the emergency stop."
+  accessibilityHint="Asks first, then sends a Bluetooth stop command. The physical safety key is the emergency stop."
 />
 ```
 
-**A group read as one unit** (the connection row: a dot plus a word):
+**Several things read as one** (the dot plus the word):
 
 ```tsx
 <View accessible accessibilityLabel={`Treadmill ${state}`}>
@@ -291,37 +240,32 @@ one to every button tap.
 </View>
 ```
 
-Two rules worth knowing before applying this everywhere:
+Two rules:
 
-- **Don't put an `accessibilityLabel` on a `Text` that already says the right thing.**
-  The label *replaces* the spoken text, it doesn't add to it, so a label that's less
-  precise than the text makes things worse.
-- **A `TextInput` should keep its visible placeholder or a visible label next to it**,
-  and use `accessibilityHint` for extra context; don't hide what the field is behind
-  a label only the screen reader hears.
+- **Don't add `accessibilityLabel` to text that already says the right thing.** The label
+  *replaces* the text for screen readers; it doesn't add to it.
+- **Text inputs keep a visible placeholder or label.** Use `accessibilityHint` for extra
+  detail; don't hide what the field is for.
 
-### 6. Touch targets — verify, and fix the small links
+### 6. Touch targets: check, and fix the small links
 
-The theme's `Button`, `SecondaryButton` and `SegmentedControl` already enforce a
-**48 dp** minimum height (Android's own accessibility guidance; Phase 00 built them
-that way). What doesn't: the small text links on the dashboard ("History",
-"Settings", ...) are caption-sized text, maybe 16 dp tall. Give each one
-`hitSlop={{ top: 16, bottom: 16, left: 8, right: 8 }}` (on the `Link`'s child via
-`asChild` and a `Pressable`), or padding, so the touchable area reaches 48 dp without
-changing how it looks.
+The theme's `Button`, `SecondaryButton` and `SegmentedControl` are already at least
+**48 dp** tall (Android's guidance). The small text links on the dashboard ("History",
+"Settings"...) aren't: they're maybe 16 dp tall. Give each one
+`hitSlop={{ top: 16, bottom: 16, left: 8, right: 8 }}` (via the `Link`'s `asChild` and a
+`Pressable`), or some padding, so the tappable area reaches 48 dp without changing how it
+looks.
 
 ---
 
 ## Tasks
 
-### App icon, splash
+### App icon and splash screen
 
-Concrete steps:
-1. Create the artwork: a 1024×1024 `icon.png`, an adaptive-icon foreground
-   (`adaptive-icon.png`, with the subject inside the central safe zone), and a
-   single-color `monochrome-icon.png` for Android 13+'s themed icons. See the app
-   icons doc above for exactly what "adaptive" layering means and why there are
-   separate files.
+1. Make the images: a 1024×1024 `icon.png`, a foreground layer for Android's adaptive
+   icon (`adaptive-icon.png`, with the picture inside the central safe area), and a
+   one-color `monochrome-icon.png` for Android's themed icons. The app icons doc explains
+   why there are several files.
 2. In `app.json`:
    ```json
    "icon": "./assets/images/icon.png",
@@ -333,8 +277,7 @@ Concrete steps:
      }
    }
    ```
-   and the splash screen through the `expo-splash-screen` plugin, which accepts a
-   separate dark-mode background (unlike a single static color):
+   and the splash screen through its plugin, which allows a separate dark background:
    ```json
    ["expo-splash-screen", {
      "image": "./assets/images/splash-icon.png",
@@ -343,74 +286,60 @@ Concrete steps:
      "dark": { "backgroundColor": "#212123" }
    }]
    ```
-   `#F2F2F3` and `#212123` are the theme's lightest and darkest steps (`Gray050`,
-   `Gray950`), so the first frame matches the app.
-3. `npx expo prebuild --clean` and rebuild: icons and splash are native resources, so
-   they only change with a native rebuild.
-4. Check the launcher icon (including with the phone's themed icons turned on) and the
-   first-frame splash in both light and dark mode, on the device. This is one of the
-   few things you genuinely cannot verify from the code alone.
+   Those are the theme's lightest and darkest grays, so the splash matches the app.
+3. `npx expo prebuild --clean` and rebuild: icons and splash are native files.
+4. Check the icon (also with themed icons on) and the splash in light and dark mode, on
+   the phone. You can't check this from the code.
 
-### Typography scale, consistent spacing
+### Text sizes and spacing
 
-Covered in full above under "Reusable building blocks → 1." Apply `body` to any text
-currently relying on the default size for actual paragraph copy: settings
-descriptions, empty-state messages, error explanations.
+Covered above. Use `body` for any paragraph text that currently uses the default size:
+setting descriptions, empty-state messages, error explanations.
 
-### Loading and empty states for **every** screen
+### Loading and empty states on **every** screen
 
-Concrete steps, repeated once per screen from Phases 03/05/08/09/10/11:
-1. Identify the screen's "nothing to show yet" condition (no workouts, not yet
-   connected, empty history) and its busy flag, if it has one.
-2. Add `EmptyState` (as a `ListEmptyComponent`, or conditionally rendered) and
-   `LoadingOverlay` (last child of the screen root) per the usage examples above.
-3. Confirm at the review checkpoint: does the empty state read correctly for *that*
-   screen's specific nothing-to-show reason (a fresh install has no workouts; a
-   disconnected dashboard isn't "empty", it's "not connected yet")?
+For each screen from Phases 03–11:
+1. What does "nothing to show yet" mean on this screen (no workouts, not connected,
+   empty history)? Does it have a busy flag?
+2. Add `EmptyState` (as `ListEmptyComponent`, or shown conditionally) and
+   `LoadingOverlay` (last thing in the screen), as in the examples.
+3. At the review: does the message fit *this* screen? (A fresh install has no workouts;
+   a disconnected dashboard isn't "empty", it's "not connected yet".)
 
-### Error messages that say what to do, not what failed
+### Error messages that say what to do
 
-**"Couldn't reach the treadmill. Check it's powered on and try again"** beats
-"GATT error 133," though the code still belongs in the log. Concrete steps:
-1. Audit every user-facing error surface across Phases 02/05/07/09 (connection
-   failures, control-point rejections, foreground-service and permission issues,
-   backup errors); list the raw codes or exception messages currently shown, if any.
-2. For each, write a short plain-language sentence describing the *next action* the
-   user can take, not the failure mechanism.
-3. Log the original code/exception alongside the friendly message (both, always: the
-   friendly message is for the user, the code is for you debugging later).
-4. `EmptyState` doubles as an error surface. With `actionLabel="Try again"` and an
-   `onAction` that retries, it's a natural fit for a connection failure, not just a
-   genuinely empty list.
+**"Couldn't reach the treadmill. Check it's switched on and try again"** beats
+"GATT error 133" (the code still goes in the log).
+1. List every error the user can see in Phases 02, 05, 07 and 09 (connection failures,
+   rejected commands, background service and permission problems, backup errors).
+2. For each, write one plain sentence saying what the user can *do next*.
+3. Log the original code next to the friendly message. Always both.
+4. `EmptyState` works for errors too: `actionLabel="Try again"` with a retry is a good fit
+   for a connection failure.
 
-### Accessibility: labels, touch targets, contrast check
+### Accessibility: labels, touch targets, contrast
 
-Concrete steps:
-1. Apply labels, hints and roles per "Accessibility — concrete examples" above to
-   every control whose visible text isn't enough (dashboard connection row, control
-   buttons, the contribution graph, chart containers).
-2. Apply the `hitSlop` fix from "Touch targets" to every small link.
-3. Contrast check: the monochrome ramp's text-on-background pairings
-   (`textPrimary` on `background`/`surface`) were chosen to clear WCAG AA at normal
-   text size. Spot-check with a contrast checker if a screen introduces a *new*
-   pairing not already in `04-Monochrome-Theme.md`'s token table (e.g.
-   `textSecondary` on `surface`, used for captions inside cards, is the pairing most
-   worth double-checking since it's the smallest gap in the ramp).
+1. Add labels, hints and roles (examples above) wherever the visible text isn't enough:
+   the connection row, the control buttons, the calendar, the charts.
+2. Apply the `hitSlop` fix to every small link.
+3. Contrast: the theme's main text colors were chosen to be readable (WCAG AA). If a
+   screen uses a *new* pairing, check it with a contrast checker. `textSecondary` on
+   `surface` (captions inside cards) is the closest pair, so check that one.
 
-### Haptics on speed change confirmation
+### Vibration on speed confirmation
 
-Covered in full above under "Reusable building blocks → 4."
+Covered above, in "Shared pieces → 4".
 
-### Keep the screen awake during a workout
+### Keep the screen on during a workout
 
-Phase 08 stores a "Keep screen awake" setting that nothing reads yet. Make it real:
-`npx expo install expo-keep-awake`, then a tiny component rendered in the dashboard
-while a workout is `active` and the setting is on:
+Phase 08 saves a "Keep screen awake" setting that nothing uses yet. Make it work:
+`npx expo install expo-keep-awake`, then a tiny component shown on the dashboard while a
+workout is `active` and the setting is on:
 
 ```tsx
 import { useKeepAwake } from 'expo-keep-awake';
 
-/** Mounted only while it should apply; unmounting releases the keep-awake. */
+/** Keeps the screen on while it's shown. Removing it lets the screen sleep again. */
 export function KeepAwakeWhileWorkout() {
   useKeepAwake();
   return null;
@@ -418,61 +347,51 @@ export function KeepAwakeWhileWorkout() {
 ```
 
 ```tsx
-// in DashboardScreen, next to the other hooks: const { snapshot: settings } = useSettings();
+// in DashboardScreen, with the other hooks: const { snapshot: settings } = useSettings();
 {settings.keepScreenAwake && workoutState === 'active' && <KeepAwakeWhileWorkout />}
 ```
 
-(The "Voice announcements" setting stays unused for now. `expo-speech` is the obvious
-tool when you want it; it's a feature, not polish, so it's not in this phase.)
+(The "Voice announcements" setting stays unused for now. `expo-speech` is the tool for it
+when you want it; it's a feature, not polish.)
 
-### The diagnostic screens from Phase 00 stay, behind a developer toggle (logic: yours)
+### Keep the test screens, behind a developer setting (yours)
 
-They are how the next firmware surprise gets diagnosed. Do not delete them. Concrete
-steps:
-1. Add one more setting to Phase 08's `AppSettings`: `showDeveloperOptions`
-   (default `false`), same shape as the other booleans, with a test for its default.
-2. On the dashboard, render the "Diagnostics" link only when it's on.
-3. Leave the routes themselves in place (`src/app/diagnostics/*`). Only the link is
-   gated, so a developer can still reach them with `adb shell am start -a
-   android.intent.action.VIEW -d "<your-scheme>://diagnostics"` (the scheme is in
-   `app.json`) even with the toggle off.
-4. Add the toggle to the Settings screen from Phase 08, off by default, at the bottom,
-   under a "Developer" heading.
+They're how the next firmware surprise gets investigated. Don't delete them.
+1. Add `showDeveloperOptions` (default `false`) to Phase 08's `AppSettings`, like the
+   other switches, with a test for its default.
+2. Show the dashboard's "Diagnostics" link only when it's on.
+3. Leave the screens themselves in `src/app/diagnostics/`. Only the link is hidden, so
+   you can still open them directly
+   (`adb shell am start -a android.intent.action.VIEW -d "<your-scheme>://diagnostics"`;
+   the scheme is in `app.json`).
+4. Add the switch at the bottom of the Settings screen, under "Developer", off by default.
 
 ---
 
 ## Tests
 
-- Every screen reviewed in light and dark, at 33% and full width
-- TalkBack pass over the dashboard and controls
-- Font scale at 200% does not break layouts
+- Every screen in light and dark mode, at 33% and full width
+- A TalkBack pass over the dashboard and controls
+- Font size at maximum doesn't break any layout
 
-### How to actually run each of these
+### How to run each one
 
-1. **Light/dark:** toggle the phone's system theme (**Settings → Display → Dark
-   theme**) and revisit every screen, then set the app's own Dark mode setting to
-   Light and Dark explicitly. Every color comes from `useTheme()`, so this should be
-   automatic with zero code changes; if a screen looks wrong in one mode, it's almost
-   always a raw hex value that snuck in instead of a token (see
-   `04-Monochrome-Theme.md`'s "never invent a hex color" rule).
-2. **33% / full width:** use Phase 11's split-screen support to resize the app to its
-   narrowest supported size and check every screen (particularly `EmptyState`'s
-   `maxWidth: 320`: confirm it doesn't overflow at 33% on a small phone) and again at
-   full width.
-3. **TalkBack pass:** enable TalkBack (**Settings → Accessibility → TalkBack**, per
-   the [Android accessibility testing guide](https://developer.android.com/guide/topics/ui/accessibility/testing)),
-   then navigate the dashboard and controls using only swipe-to-move-focus and
-   double-tap-to-activate, no direct touch. Every control that does something should
-   announce something meaningful; anything silent, or announcing only "button", is
-   missing an `accessibilityLabel`.
-4. **Font scale 200%:** **Settings → Display → Font size**, set to maximum, and
-   revisit the dashboard and any screen with dense text (settings, statistics).
-   Layouts built from flexbox rows and columns reflow; a layout that clips or overlaps
-   at 200% has a fixed `height` somewhere that should go. One deliberate exception:
-   the big `metric` numbers can grow wider than their tile at 200%. Capping them with
-   `maxFontSizeMultiplier={1.5}` on that one `Text` variant is a reasonable fix (the
-   number stays large either way), rather than letting a speed readout wrap.
+1. **Light/dark:** switch the phone's dark theme (**Settings → Display → Dark theme**)
+   and look at every screen, then set the app's own Dark mode to Light and to Dark. All
+   colors come from `useTheme()`, so it should just work. If a screen looks wrong in one
+   mode, there's almost always a raw color code in it that should be a theme color.
+2. **33% / full width:** use split screen to make the app as narrow as possible, check
+   every screen (especially that `EmptyState` fits at 33%), then check full width.
+3. **TalkBack:** turn it on (**Settings → Accessibility → TalkBack**), then use the
+   dashboard and controls with only swipe-to-move and double-tap-to-press. Everything
+   that does something should say something useful. Silent, or just "button", means a
+   missing `accessibilityLabel`.
+4. **Font size at maximum:** **Settings → Display → Font size**, all the way up, then
+   check the dashboard, settings and statistics. Flexible layouts adjust; anything that
+   gets cut off or overlaps has a fixed `height` that should go. One exception: the big
+   numbers can get wider than their tile. Limit just those with
+   `maxFontSizeMultiplier={1.5}` (still large, just not huge).
 
-## Acceptance
+## Done when
 
-- [ ] Release candidate
+- [ ] Ready to release

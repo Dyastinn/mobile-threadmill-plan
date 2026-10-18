@@ -1,131 +1,92 @@
 # Phase 11 — Split Screen
 
-> One of the two reasons this app exists at all. Treat it as a feature, not a layout
-> chore.
+> One of the two reasons this app exists. Treat it as a feature, not a layout chore.
 
-**Hardware:** required to verify · **Size:** M · **Blocked by:** Phase 10
+**Treadmill needed:** to check it · **Size:** M · **Waits for:** Phase 10
 
-> See `../README.md` for the collaboration model. This phase is almost entirely
-> UI/layout work, so the agent writes the screen code and the config plugin in full.
-> But two of its three tasks are verification against things that already exist, not
-> new logic, and are called out as such below.
+> Mostly layout, so the agent writes the screen code and the small config file. Two of
+> the three tasks are checking that things already work.
 
 ---
 
 ## Goal
 
-Usable alongside YouTube.
+Usable next to YouTube.
 
-### Understanding what you're building (read this before the tasks)
+### The idea
 
-**The problem.** By default, a "big" Android configuration event like a window
-resize tears the whole activity down and rebuilds it from scratch, the same as
-force-closing and reopening the screen. Left unchecked, that default would apply
-directly to the app's activity during exactly the moment this phase exists to
-support: treadmill still running, screen still on, user mid-workout.
+**The worry:** when a window changes size, Android normally destroys the screen and
+builds it again. Mid-workout, that could drop the Bluetooth connection.
 
-**Why split screen doesn't force a Bluetooth reconnect.** Two things prevent it, and
-this phase adds no new machinery to get there; task 11.3 exists to verify the
-machinery already works, not to build it.
+**Why it won't, for two reasons:**
 
-First, the activity Expo generates already declares the `configChanges` a
-split-screen resize triggers (`screenSize`, `smallestScreenSize`, `screenLayout`,
-`orientation`; checked in SDK 58's template). That's what stops Android's own
-tear-down-and-rebuild reflex on the activity at all.
+1. Expo's generated Android settings already tell Android "I'll handle size changes
+   myself" (the `configChanges` list: screen size, layout, orientation). Checked in
+   Expo 58. So Android doesn't rebuild the screen at all.
+2. Even if it did, the connection wouldn't notice. Your code's Bluetooth, engine and
+   recorder live in the services file, which belongs to the app, not to any screen. A
+   rebuilt screen just calls `useServices()` and gets the same objects back, still
+   connected.
 
-Second, and the one worth sitting with: even if the activity *were* rebuilt, the
-connection wouldn't go with it. In React Native, your JavaScript runtime belongs to
-the app's **process**, not to the activity. The BLE client, the workout engine and the
-recorder live in `services.tsx` at module scope (Phase 00's composition root), and
-Phase 07's foreground service keeps the process alive. A rebuilt activity just
-re-mounts the React tree; the screens call `useServices()` and get the very same
-objects back, still connected. A window resize, traced all the way through, is nothing
-more than a layout event: `useWindowDimensions()` returns a new height, the dashboard
-switches to its compact layout, and there's no path to the connection at all.
+So a resize is just a layout change: `useWindowDimensions()` reports a new height, and
+the dashboard switches to a compact layout.
 
-**The pattern, named plainly.** This is the Single Responsibility Principle showing up
-as a concrete, already-banked payoff rather than a rule to recite: screens change for
-UI/display reasons (window size, orientation, theme); the services change for
-connection-lifecycle reasons (BLE state, buffered-sample flushes). Because those are
-different reasons to change, Phase 00 already put them in different places, not in
-anticipation of split screen, but because "a screen's lifetime" and "the connection's
-lifetime" were already worth separating on their own terms. The cost was real at the
-time: a composition root to set up and a rule to keep ("nothing that must outlive a
-screen lives in a component"). The payoff shows up here, for free, eleven phases
-later. Worth naming honestly: this payoff isn't automatic just from "using React
-Native." It required deliberately keeping the BLE connection out of component state
-in the first place. A project that let a screen hold the connection in a
-`useRef`/`useState`, a perfectly reasonable choice for an app with no
-background-survival or split-screen requirement, would be paying for this phase's
-constraint the hard way, right now, instead of collecting it as a free line in a
-changelog.
+**The name for this:** the *single responsibility* idea, paying off. Screens change for
+display reasons; services change for connection reasons. They were kept apart since
+Phase 00, and that's why split screen needs no connection code now. It only works
+because the connection was never kept inside a component.
 
 ## Features
 
-- Responsive layout at 33% / 50% / 75% / full
-- Compact dashboard variant below a height threshold
-- `android:resizeableActivity="true"` declared explicitly, `configChanges` verified
+- Works at 33%, 50%, 75% and full size
+- A compact dashboard below a certain height
+- `android:resizeableActivity="true"` stated explicitly; the size-change settings checked
 
-## Implementation requirements
+## Rules
 
-- Handle configuration changes **without recreating the BLE connection**. The
-  services own it, so this should already hold. Verify that it does rather than
-  assuming it.
-- **Speed controls must remain reachable at 33% height.** This is the real constraint;
-  everything else follows from it.
-- No horizontal scrolling at any width.
+- A resize must **not** reconnect Bluetooth. It shouldn't; check it.
+- **The speed buttons must be reachable at 33% height.** That's the real requirement.
+- No sideways scrolling at any size.
 
 ---
 
-## Learning goals
+## What you'll learn
 
-- **`useWindowDimensions()`**: the React Native hook that returns the app's current
-  **window** size and re-renders when it changes. That's exactly the thing that
-  changes when Android resizes the app for split screen, which is why it's the right
-  tool here, not a screen-local `onLayout`.
-- **Layout as a function of size**: one component that renders differently below a
-  threshold, rather than two screens. The decision is one boolean (`compact`) computed
-  from the window and the Phase 08 "dashboard layout" setting.
-- **Flexbox for "this part must never be pushed off screen"**: a scrolling region
-  that takes the leftover space (`flex: 1`) above a fixed region that doesn't.
-- **Config plugins**: how a native setting gets into a generated `AndroidManifest.xml`
-  under Continuous Native Generation, without ever editing `src/android/`.
-- Android's multi-window `configChanges` model, and why React Native makes "the
-  activity got recreated" much less dangerous than it is in a native app.
+- **`useWindowDimensions()`**: gives the app window's current size, and redraws when it
+  changes. That's exactly what changes in split screen.
+- **Layout from size**: one screen that looks different below a threshold, decided by
+  one `compact` flag.
+- **Flexbox for "this part must never be pushed off screen"**: a scrolling area that
+  takes the leftover space, above a fixed area that doesn't scroll.
+- **Config plugins**: how to change a setting in Expo's generated Android files without
+  editing them.
 
-## Reference docs
+## Read first
 
 - **`useWindowDimensions`**: https://reactnative.dev/docs/usewindowdimensions
-- **Config plugins**: https://docs.expo.dev/config-plugins/introduction/. Read
-  "Creating a plugin" before task 11.1; `withAndroidManifest` is the one mod it uses.
-- **Support multi-window mode (Android)**: https://developer.android.com/develop/adaptive-apps/guides/support-multi-window-mode.
-  `resizeableActivity`, the `configChanges` values Android recommends declaring.
-- **Continuous Native Generation**: https://docs.expo.dev/workflow/continuous-native-generation/,
-  for why task 11.1 is a plugin and not an edit.
-- `docs/learning/04-Monochrome-Theme.md`: the base `Button` already enforces a 48 dp
-  minimum touch target, which this phase's 33%-height constraint depends on; nothing
-  new to add there, just worth knowing it's already covered.
+- **Config plugins**: https://docs.expo.dev/config-plugins/introduction/ ("Creating a
+  plugin"; task 11.1 uses `withAndroidManifest`)
+- **Multi-window on Android**: https://developer.android.com/develop/adaptive-apps/guides/support-multi-window-mode
+- **Why a plugin, not an edit**: https://docs.expo.dev/workflow/continuous-native-generation/
+- [`04-Monochrome-Theme.md`](../../docs/learning/04-Monochrome-Theme.md): the theme's
+  buttons are already at least 48 dp tall, which the 33% rule depends on
 
 ---
 
-## Walkthrough
+## Tasks
 
-### Task 11.1 — `resizeableActivity` via a config plugin, and verify `configChanges`
+### 11.1 — `resizeableActivity`, and check the size settings
 
-**Small, and mostly verification. The actual change is one attribute, delivered by a
-fifteen-line plugin.**
+**Small: mostly checking. The one change is a 10-line plugin.**
 
-Android has two independent knobs here:
+Two separate Android settings:
 
-1. **`resizeableActivity`**: whether the activity is *allowed* to run in split
-   screen / multi-window at all. Defaults to `true` on API 24+ if unset, but this
-   project should say so explicitly rather than rely on a version-dependent default.
-2. **`configChanges`**: which configuration changes the activity handles itself
-   instead of being destroyed and recreated for. A split-screen resize is a
-   `screenSize`/`smallestScreenSize`/`screenLayout` change.
+1. **`resizeableActivity`**: is the app *allowed* in split screen? It defaults to yes,
+   but we'll say so explicitly instead of relying on a default.
+2. **`configChanges`**: which changes the app handles itself instead of being rebuilt.
+   A split-screen resize is a screen-size change.
 
-Expo's generated manifest already carries a `configChanges` list. Confirm it rather
-than trusting this sentence:
+Check the second one is already there:
 
 ```powershell
 cd src
@@ -133,22 +94,18 @@ npx expo prebuild --platform android
 Select-String -Path android/app/src/main/AndroidManifest.xml -Pattern "configChanges"
 ```
 
-In SDK 58 that line reads
+In Expo 58 it reads
 `keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize|assetsPaths`.
-Compare it against what Android's multi-window guide recommends,
-`screenSize | smallestScreenSize | screenLayout | orientation`, and every one is
-already present. **This is the "verify it already holds" case the Implementation
-requirements warned about.**
+Android's guide asks for `screenSize`, `smallestScreenSize`, `screenLayout` and
+`orientation`. All there. Nothing to change.
 
-What's genuinely missing is `resizeableActivity` itself. Add it with a local config
-plugin, written in full here because it's configuration, not app logic:
-
-`src/plugins/withResizeableActivity.js`:
+The first one is missing, so add it with a small plugin. It's configuration, so here it
+is in full. `src/plugins/withResizeableActivity.js`:
 
 ```js
 const { AndroidConfig, withAndroidManifest } = require('expo/config-plugins');
 
-/** Declares android:resizeableActivity="true" on the app's main activity. */
+/** Adds android:resizeableActivity="true" to the main screen. */
 module.exports = function withResizeableActivity(config) {
   return withAndroidManifest(config, (cfg) => {
     const main = AndroidConfig.Manifest.getMainActivityOrThrow(cfg.modResults);
@@ -158,55 +115,43 @@ module.exports = function withResizeableActivity(config) {
 };
 ```
 
-and register it in `app.json`'s `plugins` array: `"./plugins/withResizeableActivity"`.
-The plugin runs every time `prebuild` regenerates `src/android/`, so the setting can't
-be lost the way a hand edit would be. `getMainActivityOrThrow` fails the build loudly,
-rather than silently doing nothing, if the manifest ever stops having a main activity
-where it expects one.
+Add `"./plugins/withResizeableActivity"` to `app.json`'s `plugins`. It runs every time
+Expo regenerates the Android files, so the setting can't get lost. If it can't find the
+main screen, the build fails loudly instead of silently skipping it.
 
-Concrete steps:
+1. Add the plugin, run `npx expo prebuild --platform android --clean`, and check the
+   attribute is in the generated manifest.
+2. Build and install. On the phone: put the app in split screen from Recents. The option
+   being there at all is part of the test.
+3. On the phone, connected and mid-workout: drag the split-screen divider. To check the
+   screen isn't rebuilt, add a temporary
+   `useEffect(() => log('root layout mounted'), [])` to `src/app/_layout.tsx`; it should
+   appear once in `adb logcat -s ReactNativeJS`, not once per resize. (Even if it
+   appeared twice, the connection should stay `ready`; that's task 11.3.)
 
-1. Add the plugin, run `npx expo prebuild --platform android --clean`, and confirm
-   the attribute is in the generated manifest.
-2. Build and install. `[HUMAN]`: drag the app into split screen from the Recents
-   screen. The split-screen option being available at all is itself part of the
-   pass/fail signal.
-3. `[HUMAN]`: with the app connected to the treadmill and mid-workout, drag the
-   split-screen divider. Confirm the activity is **not** recreated: add a temporary
-   `useEffect(() => log('root layout mounted'), [])` in `src/app/_layout.tsx` and check
-   `adb logcat -s ReactNativeJS` shows it once, not once per resize. And per the
-   reasoning above, even if it did appear twice, the connection indicator should never
-   leave `ready`; that's task 11.3.
+### 11.2 — Compact dashboard below a certain height
 
----
+**Given in full.**
 
-### Task 11.2 — Responsive layout: compact dashboard below a height threshold
+The dashboard works out one flag, `compact`, from the window height (or from Phase 08's
+"Compact" layout setting). Compact hides the calendar and the extra numbers and shrinks
+the speed, so **the speed buttons stay reachable at 33% height**. The buttons sit
+outside the scrolling area, pinned to the bottom, so nothing above can push them off
+screen.
 
-**UI: full code, written for you.**
+**Measure the breakpoint; don't guess it.** On the phone, in split screen at about 33%
+of the height, read the height `useWindowDimensions()` reports (show it on the
+Diagnostics screen, or log it) and use it instead of the `420` below. `420` is a rough
+guess, not a measurement.
 
-`useWindowDimensions()` reacts to the app's **window** size, which is exactly what
-shrinks when the split-screen divider moves. The plan: the dashboard computes one
-boolean, `compact`, from the window height (and Phase 08's "dashboard layout" setting,
-so "Compact" can be forced), and renders accordingly. Compact hides the contribution
-graph and the secondary metrics, and shrinks the speed readout, so the **speed
-controls stay reachable at 33% height**, the one hard constraint this phase exists to
-satisfy. The controls live outside the scrolling area, pinned to the bottom, so no
-amount of content above can push them off screen.
-
-Pick the breakpoint by *measuring*, not guessing. `[HUMAN]`: with the app in split
-screen at roughly 33% of the phone's height, read the height the hook reports (the
-Diagnostics screen can show `useWindowDimensions().height`, or log it) and use that
-number in place of the `420` placeholder below. `420` is an unverified arithmetic
-estimate, not a measured value; treat it as something to replace, not trust.
-
-`src/features/dashboard/useLayoutMode.ts` (UI support, written for you):
+`src/features/dashboard/useLayoutMode.ts`:
 
 ```ts
 import { useWindowDimensions } from 'react-native';
 
 import { useSettings } from '@/features/settings/useSettings';
 
-/** Replace with the height measured at ~33% split screen on the Poco X6 Pro. */
+/** Replace with the height measured at ~33% split screen on the phone. */
 export const COMPACT_BELOW_HEIGHT_DP = 420;
 
 export function useLayoutMode(): { compact: boolean; height: number } {
@@ -217,8 +162,8 @@ export function useLayoutMode(): { compact: boolean; height: number } {
 }
 ```
 
-`src/features/dashboard/DashboardScreen.tsx`, restructured (merge with what Phases
-03–10 added; the section names below match those phases):
+`src/features/dashboard/DashboardScreen.tsx`, rearranged (merge with what Phases 03–10
+added):
 
 ```tsx
 import { Link } from 'expo-router';
@@ -247,7 +192,7 @@ export function DashboardScreen() {
 
   return (
     <Screen>
-      {/* Everything that may be sacrificed scrolls, in the space left over. */}
+      {/* Everything that can be hidden scrolls, in the space left over. */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: spacing.lg, gap }}>
         {!compact && <ContributionGraph days={d.contributionDays} />}
 
@@ -260,9 +205,7 @@ export function DashboardScreen() {
           <Text variant="caption">{d.connectionState} · {workoutState}</Text>
         </View>
 
-        {d.showsSpeed && (
-          <MetricTile value={formatOneDecimal(d.speedKph)} unit="km/h" size={compact ? 'compact' : 'large'} />
-        )}
+        {d.showsSpeed && <MetricTile value={formatOneDecimal(d.speedKph)} unit="km/h" size={compact ? 'compact' : 'large'} />}
 
         {!compact && (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
@@ -284,8 +227,7 @@ export function DashboardScreen() {
         )}
       </ScrollView>
 
-      {/* Never scrolls, never hidden. This region is the entire reason compact exists:
-          everything above it can be sacrificed, this can't. */}
+      {/* Never scrolls, never hidden. This is why compact mode exists. */}
       <View
         style={{
           paddingHorizontal: spacing.lg,
@@ -303,13 +245,13 @@ export function DashboardScreen() {
 }
 ```
 
-`TreadmillControls` (Phase 05) gains one prop, `compact`, which hides the target-speed
-tile, the "Presets" caption and the safety caption, and puts −, +, and Stop on one row.
-In full, the parts that change:
+`TreadmillControls` (Phase 05) gets a `compact` prop. In compact mode it hides the
+target tile, the "Presets" row and the safety caption, and puts −, + and Stop on one
+row:
 
 ```tsx
 export function TreadmillControls({ compact = false }: { compact?: boolean }) {
-  // ...unchanged hook calls, confirmStop...
+  // ...same hook calls and confirmStop as before...
 
   if (compact) {
     return (
@@ -321,53 +263,36 @@ export function TreadmillControls({ compact = false }: { compact?: boolean }) {
     );
   }
 
-  // ...the full layout from Phase 05, unchanged
+  // ...the full layout from Phase 05...
 }
 ```
 
-The Stop confirmation and its safety-key message are unchanged in compact mode: the
-dialog is where the warning lives, so shrinking the screen doesn't remove it.
+Stop still asks for confirmation in compact mode, and the dialog still mentions the
+safety key.
 
-`MetricTile` gains a `size?: 'large' | 'compact'` prop in the theme (`compact` uses the
-`subheadline` text size instead of `metric`); see `04-Monochrome-Theme.md`.
+`MetricTile` gets a `size?: 'large' | 'compact'` prop in the theme (compact uses the
+`subheadline` size instead of `metric`).
 
-Concrete steps:
+1. On the phone, measure the real height at ~33% and replace `420`.
+2. Merge this into your `DashboardScreen.tsx`, keeping the names your hooks actually
+   use.
+3. Quick check before using the phone: set Phase 08's layout to "Compact" and check the
+   screen switches. (The emulator can't do real split screen.)
+4. On the phone: split screen at 100%, 75%, 50% and 33%, portrait and landscape. At
+   every size: no sideways scrolling, and −/+/Stop fully visible and tappable.
 
-1. `[HUMAN]`: measure the real window height at ~33% split on the phone (see above)
-   and replace the `420` placeholder with that number.
-2. Merge the layout above into your actual `DashboardScreen.tsx`. Keep whatever names
-   your hooks really return; adjust the TSX to fit them rather than renaming your hooks
-   to match this sample.
-3. Quick check before the phone: force `compact` with the Phase 08 "Compact" layout
-   setting and confirm the layout switches. (The emulator can't do real split screen;
-   see `docs/learning/01-Device-And-Emulator-Setup.md`.)
-4. `[HUMAN]`: on the phone, drag into split screen from 100% down through 75% / 50% /
-   33%, both portrait and landscape. At every size, confirm: no horizontal scrolling,
-   and the −/+/Stop row is fully visible and tappable. The 48 dp minimum touch target
-   is already built into the theme's `Button`, so this should hold automatically.
-   Confirm rather than assume.
+### 11.3 — Check: no reconnect on resize
 
----
+**Only checking. If something's wrong, the fix is in 11.1 or the services, not here.**
 
-### Task 11.3 — Verify: no BLE reconnect on resize
-
-**Verification, not new code. A fix (if one turns out to be needed) belongs in task
-11.1 or in the services, not here.**
-
-Concrete steps:
-
-1. `[HUMAN]`: start a workout, confirm connected and recording.
-2. `[HUMAN]`: resize the split-screen divider through all four sizes, pausing a few
-   seconds at each.
-3. Check that the connection state never leaves `ready` during any resize. Watch the
-   connection dot (it should never flicker to an outline), or grep the log for state
-   changes. Then check the recorded workout afterwards for gap markers
-   (`WorkoutSample.Flags` bit 0) that line up with a resize. None should be present.
-4. If a disconnect or gap **does** show up correlated with a resize, the fix is not in
-   this task's layout code. Find out which layer actually dropped it: a missing
-   `configChanges` flag (task 11.1), a connection accidentally held in component state
-   (move it to `services.tsx`), or the process being killed (Phase 07's service and
-   the HyperOS checklist). Don't paper over a real reconnect with UI state.
+1. On the phone: start a workout, connected and recording.
+2. Drag the divider through all four sizes, pausing a few seconds at each.
+3. The connection state never leaves `ready` (the dot never empties). Afterwards, the
+   saved workout has no gap markers lining up with a resize.
+4. If a drop or gap *does* line up with a resize, find the real cause: a missing size
+   setting (11.1), a connection kept in a component's state (move it to the services
+   file), or the app being closed (Phase 07 and the HyperOS settings). Don't hide it
+   with screen tricks.
 
 ---
 
@@ -375,17 +300,15 @@ Concrete steps:
 
 | Test | | |
 |------|---|---|
-| Each of 4 sizes, portrait and landscape | Controls reachable and tappable | `[HUMAN]` |
-| Resize mid-workout | No disconnect, no data gap | `[HUMAN]` |
-| YouTube / Messenger / Chrome in the other pane | Dashboard keeps updating | `[HUMAN]` |
-| Root layout survives a resize | "root layout mounted" logged once, not per resize | `[HUMAN]` |
-| `resizeableActivity` present | In the generated manifest; split-screen option available from Recents | `[HUMAN]` |
+| All 4 sizes, portrait and landscape | Buttons reachable and tappable | treadmill |
+| Resize mid-workout | No disconnect, no gap | treadmill |
+| YouTube / Messenger / Chrome in the other half | Dashboard keeps updating | treadmill |
+| The screen isn't rebuilt on resize | "root layout mounted" logged once | treadmill |
+| `resizeableActivity` is set | In the generated manifest; split screen offered in Recents | treadmill |
 
-## Acceptance
+## Done when
 
-- [ ] Fully usable at 33% with no disconnect on resize
-- [ ] `android:resizeableActivity="true"` confirmed in the generated manifest, via the
-      config plugin
-- [ ] The compact breakpoint is a measured number from the real device, not an
-      unverified guess
-- [ ] No horizontal scrolling at any of the 4 sizes, either orientation
+- [ ] Fully usable at 33%, with no disconnect on resize
+- [ ] `android:resizeableActivity="true"` is in the generated manifest
+- [ ] The compact breakpoint is a measured number, not a guess
+- [ ] No sideways scrolling at any of the 4 sizes, either way up

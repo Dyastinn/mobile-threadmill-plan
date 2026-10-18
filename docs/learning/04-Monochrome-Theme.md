@@ -1,38 +1,28 @@
-# The monochrome theme
+# The gray theme
 
-> Implemented in `src/features/shared/theme/` during Phase 00 (task 0.1). You don't
-> need to create this, only use it. This doc is its specification: the tokens, and the
-> small set of components every phase's UI code is built from.
+> Built in `src/features/shared/theme/` during Phase 00 (task 0.1). You don't build it,
+> you just use it. This page lists its colors, sizes and components.
 
-Every phase from here on that touches UI (screens, components) gets the **actual
-code** written for you; see `../../phases/README.md`'s collaboration model. This doc is
-what that code is built on: one neutral gray ramp, no hue anywhere, used consistently
-through semantic tokens so no phase has to invent colors again.
+The agent writes the code for every screen (see `../../phases/README.md`). This page is
+what that code is built from: one set of grays, no other colors, used through named
+tokens so no screen ever picks its own colors.
 
-## Why monochrome, and why "soft"
+## Two decisions
 
-Two decisions, both already made:
+1. **No colors, only grays.** No blue buttons, no red errors, no green "connected" dot.
+   This isn't a placeholder; it's the design. If something seems to need a color (say,
+   "Stop should look dangerous"), it gets a different weight, an outline, a dashed line
+   or a confirmation step instead. See "Showing state without color" below.
+2. **Soft, not harsh.** No pure black or pure white. The darkest gray is `#212123`, the
+   lightest `#F2F2F3`. Easier on the eyes for a screen you glance at while walking.
 
-1. **No hue.** No blue "primary" color, no red "error" color, no green "connected"
-   dot. One gray ramp, walked from both ends depending on light/dark theme. This
-   isn't a placeholder. It's the actual theme. If a phase's UI seems to need a
-   second color (e.g. "the Stop button should look dangerous"), it doesn't get one;
-   it gets weight, an outline, a dash pattern, or a confirmation step instead. See
-   "Conveying state without color" below.
-2. **Soft, not stark.** The ramp never touches true black (`#000000`) or true white
-   (`#FFFFFF`). The darkest token is `#212123`, the lightest is `#F2F2F3`. This was
-   a deliberate choice over a harsher near-black/near-white theme, easier on the
-   eyes for a screen you're glancing at mid-walk, less "OLED contrast" starkness.
+**No UI library.** React Native's own `View`, `Text` and `Pressable`, plus about ten small
+components here, cover every screen. A UI kit (React Native Paper, Tamagui, NativeWind)
+would bring its own look to fight, its own upgrades, and far more than we need.
 
-**No UI library.** React Native's own `View`/`Text`/`Pressable` plus about ten small
-components here cover every screen this app has. A component library (React Native
-Paper, Tamagui, NativeWind) would bring its own design language to override, its own
-upgrade cadence, and far more surface than ten components; none of it buys anything
-for an app whose whole visual identity is "gray, quiet, legible."
+## The grays
 
-## The gray ramp
-
-Defined once in `tokens.ts`, 11 steps from `50` (lightest) to `950` (darkest):
+Defined once in `tokens.ts`, from `50` (lightest) to `950` (darkest):
 
 ```
 50   #F2F2F3   400  #9A9AA0   800  #38383C
@@ -41,33 +31,29 @@ Defined once in `tokens.ts`, 11 steps from `50` (lightest) to `950` (darkest):
 300  #B8B8BC   700  #4A4A4E
 ```
 
-**Never reference `gray[...]` directly in a screen.** It's there so the semantic tokens
-below have something to point at. Every component and every screen uses the semantic
-names, through `useTheme()`.
+**Never use `gray[...]` directly in a screen.** Screens use the named colors below,
+through `useTheme()`.
 
-## Semantic tokens (what you actually use)
+## Named colors (what screens use)
 
-Each token has a light and a dark value. `useTheme()` returns the right set for the
-current color scheme (the system setting, or Phase 08's override), and re-renders
-every component using it when the scheme changes, so light/dark switching needs no
-code in any screen.
+Each has a light-mode and a dark-mode value. `useTheme()` gives you the right set for the
+current mode, and redraws when the mode changes, so no screen needs light/dark code.
 
-| Token (`colors.*`) | Used for | Light | Dark |
+| Name (`colors.*`) | Used for | Light | Dark |
 |---|---|---|---|
 | `background` | Screen background | 50 | 950 |
-| `surface` | Cards, `Surface`, anything one step off the screen | 100 | 900 |
-| `border` | Hairlines, dividers, outlines, grid lines | 300 | 700 |
-| `textPrimary` | Body text, values, the primary chart line | 900 | 100 |
-| `textSecondary` | Captions, units, timestamps, the secondary chart line | 600 | 400 |
+| `surface` | Cards, anything one step off the background | 100 | 900 |
+| `border` | Lines, dividers, outlines, chart grid | 300 | 700 |
+| `textPrimary` | Normal text, numbers, the main chart line | 900 | 100 |
+| `textSecondary` | Captions, units, times, the second chart line | 600 | 400 |
 | `textDisabled` | Disabled text | 300 | 600 |
-| `disabledBackground` | Disabled control background | 200 | 800 |
-| `interactiveBackground` | Primary button fill, selected segment | 800 | 200 |
-| `interactiveText` | Text on a primary button / selected segment | 50 | 950 |
-| `contributionUnlit` / `contributionLit` | Phase 03 contribution graph cells | 200 / 700 | 800 / 300 |
+| `disabledBackground` | Disabled button background | 200 | 800 |
+| `interactiveBackground` | Main button fill, selected option | 800 | 200 |
+| `interactiveText` | Text on a main button or selected option | 50 | 950 |
+| `contributionUnlit` / `contributionLit` | Phase 03's calendar squares | 200 / 700 | 800 / 300 |
 
-If a new phase needs a token that isn't here (e.g. a distinct "pressed" state), add it
-to both sets in `tokens.ts` following the same "one or two ramp steps off its
-neighbour" spacing. Don't invent a one-off hex value inline in a screen.
+Need a new one (e.g. "pressed")? Add it to both sets in `tokens.ts`, one or two grays away
+from its neighbour. Never type a color code straight into a screen.
 
 ## `tokens.ts`
 
@@ -138,13 +124,13 @@ export function useTheme(): { colors: ThemeColors; scheme: 'light' | 'dark' } {
 }
 ```
 
-`useColorScheme()` follows the phone's setting, and also follows
-`Appearance.setColorScheme(...)` if Phase 08's dark-mode override is wired up.
+`useColorScheme()` follows the phone's setting, and also Phase 08's dark mode setting
+if you wire that up.
 
 ## The components
 
-Built in Phase 00, used by every screen after it. Each one reads its colors from
-`useTheme()`, so none of them takes a color prop, and none of them should.
+Built in Phase 00, used by every screen. Each one gets its colors from `useTheme()`, so
+none takes a color option, and none should.
 
 | Component | Props | What it is |
 |---|---|---|
@@ -158,7 +144,7 @@ Built in Phase 00, used by every screen after it. Each one reads its colors from
 | `SegmentedControl` | `options`, `value`, `onChange`, `label`, `accessibilityLabel` | Added in Phase 08: pick one of a few; selected segment is filled `interactiveBackground` and bold |
 | `EmptyState`, `LoadingOverlay` | see Phase 13 | Added in Phase 13 |
 
-Two of them in full, as the pattern the rest follow:
+Two of them in full, as examples of how the rest are built:
 
 ```tsx
 // Button.tsx
@@ -230,40 +216,31 @@ export function ConnectionDot({ connected }: { connected: boolean }) {
 }
 ```
 
-Example: a single dashboard metric, using only existing components and tokens, no
-inline colors:
+Example: one dashboard number, using only existing pieces, no colors typed in:
 
 ```tsx
 <MetricTile value={formatOneDecimal(speedKph)} unit="km/h" />
 ```
 
-`MetricTile` already gives it the `surface` background, the `border` hairline, rounded
-corners, the big number and the small unit caption. Nothing above is a color; it's all
-inherited.
+`MetricTile` already brings the card background, the border, the rounded corners, the big
+number and the small unit.
 
-## Conveying state without color
-
-The dashboard needs to show "connected" vs. "disconnected", "lit" vs. "unlit" on the
-contribution graph, "recording" vs. "idle", all without a second hue. The pattern used
-throughout this project:
+## Showing state without color
 
 | Instead of... | Use |
 |---|---|
-| Green dot = connected, red = disconnected | `ConnectionDot`: filled `textPrimary` circle = connected; outline-only `border` circle = disconnected |
-| Colored badge for FTMS-supported fields | The field simply absent (not rendered) when the device doesn't send it, see Phase 03's "hidden not `--`" rule |
-| Red "Stop" button | Same `Button` as everything else, plus a **confirmation step** (see Phase 05's safety section, task 5.4): the friction communicates weight, not the color |
-| Colored lit/unlit contribution cells | `contributionLit` vs. `contributionUnlit`: five ramp steps apart, already distinct in a monochrome palette |
-| A second-colored chart line | Same gray family, **dashed** (`strokeDasharray`), see Phase 10 |
-| A highlighted selected option | Filled `interactiveBackground` plus bold text, see `SegmentedControl` |
+| Green dot = connected, red = not | `ConnectionDot`: filled = connected, empty outline = not |
+| A colored badge for fields the treadmill sends | Fields it doesn't send just aren't shown (Phase 03) |
+| A red Stop button | The same button as everything else, plus a **confirmation** (Phase 05): the extra tap carries the weight |
+| Colored calendar squares | `contributionLit` vs. `contributionUnlit`: five grays apart, clearly different |
+| A second chart line in another color | The same gray family, **dashed** (Phase 10) |
+| A highlighted choice | Filled with `interactiveBackground`, plus bold text (`SegmentedControl`) |
 
-If a phase's design genuinely seems to need a color to be legible (contrast between two
-states is too subtle), the fix is to widen the ramp-step gap between the two tokens, or
-add an outline/weight/dash difference, not a hue. Flag it at the review checkpoint if
-this happens.
+If two states look too similar, move their grays further apart, or add an outline,
+weight or dash difference. Not a color. Mention it at the review if it comes up.
 
-## Where this fits in a phase
+## How this fits a phase
 
-Every phase README from 02 onward has UI code for any task that produces a screen or
-component. That code is written using only the tokens and components above: you paste
-it in, adjust it to match your hook's actual return values, and run it. See
-`../../phases/README.md` for the exact division of labour.
+Every phase from 02 on includes the full code for its screens, built only from the
+tokens and components above. You paste it in, adjust it to your hook, and run it. See
+`../../phases/README.md`.

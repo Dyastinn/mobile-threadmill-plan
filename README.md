@@ -1,215 +1,244 @@
 # MyHi Companion
 
-A personal Android app that replaces FitShow for daily use with the MY-HI Q8Y
-treadmill. Connects over Bluetooth FTMS, shows live metrics, controls speed,
-and records workout history with per-workout telemetry. Fully offline: no
-account, no network calls, no cloud sync.
+A personal Android app for the MY-HI Q8Y treadmill, to replace the FitShow app. It
+connects over Bluetooth, shows live speed and distance, controls the speed, and saves
+every workout. It works fully offline: no account, no internet, no cloud.
 
-This is a learning project as much as an app: past Phase 00, the code is
-written by the project owner, with an AI agent teaching concepts and reviewing
-rather than implementing. See [`phases/README.md`](phases/README.md) for
-exactly how that works.
+It's also a learning project. After Phase 00, you write the app's logic yourself and
+the AI agent teaches and reviews. [`phases/README.md`](phases/README.md) explains how
+that works.
 
 ---
 
 ## Status
 
-**Starting fresh: no code in the repo yet.** The plan was originally written for
-.NET MAUI and was moved to **Expo (React Native) with a development build** in
-October 2026, before any app code existed. The earlier MAUI build of the Phase 00
-probe app ran on the real treadmill, and its measurements are still good; see
-[`phases/phase-00-probe-app/PHASE-00-FINDINGS.md`](phases/phase-00-probe-app/PHASE-00-FINDINGS.md)
-for what's already known. The `src/` project is built from scratch, following
-[`phases/phase-00-probe-app/`](phases/phase-00-probe-app/) (start with `TASKS.md`).
+**No app code yet.** The plan was first written for .NET MAUI, then moved to
+**Expo (React Native)** in October 2026, before any code existed. You already know
+TypeScript and Expo, and C# was new, so Expo is the better fit.
 
-Why the switch, in one paragraph: the MAUI choice rested on already knowing C#,
-which turned out not to be true, while TypeScript and Expo were already familiar.
-The one real risk Expo adds (whether JavaScript keeps running with the screen off
-on HyperOS) is tested on the treadmill in Phase 00, before any product code
-depends on it. The full decision record is in
-[`phases/phase-00-probe-app/README.md`](phases/phase-00-probe-app/README.md#technology-decisions).
+An earlier MAUI version of the Phase 00 test app did run on the treadmill. Its
+measurements are still valid and are in
+[`PHASE-00-FINDINGS.md`](phases/phase-00-probe-app/PHASE-00-FINDINGS.md).
+
+Next step: Phase 00, starting with
+[`phases/phase-00-probe-app/TASKS.md`](phases/phase-00-probe-app/TASKS.md).
+
+---
+
+## What you need
+
+Everything, so nothing surprises you later. Status is as checked on this PC on
+2026-10-18. How to set each one up is in
+[`docs/learning/01-Device-And-Emulator-Setup.md`](docs/learning/01-Device-And-Emulator-Setup.md).
+
+### Before Phase 00 (required)
+
+| Thing | Why | Status |
+|---|---|---|
+| Windows PC | Builds the app | ✅ |
+| Git | Version control | ✅ |
+| VS Code (or any editor) | Writing code | ✅ |
+| Node.js 24 LTS | Runs Expo, the bundler and the tests | ✅ v24.17.0 |
+| JDK 17 | Gradle needs it to build the Android app | ✅ 17.0.20, `JAVA_HOME` set |
+| Android SDK: platform 36, build-tools 36, platform-tools | Building and installing Android apps | ✅ in `%LOCALAPPDATA%\Android\Sdk` |
+| `ANDROID_HOME` set, and `adb` on `PATH` | So the build tools can find the SDK | ⚠️ not set yet. One command, in the setup doc |
+| The phone (Poco X6 Pro) with Developer options on | Where the app runs | ⬜ |
+| Phone: **USB debugging**, **Install via USB**, **USB debugging (Security settings)** | Xiaomi needs all three to install apps from the PC. May need a Mi account and a SIM card | ⬜ |
+| A USB cable that carries data | First connection to the phone | ⬜ check it's not charge-only |
+| Phone and PC on the same Wi-Fi | The app loads its code from the PC while you develop | ⬜ |
+
+### During Phase 00
+
+| Thing | Why | Status |
+|---|---|---|
+| Wireless debugging paired with the PC | Screen-off tests must run unplugged (the phone acts differently while charging) | ⬜ |
+| **nRF Connect** app on the phone (free, by Nordic) | Double-checks what our app reads over Bluetooth | ⬜ |
+| The four HyperOS settings: Autostart on, Battery saver "No restrictions", app locked in Recents, battery optimisation off | Stops HyperOS from killing the app in the background | 1 of 4 done |
+| The treadmill and its safety key | The thing we're testing | ✅ |
+| Somewhere to stand off the belt | Some tests start the belt from the phone | ✅ |
+
+### Later phases
+
+| Thing | Phase | Why |
+|---|---|---|
+| A SQLite viewer on the PC, e.g. "DB Browser for SQLite" (free) | 06, 12 | Open the app's database file and check it by hand |
+| Google Drive or email on the phone | 09, 14 | Somewhere to send backup files |
+| Excel or Google Sheets | 15 | Open the CSV export |
+| Any image editor (Figma, Inkscape, Paint.NET) | 13 | App icon and splash image |
+| A kitchen timer or a second device | 14 | Timing long tests without unlocking the phone |
+
+### Optional
+
+| Thing | When it helps |
+|---|---|
+| Android Studio | Easiest way to manage the SDK; its profiler is an extra in Phase 12 |
+| An Android emulator (x86_64 image) | Looking at screens without the phone. It can't do Bluetooth |
+| Battery Historian | A battery timeline in Phase 12, if the drain looks bad |
+| VS Code extensions: ESLint, Expo Tools | Lint errors and `app.json` help inside the editor |
+
+### Not needed
+
+An Expo account, EAS cloud builds, a Mac, or a Play Store developer account. Everything
+builds on this PC and installs straight onto the phone.
 
 ---
 
 ## The device
 
-MY-HI Q8Y folding treadmill, whose BLE module is a FitShow (Xiamen) transparent-UART
-board presenting an FTMS shim (`0x1826`) over the top. The shim's own feature
-declaration is provably unreliable (it claims incline support on a machine with
-no incline), so this project verifies everything against captured hex rather
-than trusting the spec or the device's self-description. See
-[`phases/phase-01-protocol-decode/README.md`](phases/phase-01-protocol-decode/README.md)
-for the byte-level detail and each phase's own README for what's still an open
-question in that phase's scope.
+The MY-HI Q8Y is a folding treadmill. Its Bluetooth chip is made by FitShow, and it
+speaks the standard fitness-machine protocol (FTMS, service `0x1826`) on top of
+FitShow's own one. That FTMS layer doesn't always tell the truth about itself: it
+claims the machine has an incline, and it doesn't. So this project checks everything
+against bytes actually captured from the machine, not against the spec.
+
+The byte-level details are in
+[`phases/phase-01-protocol-decode/README.md`](phases/phase-01-protocol-decode/README.md).
 
 ---
 
 ## Tech stack
 
-Everything the app and its tooling use, what each piece is for, and the phase that
-adds it. Versions are the ones current when the plan was written (October 2026); the
-Expo SDK pins the exact versions of everything Expo-maintained, via
-`npx expo install`.
+What the app and its tools use, what each piece is for, and the phase that adds it.
+Versions are from October 2026. `npx expo install` picks matching versions of the
+Expo packages for you.
 
 ### Platform and framework
 
 | Piece | Version | What it's for | Added in |
 |-------|---------|---------------|----------|
-| Android | min SDK 31 (Android 12), target SDK 36 | The only platform. Target phone: Poco X6 Pro 5G, Android 16 / HyperOS | 00 |
-| Expo SDK | 58 | Toolkit around React Native: builds, native config (CNG), first-party modules | 00 |
-| React Native | 0.88 (New Architecture, always on) | Runs the TypeScript on the phone, renders native Android views | 00 |
-| React | 19.3 | UI components and hooks | 00 |
-| TypeScript | strict, plus `noUncheckedIndexedAccess` | The language for everything except the foreground service | 00 |
-| Hermes | (bundled with React Native) | The JavaScript engine on the phone | 00 |
-| Kotlin | (Android toolchain) | The foreground service, inside a local Expo module | 00 (spike), 07 |
-| Build type | **Development build** (`expo-dev-client`), not Expo Go | Expo Go can't load the BLE library; a dev build is "your own Expo Go" | 00 |
+| Android | min SDK 31 (Android 12), target SDK 36 | The only platform. Phone: Poco X6 Pro, Android 16 / HyperOS | 00 |
+| Expo SDK | 58 | Builds the app, manages Android settings, provides most libraries | 00 |
+| React Native | 0.88 | Runs your TypeScript on the phone and shows real Android screens | 00 |
+| React | 19.3 | Components and hooks | 00 |
+| TypeScript | strict mode, plus `noUncheckedIndexedAccess` | The language for everything except one Kotlin file group | 00 |
+| Kotlin | comes with the Android tools | The background service (Phase 07) | 00, 07 |
+| Development build | via `expo-dev-client` | Your own version of Expo Go that includes the Bluetooth library. Expo Go itself can't run this app | 00 |
 
 ### Libraries in the app
 
 | Library | What it's for | Added in |
 |---------|---------------|----------|
-| [`react-native-ble-manager`](https://github.com/innoveit/react-native-ble-manager) | Bluetooth LE: scan, connect, read, write, notifications. The only file that imports it is `src/features/bluetooth/bleClient.ts` (plus the scanner) | 00 |
-| `expo-router` | File-based navigation: a screen is a file in `src/app/` | 00 |
-| `expo-build-properties` | Sets min/target SDK from `app.json` | 00 |
-| `expo-sqlite` | The workout database (raw SQL, through a small `Db` interface) | 00, 06 |
-| `expo-sqlite/kv-store` | Settings and small persisted values (synchronous key/value) | 00, 08 |
-| `expo-file-system` | Capture logs, rolling log files, backup files, file and folder pickers | 00, 09 |
-| `expo-sharing` | Share sheet for captures, logs and backups | 00, 09 |
-| `expo-clipboard` | Copy hex values on the probe screens | 00 |
-| `react-native-safe-area-context` | Keeps screens clear of the status bar (comes with Expo Router) | 00 |
-| `expo-crypto` | `randomUUID()` for the portable `WorkoutId`/`DeviceUid` GUIDs | 06 |
-| `fflate` | Streaming ZIP for backup export and import (pure JavaScript) | 09 |
-| `react-native-svg` | Drawing the charts (the chart component itself is ours) | 10 |
-| `expo-haptics` | One haptic, when the treadmill confirms a speed change | 13 |
-| `expo-keep-awake` | Keep the screen on during a workout, if the setting is on | 13 |
-| `expo-splash-screen` | Splash screen with separate light and dark backgrounds | 13 |
+| [`react-native-ble-manager`](https://github.com/innoveit/react-native-ble-manager) | Bluetooth: scan, connect, read, write, notifications | 00 |
+| `expo-router` | Moving between screens. Each screen is a file in `src/app/` | 00 |
+| `expo-build-properties` | Sets the Android SDK versions from `app.json` | 00 |
+| `expo-sqlite` | The workout database | 00, 06 |
+| `expo-sqlite/kv-store` | Small saved values, like settings | 00, 08 |
+| `expo-file-system` | Log files, capture files, backup files, file pickers | 00, 09 |
+| `expo-sharing` | The Android share sheet | 00, 09 |
+| `expo-clipboard` | Copying hex values on the test screens | 00 |
+| `react-native-safe-area-context` | Keeps screens clear of the status bar. Comes with Expo Router | 00 |
+| `expo-crypto` | Creates unique workout IDs | 06 |
+| `fflate` | Creates and reads backup ZIP files | 09 |
+| `react-native-svg` | Draws the charts | 10 |
+| `expo-haptics` | One small vibration when a speed change is confirmed | 13 |
+| `expo-keep-awake` | Keeps the screen on during a workout (if you turn that setting on) | 13 |
+| `expo-splash-screen` | The splash screen | 13 |
 
-### Native code in this repo
+### Code in this repo that runs on Android directly
 
 | Piece | What it's for | Added in |
 |-------|---------------|----------|
-| `src/modules/recording-service/` (local Expo module, Kotlin) | `connectedDevice` foreground service extending React Native's `HeadlessJsTaskService`: keeps the process alive, keeps JavaScript timers running (headless keep-alive task), holds a partial wake lock, shows the workout notification with Pause/Stop | 00 (spike), 07 |
-| `src/plugins/withResizeableActivity.js` (config plugin) | Declares `android:resizeableActivity="true"` for split screen | 11 |
+| `src/modules/recording-service/` (Kotlin) | A background service that keeps the app and its timers running while the screen is off, and shows the workout notification | 00 (test version), 07 |
+| `src/plugins/withResizeableActivity.js` | Turns on split-screen support in the Android settings Expo generates | 11 |
 
-### Development and testing tools
+### Tools for building and testing
 
 | Tool | What it's for | Added in |
 |------|---------------|----------|
-| Node.js 24 LTS | Runs the tooling; its built-in `node:sqlite` runs the database tests | 00 |
-| JDK 17 (the installed JDK 21 may also work) | Gradle, for native builds | 00 |
-| Android SDK + `adb` | Builds, installs, logs (`logcat`), `dumpsys` | 00 |
-| Metro | Bundler; serves JavaScript to the dev build with Fast Refresh | 00 |
-| Jest + `jest-expo` | Unit tests. `src/core/` tests run in plain Node | 00 |
-| `node:sqlite` | Real SQLite in Jest, behind the same `Db` interface the app uses | 00 |
-| ESLint (`npx expo lint`) | Linting, including the rule that `src/core/` never imports React Native or Expo | 00 |
-| `tsc --noEmit` | Type checking: must be clean | 00 |
-| React Native DevTools | Debugger, component tree, JavaScript heap snapshots | 00, 12 |
-| nRF Connect (phone app) | Independent BLE cross-check during the probe runbook | 00 |
-| Android Studio Profiler (optional) | Native CPU/memory, only if `dumpsys` and DevTools leave a question open | 12 |
+| Metro | Sends your code to the phone while you develop, and updates it when you save | 00 |
+| Jest + `jest-expo` | Automated tests | 00 |
+| `node:sqlite` (built into Node) | A real database for tests, with no phone | 00 |
+| ESLint (`npx expo lint`) | Catches mistakes, including importing phone-only code into `src/core/` | 00 |
+| `tsc --noEmit` | Type checking | 00 |
+| React Native DevTools | Debugger and memory snapshots (press `j` while `npx expo start` runs) | 00, 12 |
+| `adb` | Installs the app, shows logs, reads phone state | 00 |
 
 ### Deliberately not used
 
-No state library (Zustand, Redux), no UI kit (Paper, Tamagui, NativeWind), no ORM
-(Drizzle), no chart library, no Expo Go, no EAS cloud builds (everything builds
-locally), no backend. Each was considered; the decision records say why it lost.
+No state library (Zustand, Redux), no UI kit (Paper, Tamagui), no ORM (Drizzle), no
+chart library, no Expo Go, no cloud builds, no server. Each one was considered and
+didn't earn its place. Each phase's "Technology decision" section says why, starting
+with [Phase 00's](phases/phase-00-probe-app/README.md#technology-decisions).
 
-New to how Expo and React Native fit together, or have only used Expo Go? Start at
-[`docs/learning/00-Expo-And-React-Native.md`](docs/learning/00-Expo-And-React-Native.md).
-Have used React but want the patterns this codebase leans on explained properly
-(effects and cleanup, refs vs. state, discriminated unions)? Read
-[`docs/learning/00a-React-And-TypeScript-Essentials.md`](docs/learning/00a-React-And-TypeScript-Essentials.md).
-Curious *why* each piece of this stack, specifically? Every dependency has a full
-decision record (problem it solves, alternatives considered, why they lost) in the
-phase that introduced it: framework/BLE/navigation in
-[`phases/phase-00-probe-app/README.md`](phases/phase-00-probe-app/README.md#technology-decisions),
-state management in [`phases/phase-03-live-dashboard/README.md`](phases/phase-03-live-dashboard/README.md),
-SQLite in [`phases/phase-06-recording-schema/README.md`](phases/phase-06-recording-schema/README.md),
-the foreground service in [`phases/phase-07-foreground-service/README.md`](phases/phase-07-foreground-service/README.md),
-settings storage in [`phases/phase-08-settings/README.md`](phases/phase-08-settings/README.md),
-ZIP/file handling in [`phases/phase-09-backup-minimal/README.md`](phases/phase-09-backup-minimal/README.md),
-charts in [`phases/phase-10-statistics/README.md`](phases/phase-10-statistics/README.md).
+New to how Expo works under the hood? Read
+[`00-Expo-And-React-Native.md`](docs/learning/00-Expo-And-React-Native.md). Want the
+React and TypeScript patterns explained properly? Read
+[`00a-React-And-TypeScript-Essentials.md`](docs/learning/00a-React-And-TypeScript-Essentials.md).
 
-## Repository layout
+---
 
-This is the structure Phase 00 sets up; `src/` doesn't exist yet in this repo.
+## Folders
+
+Phase 00 creates `src/`. It doesn't exist yet.
 
 ```
-src/                           the Expo project root (package.json, app.json)
-├── app/                       Expo Router screens, one file per route (UI)
-├── core/                      plain TypeScript: FTMS parsing, workout engine,
-│                              SQLite repositories, backup. Imports nothing from
-│                              react, react-native or expo-*; a lint rule enforces
-│                              it, and Jest tests it in plain Node
-├── features/                  the React side: hooks (one per screen), components,
-│                              and the adapters that connect core/ to native APIs
-│                              (BLE, files, notifications)
-├── modules/recording-service/ local Expo module, Kotlin: the foreground service
-└── android/                   GENERATED by `npx expo prebuild`; never edited,
-                               never committed
+src/                           the Expo project (package.json, app.json)
+├── app/                       screens: one file per screen
+├── core/                      plain TypeScript: Bluetooth decoding, workout logic,
+│                              database code, backup. No phone-only imports, so it
+│                              can be tested on the PC
+├── features/                  React code: hooks, components, and the code that
+│                              talks to Bluetooth, files and notifications
+├── modules/recording-service/ Kotlin: the background service
+└── android/                   made by Expo when you build. Never edit it, never
+                               commit it
 
-phases/                        one folder per phase: the work order for what
-                               gets built next, and why, plus the byte-level
-                               protocol reference, database schema, and every
-                               technology decision record
-docs/learning/                 Expo/React Native primer, setup, glossary
-captures/                      raw BLE session logs (JSONL) from the probe app,
-                               the source of every parser test fixture
+phases/                        one folder per phase: what to build next and why
+docs/learning/                 guides: how Expo works, setup, glossary, theme
+captures/                      raw Bluetooth logs from the treadmill
 ```
+
+---
 
 ## Building and running
 
-Once the project exists (see Status above), these are the commands you'll use,
-all from `src/`. Full setup (Node, JDK 17, Android SDK, USB/wireless debugging on
-the Xiaomi) is in [`docs/learning/01-Device-And-Emulator-Setup.md`](docs/learning/01-Device-And-Emulator-Setup.md).
+All commands run from `src/`, once Phase 00 has created it.
+
+Check the code:
 
 ```powershell
 cd src
 npm install
-npx tsc --noEmit            # type check: must be clean
-npx expo lint               # lint: must be clean (includes the core/ import rule)
-npm test                    # Jest: core/ unit tests and the database tests
+npx tsc --noEmit      # types: must show no errors
+npx expo lint         # lint: must show no errors or warnings
+npm test              # tests
 ```
 
-To build the development build and install it on the phone (USB or wireless adb):
+Build the app and install it on the phone:
 
 ```powershell
 npx expo run:android --device
 ```
 
-You only need to rebuild when a **native** dependency or `app.json` changes. For
-everyday TypeScript edits, start the bundler with `npx expo start` and the
-installed dev build picks the changes up with Fast Refresh, the same way Expo Go
-did.
+You only rebuild when something native changes (a new library with Android code, or
+`app.json`). For normal code changes, run `npx expo start`. The app on the phone
+updates when you save, like Expo Go did.
 
-For a standalone APK you can install without the computer (and the only kind of
-build to measure performance or battery against), build the release variant:
+Build the release version, which runs without the PC:
 
 ```powershell
 npx expo run:android --variant release --device
 ```
 
-The APK lands in `src/android/app/build/outputs/apk/release/`. It's signed with
-the debug keystore Expo's template ships, which is fine for a personal sideloaded
-app. Keep that the same between builds: Android refuses to install an update
-signed with a different key, and uninstalling first wipes the app's data (that's
-what Phase 09's backup exists for).
+Use the release version for battery tests, screen-off tests and daily use. The APK
+lands in `src/android/app/build/outputs/apk/release/`. It's signed with Expo's
+built-in test key, which is fine for a personal app. Keep using the same key: Android
+won't install an update signed with a different one, and uninstalling first deletes
+your data (that's why Phase 09 adds backups).
 
-The emulator is a UI/crash smoke test only: it has no real Bluetooth radio. See
-the setup doc above.
+The emulator can't use Bluetooth, so it's only for checking screens.
 
 ## Safety
 
-The app can start the belt moving. **The physical safety key is the emergency
-stop, not this app.** Every control that can cause motion has a confirmation
-step and says so.
+The app can start the belt. **The physical safety key is the emergency stop, not
+this app.** Every button that can move the belt asks you to confirm first.
 
-## Non-goals
+## Not in scope
 
-Writing these down so they don't creep in: cloud sync, social features,
-multi-user, iOS, Strava/Garmin export, training plans, coaching. This is a
-personal, offline, single-device, single-treadmill app.
+Cloud sync, social features, multiple users, iOS, Strava/Garmin export, training
+plans, coaching. This is a personal, offline app for one phone and one treadmill.
 
-## Risk register
+## Risks
 
-See [`phases/README.md`](phases/README.md#risk-register) for the standing list
-of what's most likely to go wrong and the mitigation in place for each.
+[`phases/README.md`](phases/README.md#risk-register) lists what's most likely to go
+wrong, and the plan for each.

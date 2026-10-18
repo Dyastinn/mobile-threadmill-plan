@@ -1,14 +1,12 @@
-# React and TypeScript essentials, for someone who's used them by feel
+# React and TypeScript, explained properly
 
-> You've written React and TypeScript before, in an app that works. This doc is the
-> part that usually gets skipped when an app is built quickly: *why* the patterns
-> work, and the specific places they bite. Every section is grounded in code this
-> project actually writes, with the phase that first uses it.
+> You've used React and TypeScript in a working app. This covers what usually gets
+> skipped when an app is built quickly: *why* the patterns work, and where they bite.
+> Each section points to the phase that first uses it.
 >
-> How the platform underneath works (Expo, native modules, background) is in
-> [`00-Expo-And-React-Native.md`](00-Expo-And-React-Native.md).
+> How Expo works underneath is in [`00-Expo-And-React-Native.md`](00-Expo-And-React-Native.md).
 
-## A component is a function that runs again on every render
+## A component runs again on every redraw
 
 ```tsx
 function SpeedLabel({ kph }: { kph: number | null }) {
@@ -16,41 +14,36 @@ function SpeedLabel({ kph }: { kph: number | null }) {
 }
 ```
 
-React calls this function every time it needs to know what the screen should look
-like: when the component first appears, when its props change, when its state
-changes, or when its parent re-renders. It returns a *description* of the UI; React
-compares it with the last description and changes only what differs on the real
-screen.
+React calls this function whenever it needs to know what to show: when it first
+appears, when its props or state change, or when its parent redraws. It returns a
+*description* of the screen; React compares it with the last one and only changes what's
+different.
 
-Two consequences this project leans on:
+Two things follow:
 
-- **Anything computed from props or state can just be computed in the function.**
-  `showsSpeed = sample?.speedKph != null` belongs in the render, not in a separate
-  piece of state kept in sync by an effect (Phase 03). Derived state that's stored
-  separately is a second source of truth, and it drifts.
-- **Every `let` and every arrow function inside a component is new on every render.**
-  That's usually fine, and occasionally the cause of a bug (see "Stale closures" and
+- **Anything you can work out from props or state, work out in the function.** For
+  example, `showsSpeed = sample?.speedKph != null` belongs right there, not in a separate
+  state kept in sync by an effect (Phase 03). A separate copy can drift out of sync.
+- **Every variable and arrow function inside a component is new on every redraw.**
+  Usually fine. Occasionally the cause of a bug (see "Stale values" and
   `useSyncExternalStore` below).
 
-## `useState`: values that cause a re-render when they change
+## `useState`: a value that redraws when it changes
 
 ```ts
 const [sample, setSample] = useState<TreadmillSample | null>(null);
 ```
 
-- `setSample(next)` doesn't change `sample` immediately; it schedules a re-render, and
-  in *that* render `sample` has the new value.
-- If the new value depends on the old one, pass a function:
-  `setCount((c) => c + 1)`. The function receives the latest value even if several
-  updates are queued.
-- Setting state to the same value (by `Object.is`) skips the re-render. Setting it to a
-  new object with the same contents does not: React compares references, not contents.
+- `setSample(next)` doesn't change `sample` right away. It asks for a redraw, and in that
+  redraw `sample` has the new value.
+- If the new value depends on the old one, pass a function: `setCount((c) => c + 1)`.
+- Setting it to the same value skips the redraw. A new object with the same contents
+  doesn't: React compares *which object*, not what's inside.
 
-## `useEffect`: synchronising with something outside React
+## `useEffect`: connecting to things outside React
 
-An effect is for connecting a component to something that isn't React: a
-subscription, a timer, a native module. It runs *after* the render has been committed
-to the screen.
+An effect connects a component to something that isn't React: a listener, a timer, a
+native library. It runs *after* the screen has been updated.
 
 ```ts
 useEffect(() => {
@@ -59,23 +52,20 @@ useEffect(() => {
 }, [treadmill]);
 ```
 
-- **The cleanup function** runs before the effect runs again and when the component
-  unmounts. Forget it, and a listener keeps calling `setSample` on a screen that no
-  longer exists: a memory leak at best, a crash at worst. Every subscribe in this
-  project returns its unsubscribe function precisely so the effect can return it
-  (Phase 01b's design note).
-- **The dependency array** says when to re-run: `[]` once on mount; `[treadmill]` when
-  `treadmill` changes (never, in practice, but listing it is honest and the lint rule
-  insists); no array at all means after every render, which is almost never what you
-  want.
-- **Strict Mode** (on in this project's development builds, Phase 00) mounts every
-  component, unmounts it, and mounts it again. An effect with a correct cleanup
-  survives this invisibly. An effect without one subscribes twice, and you see doubled
-  log lines. That's the point: it surfaces the bug in development instead of in Phase
-  12's memory graph.
-- **Async work in an effect**: the effect function itself can't be `async` (it must
-  return a cleanup, not a promise). Start the async work inside it, and guard against
-  the component disappearing before it finishes:
+- **The cleanup** (the function you return) runs before the effect runs again, and when
+  the component goes away. Forget it, and the listener keeps calling `setSample` on a
+  screen that no longer exists: a leak, or worse. That's why every listener in this
+  project returns its own "stop listening" function.
+- **The dependency list** says when to run again: `[]` means once; `[treadmill]` means
+  when `treadmill` changes (it never does, but listing it is honest, and lint expects
+  it); no list means after every redraw, which you almost never want.
+- **Strict Mode** (on in this project's development builds) starts every component,
+  removes it, and starts it again. With a correct cleanup, you won't notice. Without
+  one, you'll see everything happen twice in the logs. That's the point: you find the
+  bug now, not in Phase 12's memory graph.
+- **Async work in an effect:** the effect itself can't be `async` (it must return a
+  cleanup, not a promise). Start the async work inside it, and don't update state if the
+  component has gone in the meantime:
 
   ```ts
   useEffect(() => {
@@ -89,12 +79,12 @@ useEffect(() => {
   }, [history]);
   ```
 
-  (Phase 03's contribution graph.)
-- **You might not need an effect.** If something can be calculated from props and
-  state during render, calculate it. Effects are for the outside world. React's own
-  guide on this is in [`03-Doc-Links.md`](03-Doc-Links.md); it's worth reading once.
+  (Phase 03's calendar.)
+- **You might not need an effect.** If you can work something out from props and state,
+  do it in the component. Effects are for the outside world. React's guide "You Might
+  Not Need an Effect" is worth reading once (link in [`03-Doc-Links.md`](03-Doc-Links.md)).
 
-## `useRef`: a box that survives renders without causing them
+## `useRef`: a value that's kept but doesn't redraw
 
 ```ts
 const lastUpdateMs = useRef(0);
@@ -103,13 +93,12 @@ if (Date.now() - lastUpdateMs.current < 250) return;
 lastUpdateMs.current = Date.now();
 ```
 
-A ref is an object `{ current: ... }` that React keeps for you across renders and
-ignores for rendering. Changing `.current` does *not* re-render. That makes it the
-right home for things the screen doesn't display but the logic needs to remember:
-the throttle's timestamp (Phase 03), a timer handle, the previous value of something.
-If the screen needs to show it, it's state; if only your code needs it, it's a ref.
+A ref is a box (`{ current: ... }`) React keeps between redraws. Changing it does *not*
+redraw. Use it for things your code needs to remember but the screen doesn't show: the
+throttle's last-update time (Phase 03), a timer, a previous value. If the screen shows
+it, it's state. If only your code needs it, it's a ref.
 
-## Stale closures
+## Stale values
 
 ```ts
 useEffect(() => {
@@ -118,16 +107,15 @@ useEffect(() => {
 }, []);
 ```
 
-The interval's arrow function "closes over" `count` from the render the effect ran
-in, and with `[]` that render never changes. It's a classic bug, and it's one reason
-this project keeps long-lived logic (timers, debouncing, backoff) in plain classes in
-`core/` rather than in hooks: a class reads `this.snapshot.targetSpeedKph` when the
-timer fires, so there's no stale copy to worry about (Phase 05's `SpeedController`).
+The interval's function remembers `count` from the redraw where the effect ran, and with
+`[]` that never updates. A classic bug. It's one reason this project keeps long-running
+logic (timers, debouncing, retries) in plain classes in `core/` instead of hooks: a
+class reads `this.snapshot.targetSpeedKph` at the moment the timer fires, so there's no
+old copy (Phase 05's `SpeedController`).
 
-## `useSyncExternalStore`: reading a value that lives outside React
+## `useSyncExternalStore`: showing a value that lives outside React
 
-For "a value owned by a service, and re-render when it changes," React has a
-purpose-built hook:
+React has a hook made for "a value a service owns, redraw when it changes":
 
 ```ts
 const state = useSyncExternalStore(reconnection.subscribe, reconnection.getState);
@@ -135,30 +123,28 @@ const state = useSyncExternalStore(reconnection.subscribe, reconnection.getState
 
 It takes two functions:
 
-- `subscribe(onChange)`: start listening, call `onChange` whenever the value might
-  have changed, return an unsubscribe function.
+- `subscribe(onChange)`: start listening, call `onChange` when the value might have
+  changed, and return a function that stops listening.
 - `getSnapshot()`: return the current value.
 
-**The one rule worth memorising:** `getSnapshot` must return *the same value* (by
-`Object.is`) until something actually changed. Returning a fresh object on every call
-(`return { ...this.state }`) makes React think the store changed on every render, which
-is an infinite re-render loop. That's why the classes in this project keep a `snapshot`
-field, replace it with a new object only when something changes, and return that field
-(Phases 05, 08). A second, gentler rule: pass a *stable* `subscribe` function, not a new
-arrow on every render, or React unsubscribes and resubscribes on every render. Defining
-`subscribe` and `getSnapshot` as arrow-function properties on the class solves both.
+**The one rule:** `getSnapshot` must return *the same object* until something actually
+changes. If it returns a new object every time (`return { ...this.state }`), React
+thinks it changed on every redraw and redraws forever. That's why this project's classes
+keep a `snapshot` field, replace it only when something changes, and return it (Phases
+05 and 08). Also pass the *same* `subscribe` function every time, not a new arrow each
+redraw. Writing `subscribe` and `getSnapshot` as arrow functions on the class handles
+both.
 
-## Context: getting the services into every screen
+## Context: getting the services to every screen
 
 ```ts
 const { treadmill, workout, settings } = useServices();
 ```
 
-`ServicesProvider` (Phase 00) puts the services object into React context at the root,
-and `useServices()` reads it anywhere below. You could import the services module
-directly instead, and it would work. Context buys one thing that matters here: a test
-or a preview can wrap a screen in a provider with fakes, without touching the real
-module.
+`ServicesProvider` (Phase 00) puts the services at the top of the app, and
+`useServices()` reads them from anywhere below. You could import the services file
+directly and it would work. Context allows one useful thing: a test can give a screen
+fake services instead.
 
 ## Lists and keys
 
@@ -166,39 +152,37 @@ module.
 {presets.map((kph) => <SecondaryButton key={kph} label={kph.toFixed(0)} ... />)}
 ```
 
-`key` is how React matches items between renders, so it can tell "this item moved"
-from "this item is new." Use something unique and stable: a speed value, a day
-string, a `workoutId`. An array index is only safe if the list never reorders, inserts
-or deletes in the middle. Long or growing lists use `FlatList` (it only renders what's
-on screen: Phase 10's history); short fixed ones use `.map()` (Phase 05's six presets).
+`key` is how React tells list items apart between redraws ("this one moved" vs. "this one
+is new"). Use something unique and stable: a speed, a date, a `workoutId`. The position
+in the list is only safe if the list never changes order. Long or growing lists use
+`FlatList`, which only draws what's on screen (Phase 10's history). Short, fixed ones use
+`.map()` (Phase 05's six presets).
 
-## Promises in event handlers
+## Promises in button presses
 
 ```tsx
 <Button label="Stop" onPress={() => void controller.stop()} />
 ```
 
-- `onPress` doesn't wait for or care about a returned promise. `void` says "I'm
-  deliberately not awaiting this."
-- **A rejected promise nobody handles** becomes an "unhandled promise rejection"
-  warning and the error is otherwise lost. Either the async function handles its own
-  errors (and reports them through state, like `statusMessage`), or the caller adds
-  `.catch(...)`. Phase 02's backoff loop is started without `await` from an event
-  handler, so it needs one.
-- `async` functions always return a promise, even if nothing inside awaits.
+- `onPress` doesn't wait for a promise. `void` says that's on purpose.
+- **A failed promise nobody handles** shows an "unhandled promise rejection" warning, and
+  the error is lost. Either the async function handles its own errors (and shows them
+  through state, like `statusMessage`), or the caller adds `.catch(...)`. Phase 02's retry
+  loop is started without `await`, so it needs one.
+- An `async` function always returns a promise, even with no `await` inside.
 
-## TypeScript patterns this project uses everywhere
+## TypeScript patterns used everywhere
 
-### String-literal unions instead of enums
+### Lists of strings instead of enums
 
 ```ts
 type ConnectionState = 'disconnected' | 'connecting' | 'discovering' | 'ready';
 ```
 
-A union of strings is the idiomatic TypeScript "enum": it's just the strings at
-runtime (readable in logs, in JSON, in the database), and the compiler rejects a typo.
+At runtime they're just strings (easy to read in logs, JSON and the database), and the
+compiler rejects typos.
 
-### Discriminated unions and exhaustive `switch`
+### Unions with a `kind` field, and complete `switch`es
 
 ```ts
 type MachineEvent =
@@ -216,19 +200,18 @@ switch (event.kind) {
   case 'unknown':
     break;
   default: {
-    const unhandled: never = event; // compile error if a kind was missed
+    const unhandled: never = event; // stops compiling if a kind is missed
     return unhandled;
   }
 }
 ```
 
-The shared `kind` field "discriminates" the union: checking it narrows the type, so
-fields that only exist on one variant are only accessible where they exist. The
-`never` line at the end is the safety net: if someone adds a new kind and forgets this
-switch, the code stops compiling (Phase 04). Result types use the same idea:
+Checking `kind` tells TypeScript which kind it is, so `event.kph` is only allowed where
+it exists. The `never` line at the end is a safety net: if someone adds a new kind and
+forgets this `switch`, the code stops compiling (Phase 04). Results work the same way:
 `{ ok: true; value } | { ok: false; reason }` forces the caller to check (Phase 01a).
 
-### `as const`: one declaration, both a runtime value and a type
+### `as const`: one line gives a value and a type
 
 ```ts
 export const THEME_PREFERENCES = ['system', 'light', 'dark'] as const;
@@ -238,11 +221,10 @@ export const FtmsResultCode = { Success: 0x01, Timeout: 0xf0 } as const;
 export type FtmsResultCode = (typeof FtmsResultCode)[keyof typeof FtmsResultCode]; // 0x01 | 0xf0
 ```
 
-`as const` makes TypeScript keep the exact literal values instead of widening them to
-`string[]` or `number`. The type is then *derived* from the value, so the list of
-options shown on screen and the type the setter accepts can never drift apart (Phase
-08). Giving the value and the type the same name (`FtmsResultCode`) is legal and
-conventional: TypeScript keeps values and types in separate namespaces.
+`as const` keeps the exact values instead of turning them into `string[]` or `number`.
+The type then comes *from* the value, so the options on screen and the type a setter
+accepts can never get out of sync (Phase 08). Using the same name for the value and the
+type is allowed and normal.
 
 ### Type guards
 
@@ -252,55 +234,48 @@ function isThemePreference(value: string | null): value is ThemePreference {
 }
 ```
 
-A function returning `value is T` teaches the compiler something: after
-`if (isThemePreference(stored))`, `stored` is a `ThemePreference`. This is how
-"parse an untrusted string, fall back if it's garbage" stays type-safe without a cast.
+A function returning `value is T` tells the compiler what a check proved. After
+`if (isThemePreference(saved))`, `saved` has the type `ThemePreference`. That's how
+"read an untrusted string, fall back if it's junk" stays type-safe.
 
-### `null` for "absent", never `undefined`, in data
+### `null` for "missing" in data
 
-This project uses `number | null` for every optional field in data (samples, rows,
-exports): `null` maps directly onto SQLite `NULL` and survives `JSON.stringify`
-(which silently *drops* `undefined` fields). `undefined` is fine for optional function
-parameters and props.
+Every optional field in data (samples, database rows, backups) is `number | null`.
+`null` matches SQLite's `NULL`, and survives `JSON.stringify` (which silently *drops*
+`undefined` fields). `undefined` is fine for optional function arguments and props.
 
 ### `noUncheckedIndexedAccess`
 
-Turned on in Phase 00. With it, `bytes[3]` has type `number | undefined`, because the
-index might be past the end. It's mildly annoying in ordinary code and exactly right for
-a project whose core job is parsing byte buffers: you can't forget the length check.
+Turned on in Phase 00. With it, `bytes[3]` has the type `number | undefined`, because the
+index might be past the end. Slightly annoying in normal code, and exactly right for a
+project that reads byte arrays all day: you can't forget the length check.
 
-### Structural typing and `implements`
+### Shapes, not names
 
-TypeScript checks shapes, not names: any object with the right methods *is* a
-`TreadmillService`. `class FakeTreadmillService implements TreadmillService` isn't
-required, but it makes the compiler report a missing method at the class, not at some
-distant call site. `ReturnType<typeof setTimeout>` is the portable type for a timer
-handle (it's a number on the phone and an object in Node).
+TypeScript checks shapes: any object with the right methods *is* a `TreadmillService`.
+Writing `class FakeTreadmillService implements TreadmillService` isn't required, but it
+makes the compiler point at a missing method right at the class. `ReturnType<typeof
+setTimeout>` is the type for a timer handle (a number on the phone, an object in Node).
 
 ## Numbers and bytes
 
-- **Every JavaScript `number` is a 64-bit float.** Integers are exact up to 2^53, so
-  byte values and counters are fine, but decimals aren't: `0.1 + 0.2` is
-  `0.30000000000000004`. That's why `clampSpeed` rounds to two decimals before encoding
+- **Every JavaScript number is a decimal (floating point) number.** Whole numbers are
+  exact up to very large values, so bytes and counters are fine. Decimals aren't:
+  `0.1 + 0.2` is `0.30000000000000004`. That's why `clampSpeed` rounds before encoding
   (Phase 01b).
-- **Bitwise operators work on 32-bit integers.** `flags & 0x01`, `byte << 8` and
-  `a | b` are what the FTMS parsers use; they're exact for anything that fits in 32
-  bits, which every FTMS field does.
-- **`Uint8Array`** is a fixed-size array of bytes, and what BLE values are turned into
-  at the boundary. **`DataView`** reads multi-byte numbers out of one:
-  `view.getUint16(offset, true)`. The `true` means little-endian, which FTMS always is
-  and `DataView`'s default is not. Forgetting it is the easiest way to get every field
-  wrong (Phase 01a).
-- A `Uint8Array` can be a *window* onto a larger buffer (`byteOffset` > 0). Construct a
-  `DataView` with `(bytes.buffer, bytes.byteOffset, bytes.byteLength)`, never just
-  `bytes.buffer`.
+- **Bit operators work on 32-bit whole numbers.** `flags & 0x01`, `byte << 8` and `a | b`
+  are what the decoders use. Every FTMS field fits.
+- **`Uint8Array`** is a fixed-size array of bytes; Bluetooth values become one when they
+  arrive. **`DataView`** reads bigger numbers out of it: `view.getUint16(offset, true)`.
+  The `true` means little-endian (low byte first), which FTMS always is and `DataView`
+  doesn't assume. Forgetting it is the easiest way to get every field wrong (Phase 01a).
+- A `Uint8Array` can be a *window* into a bigger block of memory. Create the `DataView`
+  with `(bytes.buffer, bytes.byteOffset, bytes.byteLength)`, never just `bytes.buffer`.
 
-## Where to go next
+## Next
 
-- [`00-Expo-And-React-Native.md`](00-Expo-And-React-Native.md) if you haven't read it.
-- [`03-Doc-Links.md`](03-Doc-Links.md): the official React docs on effects,
-  `useSyncExternalStore` and "You Might Not Need an Effect" are the three most useful
-  pages for this project.
-- `phases/phase-01-protocol-decode/treadmillService.ts`: the contract almost every
-  phase builds against, and a compact example of everything in the TypeScript section
-  above.
+- [`00-Expo-And-React-Native.md`](00-Expo-And-React-Native.md), if you haven't read it.
+- [`03-Doc-Links.md`](03-Doc-Links.md): React's pages on effects, `useSyncExternalStore`
+  and "You Might Not Need an Effect" are the most useful three for this project.
+- `phases/phase-01-protocol-decode/treadmillService.ts`: the interface most phases build
+  on, and a short example of every TypeScript pattern above.

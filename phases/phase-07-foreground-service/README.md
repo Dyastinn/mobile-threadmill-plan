@@ -1,229 +1,178 @@
-# Phase 07 — Foreground Service
+# Phase 07 — Background Service
 
-> Every long-running test from here on is unreliable without this, and split screen
-> (app visible but not focused) is exactly where Android starts restricting background
-> work.
+> Every long test from here on depends on this. Split screen (app visible but not
+> focused) is exactly where Android starts holding apps back.
 
-**Hardware:** required · **Size:** M · **Blocked by:** Phase 06 · **Shaped by:** V5
+**Treadmill needed:** yes · **Size:** M · **Waits for:** Phase 06 · **Depends on:** V5
 
 ---
 
 ## Goal
 
-Keep BLE alive, JavaScript running, and the workout recording while the screen is off
-or the app is unfocused.
+Keep Bluetooth, your code, and recording running while the screen is off or another
+app is in front.
 
-Phase 00's task 0.12 already built a **spike** of this: a local Expo module whose
-Kotlin service holds a foreground notification and keeps a headless JS task alive, and
-runbook Part H measured whether that was enough on this phone. This phase is you
-taking ownership of that module and finishing it: reading every line of the spike with
-the agent, then adding what a spike skips (live notification text, pause/stop
-actions, the notification permission, a start path that's only ever a deliberate tap,
-and the JavaScript side that ties it to the workout).
+Phase 00 (task 0.12) already built a **test version**: a Kotlin service that shows a
+notification and keeps a "keep-alive" task running, and runbook Part H measured whether
+that's enough on this phone. In this phase you take it over and finish it: go through
+the test version line by line with the agent, then add what it skipped (live
+notification text, Pause/Stop buttons, the notification permission, a Start that only
+happens on a tap, and the TypeScript that connects it to the workout).
 
-**First, read V5 in `../phase-00-probe-app/PHASE-00-FINDINGS.md`.**
+**First, read V5 in `PHASE-00-FINDINGS.md`:**
 
-- **Holds:** this README as written.
-- **Partly holds:** this README as written, but start with a review checkpoint on
-  exactly which signal stalled. The fix is usually one of the HyperOS controls, or the
-  wake lock.
-- **Fails:** skip to "If V5 failed" at the bottom. The service's job grows: BLE and
-  recording move into Kotlin.
+- **Holds:** follow this README as written.
+- **Partly holds:** follow this README, but start by looking at what stalled with the
+  agent. Usually it's a HyperOS setting or the wake lock.
+- **Fails:** skip to "If V5 failed" at the bottom. Bluetooth and recording move into
+  Kotlin.
 
-This phase is mostly **Android platform code in Kotlin**, plus one TypeScript file. It
-follows the same "you write the logic, the agent explains and reviews" rule as
-everything else in this project; Kotlin is new, so every Kotlin task starts with the
-agent walking through the syntax it uses (it reads a lot like TypeScript: `val`/`var`,
-`fun`, `?` for nullable, `when` for `switch`).
+This phase is mostly **Kotlin**, plus one TypeScript file. You write it; the agent
+explains and reviews. Kotlin is new, so each Kotlin task starts with the agent walking
+through the syntax. It reads a lot like TypeScript: `val`/`var`, `fun`, `?` for "can be
+null", `when` instead of `switch`.
 
-### Understanding what you're building (read this before the tasks)
+### The idea
 
-Android aggressively suspends work in apps that aren't visible on screen, to save
-battery. By Phase 06, recording already works (`WorkoutRecorder` and
-`WorkoutRepository` are solid), but none of it survives the screen turning off
-unless something tells Android to leave the process alone. A **foreground service**
-with a persistent, user-visible notification does that: in exchange for a
-notification the user can always see ("elapsed time, distance, speed," per this
-phase's Features list), Android agrees not to kill the process, and treats it as
-something the user is actively using.
+To save battery, Android pauses or closes apps that aren't on screen. A **foreground
+service** is the deal you make with Android: show a notification the user can always
+see, and Android leaves the app alone.
 
-In React Native there's a second half to it, which is what Phase 00's spike existed to
-test. Keeping the *process* alive isn't the same as keeping your *JavaScript* running
-normally. React Native stops firing `setTimeout`/`setInterval` when the activity is
-paused, unless a **headless JS task** is in progress. So the service does two things
-at once: it's a foreground service (the process survives) and it runs a headless task
-that deliberately never finishes until the workout ends (the timers keep firing).
-`HeadlessJsTaskService`, the React Native class the spike extends, also holds a
-**partial wake lock** while the task runs, so the CPU doesn't doze off between BLE
-notifications.
+React Native adds a second problem. Keeping the *app* alive isn't the same as keeping
+your *code* running normally: React Native stops `setTimeout` and `setInterval` when
+the screen is off, unless a **headless JS task** is running. So the service does two
+things: it's a foreground service (the app stays alive), and it runs a headless task
+that deliberately never finishes until the workout ends (the timers keep firing). The
+React Native class it's built on, `HeadlessJsTaskService`, also keeps the CPU awake
+while that task runs (a "partial wake lock").
 
-**Why a plain background task isn't enough.** Just running the BLE listeners and the
-sample buffer in ordinary JavaScript works fine as long as the app is the thing on
-screen. The moment the user locks the phone or switches to another app mid-workout (a
-20–60 minute session, easily), Android's power management throttles and eventually
-kills background work regardless of what the app intends, and React Native's timers
-stop on their own even sooner. That's enforced platform behaviour, not a setting the
-app can request around. The realistic failure isn't a clean stop, it's a silent one:
-the reconnect backoff never fires, the flush timer never fires, and `WorkoutSample`
-rows stop appearing mid-workout. So "just keep it in JavaScript" isn't a
-simpler-but-adequate alternative here. It predictably breaks the one thing this phase
-exists for (`../README.md`'s own framing: "every long-running test from here on is
-unreliable without this").
+**Why not just run in the background normally?** It works while the app is on screen.
+Lock the phone during a 20–60 minute walk, and Android slows and then stops it, and
+React Native's timers stop even sooner. Nothing crashes: reconnecting quietly never
+happens and samples quietly stop being saved. That's exactly what this phase prevents.
 
-A related question: why declare `connectedDevice` specifically, rather than the
-plainest possible foreground service? Android 14+ requires apps to state which of
-several defined types of long-running work a foreground service is doing, and
-background BLE specifically requires the `connectedDevice` type plus its own
-`FOREGROUND_SERVICE_CONNECTED_DEVICE` permission. Get the type wrong or omit it and
-there's no build error. This phase's Implementation requirements call out exactly
-this: "the failure mode is a silent scan failure rather than an exception," a far
-worse debugging session than getting it right the first time would have cost.
+**Why the `connectedDevice` type?** Android 14+ requires a foreground service to say
+what kind of work it does. Bluetooth in the background needs `connectedDevice` and its
+own permission. Get it wrong and there's no error, Bluetooth just quietly stops
+working: a horrible thing to debug.
 
-**The pattern, named plainly.** The service is **started, not bound**, and that's a
-simplification worth noticing. In a native Android app (or the MAUI version of this
-plan), the service would *own* the BLE connection and the UI would bind to it to read
-live values: two lifecycles to reason about at once. Here, the BLE connection, the
-engine and the recorder already live in the JavaScript runtime as module-level
-objects (`services.tsx`), and that runtime belongs to the app's process, not to any
-screen. The UI already has direct access to them. So the service's only jobs are
-"keep the process and the timers alive" and "show the notification and forward its
-buttons." One responsibility, one lifecycle. The cost is a design constraint you must
-keep: nothing that has to survive the screen turning off may live inside a React
-component. It all lives in `services.tsx`, where it already is.
+**One simpler choice.** In a pure Android app, the service would *own* the Bluetooth
+connection, and the screens would connect to the service to read live values. Here, the
+connection, the engine and the recorder already live in your services file, which
+belongs to the app itself, not to any screen. So the service only has to keep the app
+alive and show the notification. The rule this depends on: **anything that must keep
+running with the screen off lives in the services file, never in a component.**
 
-## Learning goals
+## What you'll learn
 
-- **Android's `Service` component**, and the foreground-service contract: the
-  mandatory notification, the five-second rule after `startForegroundService`, and
-  `foregroundServiceType` as a declared contract with the OS about *what kind* of
-  long-running work this is
-- **Headless JS**: what React Native's `HeadlessJsTaskService` does (start a task,
-  hold a wake lock, stop itself when the task finishes), and why a task that never
-  settles is the keep-alive
-- **`PendingIntent`**: how a notification action button hands control back into your
-  app without the app needing to be in the foreground when the user taps it
-- **The Expo Modules API**: how a Kotlin function becomes callable from TypeScript,
-  and how a Kotlin event reaches a TypeScript listener
-- **Runtime permissions beyond BLE**: `POST_NOTIFICATIONS` (Android 13+), requested
-  with the same `PermissionsAndroid` pattern Phase 00 used for
-  `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT`
-- **Where native configuration lives** under Continuous Native Generation: the module's
-  own `AndroidManifest.xml` is merged into the app's at build time, so the permissions
-  and the `<service>` entry travel with the module and never require editing
-  `src/android/`
+- **Android services**: the notification you must show, the 5-second rule after
+  starting one, and the service type.
+- **Headless JS**: React Native code running without a screen, and why a task that never
+  finishes is the keep-alive.
+- **`PendingIntent`**: how a notification button gets back into your app, even when the
+  app isn't in front.
+- **Expo Modules**: how a Kotlin function becomes callable from TypeScript, and how a
+  Kotlin event reaches a TypeScript listener.
+- **`POST_NOTIFICATIONS`**: the Android 13+ permission for showing notifications,
+  requested like Phase 00's Bluetooth permissions.
+- **Where native settings live**: the module's own `AndroidManifest.xml` is merged into
+  the app when it builds, so you never edit `src/android/`.
 
-## Reference docs
+## Read first
 
-| Topic | Link | Relevant to |
+| Topic | Link | For |
 |---|---|---|
-| Foreground services overview | https://developer.android.com/develop/background-work/services/fgs | `startForeground()`, the 5-second rule, why the notification is mandatory |
-| Foreground service types (`connectedDevice`, etc.) | https://developer.android.com/develop/background-work/services/fgs/service-types | Which type this service declares, and the permissions it requires first |
-| Foreground service types required (Android 14+) | https://developer.android.com/about/versions/14/changes/fgs-types-required | Why omitting the type is a silent failure, not a build error |
+| Foreground services | https://developer.android.com/develop/background-work/services/fgs | The notification, the 5-second rule |
+| Service types | https://developer.android.com/develop/background-work/services/fgs/service-types | `connectedDevice` and what it needs first |
+| Types required on Android 14+ | https://developer.android.com/about/versions/14/changes/fgs-types-required | Why a missing type fails silently |
 | Services overview | https://developer.android.com/develop/background-work/services | Started vs. bound, and why this one is only started |
-| Headless JS (React Native) | https://reactnative.dev/docs/headless-js-android | `HeadlessJsTaskService`, `getTaskConfig`, `AppRegistry.registerHeadlessTask` |
-| Expo Modules API: overview | https://docs.expo.dev/modules/overview/ | What a local module is |
-| Expo Modules API: module definition | https://docs.expo.dev/modules/module-api/ | `Function`, `Events`, `sendEvent`: task 7.3 |
-| Create a notification (incl. actions) | https://developer.android.com/develop/ui/views/notifications/build-notification | Task 7.3: the notification and its two action buttons |
-| `NotificationCompat.Builder` reference | https://developer.android.com/reference/androidx/core/app/NotificationCompat.Builder | The exact builder API task 7.3 calls |
-| `PendingIntent` reference | https://developer.android.com/reference/android/app/PendingIntent | What an action button actually hands to the OS |
-| Notification runtime permission | https://developer.android.com/develop/ui/views/notifications/notification-permission | Task 7.4: `POST_NOTIFICATIONS` |
-| Android: communicate in the background over BLE | https://developer.android.com/develop/connectivity/bluetooth/ble/background | The background BLE constraints this whole phase exists to satisfy |
-| Doze and App Standby | https://developer.android.com/training/monitoring-device-state/doze-standby | What the wake lock and the battery-optimisation exemption protect against |
-| Kotlin basic syntax | https://kotlinlang.org/docs/basic-syntax.html | Read once before task 7.2 |
+| Headless JS | https://reactnative.dev/docs/headless-js-android | `HeadlessJsTaskService`, `getTaskConfig`, `registerHeadlessTask` |
+| Expo Modules overview | https://docs.expo.dev/modules/overview/ | What a local module is |
+| Expo Modules API | https://docs.expo.dev/modules/module-api/ | `Function`, `Events`, `sendEvent` (task 7.3) |
+| Notifications | https://developer.android.com/develop/ui/views/notifications/build-notification | Task 7.3 |
+| `NotificationCompat.Builder` | https://developer.android.com/reference/androidx/core/app/NotificationCompat.Builder | Task 7.3 |
+| `PendingIntent` | https://developer.android.com/reference/android/app/PendingIntent | The notification buttons |
+| Notification permission | https://developer.android.com/develop/ui/views/notifications/notification-permission | Task 7.4 |
+| Bluetooth in the background | https://developer.android.com/develop/connectivity/bluetooth/ble/background | Why this phase exists |
+| Doze | https://developer.android.com/training/monitoring-device-state/doze-standby | What the wake lock protects against |
+| Kotlin basics | https://kotlinlang.org/docs/basic-syntax.html | Read once before task 7.2 |
 
 ## Features
 
-- Foreground service started when a workout starts, stopped when it ends
-- Persistent notification: elapsed time, distance, speed
-- Notification actions: pause / stop
-- **BLE connection and sample recording keep running with the screen off**, because
-  the process and the JavaScript timers are both kept alive
+- The service starts when a workout starts and stops when it ends
+- A notification with elapsed time, distance and speed
+- Pause and Stop buttons on the notification
+- **Bluetooth and recording keep going with the screen off**
 
 ---
 
-## Implementation requirements
+## Rules
 
 - `foregroundServiceType="connectedDevice"` **and** the
-  `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission. A generic foreground service is
-  not sufficient for background BLE on current Android, and **the failure mode is a
-  silent scan failure rather than an exception**, easy to misdiagnose for hours.
-  (Task 7.2)
-- Pass the type constant to `startForeground()` as well as declaring it. (Task 7.2)
-- On Android 14+, a `connectedDevice` service may only start once a Bluetooth
-  runtime permission (`BLUETOOTH_CONNECT` here) is already granted, or
-  `startForeground` throws a `SecurityException`. (Task 7.5)
-- `POST_NOTIFICATIONS` runtime permission. (Task 7.4)
-- Start the service **only from a user-visible action** (the Start button). Never from
-  the background, never from `BOOT_COMPLETED`, never from app launch. (Task 7.5)
-- **Never send a treadmill Start command from a notification action.** Pause and stop
-  only. (Task 7.3)
-- The headless task **must not settle** until the workout ends. A task that resolves
-  early ends the keep-alive, and the timers stop. (expo/expo#51304 is a real-world
-  case of exactly this: a no-op task that resolved immediately.)
+  `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission. Without them, Bluetooth fails
+  silently in the background. (7.2)
+- Pass the same type to `startForeground()` too. (7.2)
+- On Android 14+, the service can only start once `BLUETOOTH_CONNECT` is granted, or
+  `startForeground` throws. (7.5)
+- Ask for `POST_NOTIFICATIONS`. (7.4)
+- Start the service **only from the Start button**. Never in the background, never at
+  boot, never when the app opens. (7.5)
+- **Never start the treadmill from a notification button.** Pause and Stop only. (7.3)
+- The keep-alive task **must not finish** until the workout ends. If it finishes early,
+  the timers stop (that's exactly the bug in expo/expo#51304).
 
-**On timeouts:** the 6-hour foreground service limit introduced in Android 15 applies
-only to `dataSync` and `mediaProcessing`. `connectedDevice` is not subject to it, so a
-long workout is fine and no `onTimeout()` handling is needed.
+**Time limits:** Android 15's 6-hour limit only applies to other service types, not
+`connectedDevice`. Long workouts are fine.
 
 ---
 
-## Your tasks
+## Tasks
 
-### 7.1 — Read the spike, line by line (review checkpoint first)
+### 7.1 — Go through the test version (review first)
 
-Not new code. Before changing anything, walk through what Phase 00 built with the
-agent, until you could explain each line to someone else:
+No new code. With the agent, read what Phase 00 built until you could explain each line:
 
-1. `src/modules/recording-service/expo-module.config.json`: how Expo's autolinking
-   finds the module.
+1. `src/modules/recording-service/expo-module.config.json`: how Expo finds the module.
 2. `src/modules/recording-service/android/src/main/AndroidManifest.xml`: the four
    permissions and the `<service>` entry. Why `android:exported="false"`?
-3. `WorkoutRecordingService.kt`: `onStartCommand`, `getTaskConfig`, and what the
-   `HeadlessJsTaskService` base class does in between (open its source in
-   `node_modules/react-native/ReactAndroid/.../HeadlessJsTaskService` if the agent's
-   explanation leaves a gap).
-4. `RecordingServiceModule.kt`: how `Function("start") { ... }` becomes something
-   TypeScript can call.
-5. `src/features/background/keepAlive.ts` and `src/index.ts`: why the task has to be
+3. `WorkoutRecordingService.kt`: `onStartCommand`, `getTaskConfig`, and what
+   `HeadlessJsTaskService` does in between. If something's unclear, open its source in
+   `node_modules/react-native/ReactAndroid/`.
+4. `RecordingServiceModule.kt`: how `Function("start") { ... }` becomes callable from
+   TypeScript.
+5. `src/features/background/keepAlive.ts` and `src/index.ts`: why the task is
    registered before `expo-router/entry` is imported.
 
-Write down, in your own words, one paragraph: what keeps the process alive, what
-keeps the timers running, and what keeps the CPU awake. Three different mechanisms;
-the paragraph is the checkpoint.
+Then write one paragraph in your own words: what keeps the app alive, what keeps the
+timers running, and what keeps the CPU awake. Three different things. That paragraph is
+the checkpoint.
 
-### 7.2 — Verify the manifest and the service type
+### 7.2 — Check the permissions and the service type
 
-Touches: nothing, if the spike is right. Mostly verification.
+Mostly checking, no new code if the test version is right.
 
-1. Build, then confirm the merged result on the phone rather than trusting the XML:
+1. After a build, check the phone itself:
    ```powershell
    adb shell dumpsys package com.myhi.companion | Select-String -Pattern "FOREGROUND_SERVICE|POST_NOTIFICATIONS|WAKE_LOCK"
    ```
-   All four permissions should be listed as requested.
+   All four permissions should be listed.
 2. Start a fake workout with the keep-alive on, then:
    ```powershell
    adb shell dumpsys activity services com.myhi.companion
    ```
-   Look for `isForeground=true` and `foregroundServiceType=0x00000010` (that's
-   `connectedDevice`). If the type is missing, the declaration or the
-   `startForeground` call is wrong, and nothing else in this phase will hold up.
-3. In `WorkoutRecordingService.onStartCommand`, confirm it returns
-   `START_NOT_STICKY`, not `START_STICKY`. If Android kills the process anyway, the
-   workout's JavaScript state is gone with it; restarting an empty service would only
-   start a keep-alive with nothing to keep alive, and on Android 12+ starting a
-   foreground service from the background can throw. Recovery is Phase 06's job
-   (the `Status = 0` row on next launch), not the service's.
+   Look for `isForeground=true` and a service type of `0x10` (`connectedDevice`). If
+   the type is missing, nothing else in this phase will work.
+3. Check `onStartCommand` returns `START_NOT_STICKY`, not `START_STICKY`. If Android
+   kills the app anyway, the workout's state is gone with it; restarting an empty service
+   would help nothing, and on Android 12+ it can even crash. Recovery is Phase 06's job
+   (the in-progress row).
 
-### 7.3 — Notification content and pause/stop actions
+### 7.3 — Notification text and Pause/Stop buttons
 
-Touches: `WorkoutRecordingService.kt`, `RecordingServiceModule.kt`,
+Change `WorkoutRecordingService.kt`, `RecordingServiceModule.kt` and
 `src/modules/recording-service/index.ts`.
 
-The spike posts a fixed "Keep-alive spike" notification with no buttons. The real one
-shows live elapsed time, distance and speed, and has Pause and Stop actions whose taps
-reach your TypeScript.
-
-The service's final shape (the parts marked `TODO` are yours):
+The service's final shape (the `TODO`s are yours):
 
 ```kotlin
 package expo.modules.recordingservice
@@ -235,7 +184,7 @@ class WorkoutRecordingService : HeadlessJsTaskService() {
     const val NOTIFICATION_ID = 1001
     const val CHANNEL_ID = "workout_recording"
 
-    /** Set by RecordingServiceModule so notification taps reach JavaScript. */
+    /** Set by RecordingServiceModule, so button taps reach TypeScript. */
     var onAction: ((String) -> Unit)? = null
   }
 
@@ -244,59 +193,53 @@ class WorkoutRecordingService : HeadlessJsTaskService() {
       ACTION_PAUSE -> { onAction?.invoke("pause"); return START_NOT_STICKY }
       ACTION_STOP -> { onAction?.invoke("stop"); return START_NOT_STICKY }
     }
-    // The initial start. startForeground FIRST (the 5-second rule), then let
-    // HeadlessJsTaskService start the keep-alive task and take the wake lock.
-    // TODO: ensure the channel exists (WorkoutNotification.ensureChannel), build the
-    // first notification, and call
+    // First start: show the notification first (the 5-second rule), then let
+    // HeadlessJsTaskService start the keep-alive task.
+    // TODO: WorkoutNotification.ensureChannel(this), build the notification, then
     // ServiceCompat.startForeground(this, NOTIFICATION_ID, notification,
     //     ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
     return super.onStartCommand(intent, flags, startId)
   }
 
   override fun getTaskConfig(intent: Intent?): HeadlessJsTaskConfig? =
-    // name, extras, timeout 0 = never time out, allowed while the app is in the foreground
+    // task name, no data, 0 = never time out, allowed while the app is on screen
     HeadlessJsTaskConfig("RecordingKeepAlive", Arguments.createMap(), 0, true)
 }
 ```
 
-The early `return` for the two actions matters: `super.onStartCommand` asks
-`getTaskConfig` for a task and starts it, so letting an action intent fall through
-would start a *second* keep-alive task on every tap.
+The early `return` for the two buttons matters: `super.onStartCommand` starts a task, so
+letting a button tap fall through would start a *second* keep-alive every time.
 
-And a small notification helper, `WorkoutNotification.kt`:
+A notification helper, `WorkoutNotification.kt`:
 
 ```kotlin
 object WorkoutNotification {
   fun ensureChannel(context: Context) {
-    // TODO: NotificationManagerCompat.from(context).createNotificationChannel(...)
-    // with IMPORTANCE_LOW: a persistent status notification, not an alert. Low avoids
-    // a sound or heads-up on every update.
+    // TODO: create the channel with IMPORTANCE_LOW (no sound on every update)
   }
 
   fun build(context: Context, title: String, text: String): Notification {
     val pause = actionIntent(context, WorkoutRecordingService.ACTION_PAUSE, requestCode = 1)
     val stop = actionIntent(context, WorkoutRecordingService.ACTION_STOP, requestCode = 2)
     return NotificationCompat.Builder(context, WorkoutRecordingService.CHANNEL_ID)
-      // TODO: setSmallIcon, setOngoing(true), setOnlyAlertOnce(true),
-      // setContentTitle(title), setContentText(text)
+      // TODO: setSmallIcon, setOngoing(true), setOnlyAlertOnce(true), title, text
       .addAction(0, "Pause", pause)
       .addAction(0, "Stop", stop)
       .build()
   }
 
   private fun actionIntent(context: Context, action: String, requestCode: Int): PendingIntent {
-    // TODO:
-    // val intent = Intent(context, WorkoutRecordingService::class.java).setAction(action)
-    // return PendingIntent.getService(context, requestCode, intent,
-    //     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    // FLAG_IMMUTABLE is required on API 31+ unless the receiver genuinely needs to fill
-    // in the intent, which pause/stop doesn't.
+    // TODO: an Intent for WorkoutRecordingService with this action, wrapped in
+    // PendingIntent.getService(..., FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE)
     TODO()
   }
 }
 ```
 
-The module gains an `update` function and an event:
+(`FLAG_IMMUTABLE` is required on Android 12+, and these buttons don't need anything
+else.)
+
+The module gets an `update` function and an event:
 
 ```kotlin
 class RecordingServiceModule : Module() {
@@ -308,60 +251,44 @@ class RecordingServiceModule : Module() {
       WorkoutRecordingService.onAction = { action -> sendEvent("onAction", mapOf("action" to action)) }
     }
 
-    Function("start") { title: String, text: String -> /* from the spike */ }
+    Function("start") { title: String, text: String -> /* from the test version */ }
     Function("update") { title: String, text: String ->
-      // TODO: NotificationManagerCompat.from(context).notify(NOTIFICATION_ID,
-      //   WorkoutNotification.build(context, title, text))
-      // Re-posting with the same id replaces the notification in place.
+      // TODO: post the notification again with the same NOTIFICATION_ID; that replaces it
     }
-    Function("stop") { /* from the spike */ }
+    Function("stop") { /* from the test version */ }
   }
 }
 ```
 
-and `src/modules/recording-service/index.ts` exports a typed
-`addActionListener(listener: (action: 'pause' | 'stop') => void)` over the module's
-event, alongside `start`, `update` and `stop`.
+And `index.ts` exports `start`, `update`, `stop` and a typed
+`addActionListener(listener: (action: 'pause' | 'stop') => void)`.
 
-Concrete steps:
-1. Fill in the `TODO`s above, one file at a time, building after each
-   (`npx expo run:android --device`; native changes need a rebuild, Fast Refresh won't
-   pick them up).
-2. For `setSmallIcon`: a real status-bar icon is a small monochrome silhouette
-   drawable. Using `android.R.drawable.stat_notify_sync` as a placeholder is fine to
-   get this working end to end; a proper glyph is Phase 13's concern.
-3. Throttle updates from the TypeScript side (task 7.6): a notification update on
-   every 1 Hz sample is wasteful for a value the user only glances at; once every 5
-   seconds is plenty.
+1. Fill in the TODOs one file at a time, and rebuild after each
+   (`npx expo run:android --device`). Kotlin changes need a rebuild; saving isn't enough.
+2. For `setSmallIcon`, `android.R.drawable.stat_notify_sync` is fine for now. A proper
+   icon is Phase 13.
+3. Don't update the notification on every sample. Every 5 seconds is plenty (7.6).
 
-### 7.4 — `POST_NOTIFICATIONS` runtime permission
+### 7.4 — The notification permission
 
-Touches: `src/features/workout/workoutPermissions.ts` (new).
+Create `src/features/workout/workoutPermissions.ts`. Same pattern as Phase 00's
+Bluetooth permissions.
 
-Same pattern as Phase 00's `bluetoothPermissions.ts`:
-`PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS)`.
-
-Concrete steps:
-1. Write `ensureWorkoutPermissions(): Promise<{ bluetooth: boolean; notifications: boolean }>`,
-   which checks (and if needed requests) `BLUETOOTH_CONNECT` and
-   `POST_NOTIFICATIONS`.
-2. Call it only from the Start button's handler (task 7.5), following the same "only
-   from a user-visible action" rule as the Bluetooth prompt.
-3. Decide what happens if notifications are denied. Unlike BLE permission denial
-   (nothing can work), a denied `POST_NOTIFICATIONS` still lets the foreground service
-   **run**; it just can't show its notification, so the user loses the Pause/Stop
-   buttons. Recording can reasonably continue; the UI should say so rather than
-   silently showing nothing. If `BLUETOOTH_CONNECT` is missing, don't start at all:
-   `startForeground` would throw.
+1. Write `ensureWorkoutPermissions()`, returning `{ bluetooth, notifications }`. It
+   checks, and if needed asks for, `BLUETOOTH_CONNECT` and `POST_NOTIFICATIONS`.
+2. Call it only from the Start button.
+3. If notifications are denied: the service still runs, you just lose the notification
+   and its buttons. Recording can carry on; tell the user. If `BLUETOOTH_CONNECT` is
+   missing: don't start at all (`startForeground` would throw).
 
 ### 7.5 — Starting a workout: one deliberate tap
 
-Touches: `src/features/workout/workoutSession.ts` (new, yours),
-`src/features/workout/WorkoutButton.tsx` (UI, below).
+Create `src/features/workout/workoutSession.ts` (yours) and
+`src/features/workout/WorkoutButton.tsx` (given).
 
-Until now, nothing in the product UI actually starts a workout. `WorkoutSession` is
-the one place that does, and it's the only caller of `RecordingService.start()` and of
-`treadmill.start()` in the whole app.
+Nothing in the app actually starts a workout yet. `WorkoutSession` is the one place
+that does: the only caller of `RecordingService.start()` and `treadmill.start()` in the
+whole app.
 
 ```ts
 export class WorkoutSession {
@@ -371,36 +298,32 @@ export class WorkoutSession {
     private readonly log: Logger,
   ) {}
 
-  /** Called ONLY from the Start button's onPress. */
+  /** Called ONLY from the Start button. */
   async start(): Promise<{ ok: boolean; message: string | null }> {
     // TODO, in order:
-    // 1. const perms = await ensureWorkoutPermissions(); no bluetooth -> return a message
-    // 2. RecordingService.start('Workout', 'Starting...'): the service starts the
-    //    'RecordingKeepAlive' headless task itself (getTaskConfig); there's no separate
-    //    JS call to start the keep-alive, only stopKeepAlive() to end it
+    // 1. ensureWorkoutPermissions(); no Bluetooth permission -> return a message
+    // 2. RecordingService.start('Workout', 'Starting...'). This also starts the
+    //    keep-alive task (the service does that); there's nothing else to call.
     // 3. engine.tryStart()
-    // 4. if the treadmill has control: await treadmill.start(), then re-send the target
-    //    speed if V2's "Start doesn't keep the target" finding still holds
-    // 5. if anything after step 2 fails: stop the keep-alive and the service again,
-    //    so a failed start never leaves a notification for a workout that isn't running
+    // 4. if you have control: treadmill.start(), then send the target speed again
+    //    if V2's "Start forgets the speed" is still true
+    // 5. if anything after step 2 fails: stopKeepAlive() and RecordingService.stop(),
+    //    so a failed start never leaves a notification behind
   }
 
   async stop(): Promise<void> {
-    // TODO: treadmill.stop() (if controlled), engine.tryStop(); the keep-alive and
-    // the service are stopped by the 'finished' handler in task 7.6, not here, so a
-    // workout that finishes some other way (grace timer, safety key) cleans up too
+    // TODO: treadmill.stop() (if you have control), then engine.tryStop().
+    // Don't stop the service here: task 7.6 does that when the workout finishes,
+    // so it also happens when a workout ends some other way.
   }
 }
 ```
 
-Concrete steps:
-1. Write `WorkoutSession` and create it in `services.tsx` as `session` (the name the
-   button below reads).
-2. Search the codebase for every call to `RecordingService.start` and
-   `treadmill.start`. Each must be reachable **only** from `WorkoutSession.start`,
-   which must be reachable **only** from a button's `onPress`: never from app launch,
-   never from a restored state, never from a notification, never from reconnect.
-3. The UI (written in full), `src/features/workout/WorkoutButton.tsx`:
+1. Write `WorkoutSession` and add it to the services file as `session`.
+2. Search the code for every `RecordingService.start` and `treadmill.start`. Each must
+   be reachable **only** from `WorkoutSession.start`, which is reachable **only** from a
+   button tap.
+3. The button (given), `src/features/workout/WorkoutButton.tsx`:
 
 ```tsx
 import { useState } from 'react';
@@ -447,85 +370,72 @@ export function WorkoutButton() {
 }
 ```
 
-   Add `<WorkoutButton />` to `DashboardScreen.tsx` above `<TreadmillControls />`.
+   Add `<WorkoutButton />` to the dashboard, above `<TreadmillControls />`.
 
-### 7.6 — The TypeScript side: lifecycle and notification text
+### 7.6 — The TypeScript side
 
-Touches: `workoutSession.ts`.
+Add to `workoutSession.ts`:
 
-Concrete steps:
-1. In the constructor, subscribe to `engine.onStateChange`. On `'finished'`:
-   `stopKeepAlive()` and `RecordingService.stop()`. Every way a workout can end (Finish
-   button, notification Stop, grace-timer expiry, safety key) goes through
-   `'finished'`, so this one handler is where cleanup can't be forgotten.
-2. Subscribe to `RecordingService.addActionListener`. `'pause'` →
-   `engine.tryPause('userRequested')` and `treadmill.pause()` (if controlled);
-   `'stop'` → the same as `stop()`. There is no `'start'` action, and there must never
-   be one (Implementation requirements above).
-3. Subscribe to `treadmill.onSample` and, at most every 5 s while a workout is running,
-   call `RecordingService.update(title, text)` with elapsed time, distance and speed,
-   formatted with Phase 03's `format.ts`. Metric, per this project's rule (Phase 08
-   adds the unit setting; convert only in the string you build here, never in stored
-   data).
-4. Keep every unsubscribe function and call them in a `dispose()`.
+1. In the constructor, listen to `engine.onStateChange`. On `finished`:
+   `stopKeepAlive()` and `RecordingService.stop()`. Every way a workout can end (the
+   button, the notification, the 60-second timeout, the safety key) reaches `finished`,
+   so the cleanup can't be missed.
+2. Listen to `RecordingService.addActionListener`. `'pause'` →
+   `engine.tryPause('userRequested')` and `treadmill.pause()`. `'stop'` → the same as
+   `stop()`. There's no `'start'`, and there must never be one.
+3. Listen to `treadmill.onSample` and, at most every 5 seconds during a workout, call
+   `RecordingService.update(title, text)` with time, distance and speed (formatted with
+   Phase 03's `format.ts`). Metric; Phase 08's unit setting changes only this text,
+   never saved data.
+4. Keep every unsubscribe function, and call them all in `dispose()`.
 
-### Review checkpoint
+### Review
 
-Before running the `[HUMAN]` tests: the agent reviews the Kotlin you wrote, the
-`dumpsys` output from task 7.2, and `workoutSession.ts` together. This is the phase
-where a silent Android platform failure (a missing type, a missing permission, a wrong
-`PendingIntent` flag, a keep-alive task that settles early) is genuinely easy to lose
-hours to, and a second pair of eyes on the exact API calls before the phone comes out
-is worth it.
+Before the treadmill tests, the agent goes through your Kotlin, the `dumpsys` output from
+7.2, and `workoutSession.ts`. This is where a silent Android problem (a missing type or
+permission, a wrong flag, a keep-alive that finishes early) can cost hours, so a second
+look first is worth it.
 
 ---
 
-## HyperOS setup checklist — `[HUMAN]`, and effectively mandatory
+## HyperOS settings (effectively required)
 
-The target phone is a Poco X6 Pro 5G on HyperOS. **Standard Android battery
-optimisation being disabled is not sufficient.** These are separate Xiaomi controls and
-they are the ones that actually kill long-running services.
+On this phone (Poco X6 Pro, HyperOS), **turning off Android's battery optimisation isn't
+enough.** Xiaomi has its own controls, and they're the ones that close apps.
 
-- [ ] Android battery optimisation disabled *(already confirmed done)*
-- [ ] **Autostart** enabled for the app (separate HyperOS menu)
-- [ ] App's **Battery saver** set to **"No restrictions"** (HyperOS's own setting in
-      app info, distinct from Android's toggle)
-- [ ] App **locked in Recents** (padlock in the task switcher) to resist memory reclaim
+- [ ] Android battery optimisation off *(already done)*
+- [ ] **Autostart** on (a separate HyperOS menu)
+- [ ] **Battery saver** set to **"No restrictions"** (HyperOS's own setting in app info)
+- [ ] App **locked in Recents** (padlock in the app switcher)
 
-*These controls exist and matter; the exact menu names vary between HyperOS versions.*
+*The menu names change between HyperOS versions.*
 
-**Verify all four before Phase 14.** If skipped, endurance tests fail for reasons
-unrelated to the code and the resulting debugging is wasted. Record their state in
-`../phase-00-probe-app/PHASE-00-FINDINGS.md`. (They should already be set from runbook
-Part H. Re-check after any app reinstall: some HyperOS versions reset them.)
+**Check all four before Phase 14**, and record them in `PHASE-00-FINDINGS.md`. They should
+already be set from Part H. Check again after reinstalling: some HyperOS versions reset
+them.
 
-The app should still **prompt and explain** rather than require them, but on this
-device they are effectively mandatory. A one-time "Before your first workout" screen
-with a button per setting (`Linking.openSettings()` gets you to the app's info page)
-is a reasonable Phase 13 addition.
+The app should explain these, not demand them. A "Before your first workout" screen with
+a button per setting (`Linking.openSettings()` opens the app's info page) would fit in
+Phase 13.
 
 ---
 
-## If V5 failed: BLE and recording move into Kotlin
+## If V5 failed: Bluetooth and recording move into Kotlin
 
-Only read this if runbook Part H failed. The keep-alive kept the process alive but
-JavaScript still didn't get BLE events or timer ticks reliably, so the work has to
-happen where Android *does* keep running it: inside the service.
+Only if Part H failed: the app stayed alive, but your code didn't reliably get Bluetooth
+data or timer ticks. Then the work has to happen inside the service, where Android does
+keep running it.
 
-What changes, at the level of the plan (the details get written with the agent when
-it's actually needed, not speculatively now):
+In outline (the details get planned with the agent when needed, not now):
 
-- The Kotlin module grows a small GATT client (connect, subscribe to `0x2ACD`/`0x2ADA`,
-  write the control point) and buffers raw notifications in memory, flushing them to
-  the same SQLite database (Android's own `SQLiteDatabase`, same schema).
-- TypeScript stops listening to ble-manager during a workout and instead reads
-  "current sample" from the module when the screen is on.
-- `TreadmillService` stays the seam: a new `NativeTreadmillService` implements it over
-  the module, and nothing above it changes. This is exactly the situation the seam was
-  built for.
+- The Kotlin module gets a small Bluetooth client (connect, listen to `0x2ACD`/`0x2ADA`,
+  send commands), and saves to the same database (same tables).
+- TypeScript stops listening to the Bluetooth library during a workout, and reads the
+  current values from the module when the screen is on.
+- `TreadmillService` stays the interface. A new `NativeTreadmillService` implements it
+  using the module, and nothing above it changes. This is what the interface was for.
 
-Expect this to roughly double Phase 07's size. Re-plan the phase with the agent before
-starting.
+Expect this to roughly double Phase 07. Plan it again with the agent before starting.
 
 ---
 
@@ -533,20 +443,20 @@ starting.
 
 | Test | Expected | |
 |------|----------|---|
-| Lock phone, walk 10 min | No disconnect, samples continuous | `[HUMAN]` |
-| Switch to YouTube 10 min | No disconnect | `[HUMAN]` |
-| Notification pause/stop | Works; UI reflects it | `[HUMAN]` |
-| Notification has no Start action | Confirmed by eye | `[HUMAN]` |
-| Swipe app from recents mid-workout | Service survives and recording continues, or workout saved cleanly | `[HUMAN]` |
-| 60-minute locked walk | Zero disconnects, sample gaps < 5 s | `[HUMAN]` |
-| Leaving the dashboard doesn't drop BLE | Navigate away and back mid-workout; no disconnect, no gap | `[HUMAN]` |
-| `dumpsys` shows `connectedDevice` | `foregroundServiceType=0x00000010` (task 7.2) | |
+| Lock the phone, walk 10 min | No disconnect, no gaps | treadmill |
+| YouTube in front for 10 min | No disconnect | treadmill |
+| Notification Pause/Stop | Work; the app shows it | treadmill |
+| The notification has no Start button | Checked by eye | treadmill |
+| Swipe the app away mid-workout | Keeps recording, or the workout is saved cleanly | treadmill |
+| 60-minute walk, screen locked | No disconnects, no gap over 5 s | treadmill |
+| Leave the dashboard and come back mid-workout | No disconnect, no gap | treadmill |
+| `dumpsys` shows type `0x10` | Task 7.2 | |
 
-All on the release APK, phone unplugged (Doze doesn't happen on a charger).
+All on the release build, phone unplugged (the phone acts differently while charging).
 
-## Acceptance
+## Done when
 
-- [ ] One-hour locked workout, no disconnect, no sample gap over 5 s
-- [ ] All four HyperOS boxes ticked and recorded in `../phase-00-probe-app/PHASE-00-FINDINGS.md`
-- [ ] `RecordingService.start` and `treadmill.start` are reachable only from the Start
+- [ ] A one-hour locked workout: no disconnects, no gap over 5 seconds
+- [ ] All four HyperOS settings done and recorded in `PHASE-00-FINDINGS.md`
+- [ ] `RecordingService.start` and `treadmill.start` can only be reached from the Start
       button

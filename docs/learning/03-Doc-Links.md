@@ -1,11 +1,11 @@
 # Doc links
 
-> Verified URLs, each checked to load (October 2026) before being added here. Every
-> phase README that references an external doc pulls from this list rather than each
-> phase re-guessing a URL. If a phase needs a link that isn't here, verify it before
-> adding it. Expo's SDK reference pages are linked at `/versions/latest/`, which tracks
-> the newest SDK; if this project is pinned to an older one, swap `latest` for
-> `v58.0.0` (or whichever) in the URL.
+> Every link here was checked to work in October 2026. Phases take their links from
+> this list. Before adding a new one, check it opens.
+>
+> Expo's library pages use `/versions/latest/`, which always shows the newest Expo. If
+> the project stays on an older version, replace `latest` with that version (e.g.
+> `v58.0.0`).
 
 ## Expo
 
